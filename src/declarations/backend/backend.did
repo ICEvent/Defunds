@@ -1,0 +1,19 @@
+type Time = int;
+type Result = 
+ variant {
+   err: text;
+   ok: nat;
+ };
+type Donation = 
+ record {
+   amount: nat;
+   currency: text;
+   donor: principal;
+   timestamp: int;
+ };
+service : {
+  donate: (nat, text) -> (Result);
+  getDoantions: () -> (vec Donation) query;
+  getDonationHistory: (nat, nat, opt Time, opt Time) -> (vec Donation) query;
+  getDonorHistory: (principal) -> (vec Donation) query;
+}
