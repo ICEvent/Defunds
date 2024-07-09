@@ -1,18 +1,32 @@
 <script>
 	import '../app.css';
-
-    import { createActor } from '../../../declarations/icrc';
+	import { onMount } from 'svelte';
+	import { DEFUND_CANISTER_ID } from '$lib/constants';
 
 	import { Principal } from '@dfinity/principal';
 
-	let totalDonations = 0;
-    let icrc = createActor("ryjl3-tyaaa-aaaaa-aaaba-cai");
+	import { globalStore } from '../store'; // Import your global store
 
-	async function  fetchBalance(){
-		const result = await icrc.icrc1_icrc1_feebalance_of({"owner":Principal.fromText('zrbbd-7qzdb-xp7r4-v3du3-sulj4-7fwm2-3v3hr-vitzv-4nnsy-mzeab-aae'),"subaccount":[]});
-        console.log("balance:  ",result);
-	}
-    
+	let icpledger = undefined;
+	
+	globalStore.subscribe((value) => {
+		icpledger = value.icpledger;
+	});
+	
+	let totalDonations = 0;
+	onMount(async () => {
+		try {			
+			let balance = await icpledger.icrc1_balance_of({"owner":Principal.fromText(DEFUND_CANISTER_ID),"subaccount":[]}); 
+			totalDonations = Number(balance)/100_000_000;
+			console.log(totalDonations);
+		} catch (error) {
+			console.error('Error fetching user balance:', error);
+		}
+	});
+	
+    // let icrc = createActor("ryjl3-tyaaa-aaaaa-aaaba-cai");
+
+	
 
 	function handleDonation() {
 		(async () => {
@@ -32,7 +46,7 @@
 		<h1 class="text-4xl font-bold text-indigo-600 mb-2">Know Your Donation</h1>
 		<div class="relative inline-block mb-4">
 			<div class="treasure-box bg-yellow-500 rounded-md p-4 shadow-md">
-				<p class="text-lg text-white font-bold">Treasury : {totalDonations} ICP</p>
+				<p class="text-lg text-white font-bold"> {totalDonations} ICP</p>
 				
 			</div>
 			<div class="treasure-lid bg-yellow-600 rounded-t-md absolute top-0 left-0 w-full h-2"></div>
