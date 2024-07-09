@@ -1,6 +1,8 @@
 <script>
 	import '../../app.css';
 	import { globalStore } from '../../store.js'; // Import your global store
+	import Notifications from 'svelte-notifications';
+
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import Navbar from '../../components/Navbar.svelte';
@@ -26,7 +28,7 @@
 		return unsubscribe;
 	});
 </script>
-
+<Notifications>
 <Navbar />
 <div class="container">
 	<div class="profile-layout">
@@ -61,7 +63,7 @@
 		</div>
 	</div>
 </div>
-
+</Notifications>
 <style>
 	.container {
 		max-width: 1200px; /* Adjust the maximum width as needed */

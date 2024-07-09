@@ -1,20 +1,22 @@
 <script>
 	import ListItem from "./Donation/ListItem.svelte";
     import { backend } from "$lib/canisters";
-	
+	import { onMount } from 'svelte';
 	let donationHistory = [];
 
-	async function fetchDonationHistory() {
+	onMount(async () => {
 		try {
 			const response = await backend.getDonationHistory(1,5,[],[]);
-            console.log(response)
+			console.log(response);
+
 			donationHistory = response; 
 		} catch (error) {
 			console.error('Error fetching donation history:', error);
 		}
-	}
+	});
 
-	fetchDonationHistory();
+	
+
 </script>
 <div class="w-full md:w-1/2 mb-8 md:mb-0 md:mr-4">
     <h3 class="text-2xl font-bold mb-4 text-center">Donations</h3>

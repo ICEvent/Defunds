@@ -1,15 +1,14 @@
 <script>
 
     export let name;
-    export let icon; // Add a new prop for the icon
+    
     export let active;
   </script>
   
   <li class="menu-item" class:active>
-    <a href="#" on:click|preventDefault={() => (active = name)}>
-      
+    <!-- <a href="" on:click|preventDefault={() => (active = name)}>       -->
       <span>{name}</span>
-    </a>
+    <!-- </a> -->
   </li>
   
   <style>
@@ -37,9 +36,6 @@
       font-weight: bold;
       background-color: #f0f0f0;
     }
-  
-    .menu-item .icon {
-      margin-right: 10px; /* Add some spacing between the icon and text */
-    }
+
   </style>
   

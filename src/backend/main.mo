@@ -51,7 +51,7 @@ actor {
 				donor = caller;
 				amount = amount;
 				currency = currency;
-				transid = Buffer.random(16);
+				txid = "10";
 			});
 			donations := Buffer.toArray(bdonations);
 
