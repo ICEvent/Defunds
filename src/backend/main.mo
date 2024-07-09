@@ -51,7 +51,7 @@ actor {
 				donor = caller;
 				amount = amount;
 				currency = currency;
-				txid = "10";
+				txid = "6fe2b74bb8613858041c6be2888a8a561fb289a4800a0f3ad04ae815b7c8ddd3";
 			});
 			donations := Buffer.toArray(bdonations);
 
@@ -114,4 +114,8 @@ actor {
 	public query func getDoantions() : async [Donation] {
 		donations;
 	};
+
+	public query func getDonorCredit(donor : Text) : async ?Nat {
+    return donorCredits.get(Principal.fromText(donor));
+};
 };
