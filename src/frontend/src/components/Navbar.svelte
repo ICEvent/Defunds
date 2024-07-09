@@ -1,7 +1,16 @@
 <script>
-	let isConnected = false;
+	import { globalStore } from '../store';
+
+	let isAuthed = false;
 	let principal = '';
+
+	globalStore.subscribe((value) => {
+		isAuthed = value.isAuthed;
+		principal = value.principal;
+	});
+
 	let showDropdown = false;
+
 	const verifyConnection = async () => {
 		const connected = await window.ic.plug.isConnected();
 		if (!connected) await window.ic.plug.requestConnect({ whitelist, host });
@@ -32,18 +41,31 @@
 					timeout: 50000
 				});
 				console.log(`The connected user's public key is:`, publicKey);
-				isConnected = await window.ic.plug.isConnected();
+				let isConnected = await window.ic.plug.isConnected();
 				if (isConnected) {
-					principal = window.ic.plug.principalId;
+					globalStore.set({ isAuthed: true, principal });
 				}
 			} catch (e) {
 				console.log(e);
 			}
 		})();
 	}
+
 	function toggleDropdown() {
-    showDropdown = !showDropdown;
-  }
+		showDropdown = !showDropdown;
+	}
+
+	function handleDonation() {
+		(async () => {
+			const params = {
+				to: 'be2us-64aaa-aaaaa-qaabq-cai',
+				strAmount: '0.01',
+				token: 'qoctq-giaaa-aaaaa-aaaea-cai'
+			};
+			const result = await window.ic.plug.requestTransferToken(params);
+			console.log(result);
+		})();
+	}
 </script>
 
 <nav class="bg-gray-700 py-4">
@@ -52,32 +74,24 @@
 			<img src="/defund_logo.jpg" alt="Defund Logo" class="h-8 mr-2" />
 			Defund
 		</a>
-		{#if isConnected}
-		<button
-		class="text-white hover:text-gray-300 focus:outline-none"
-		on:click={toggleDropdown}>
-		Profile
-	  </button>
-	  {#if showDropdown}
-          <div
-            class="absolute right-0 mt-8 w-48 bg-white rounded-md shadow-lg z-10">
-            <a
-              href="#"
-              class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-              Profile
-            </a>
-            <a
-              href="#"
-              class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-              Settings
-            </a>
-            <a
-              href="#"
-              class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-              Logout
-            </a>
-          </div>
-        {/if}
+		{#if isAuthed}
+			<button class="text-white hover:text-gray-300 focus:outline-none" on:click={toggleDropdown}>
+				Profile
+			</button>
+			{#if showDropdown}
+				<div class="absolute right-0 mt-8 w-48 bg-white rounded-md shadow-lg z-10">
+					<a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"> Profile </a>
+					<a
+						href="#"
+						class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+						on:click={handleDonation}
+					>
+						Donate
+					</a>
+
+					<a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"> Logout </a>
+				</div>
+			{/if}
 		{:else}
 			<button
 				class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
