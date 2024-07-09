@@ -1,5 +1,6 @@
 <script>
 	import { globalStore } from '../store';
+	import { goto } from '$app/navigation';
 
 	let isAuthed = false;
 	let principal = '';
@@ -9,13 +10,14 @@
 		principal = value.principal;
 	});
 
-	let showDropdown = false;
-
 	const verifyConnection = async () => {
 		const connected = await window.ic.plug.isConnected();
 		if (!connected) await window.ic.plug.requestConnect({ whitelist, host });
 	};
-
+	function navigateToProfile() {
+		// Instead of toggling the dropdown, navigate to the profile page
+		goto('/profile'); // Navigate to the '/profile' route
+	}
 	function handleLogin() {
 		(async () => {
 			// Canister Ids
@@ -51,10 +53,6 @@
 		})();
 	}
 
-	function toggleDropdown() {
-		showDropdown = !showDropdown;
-	}
-
 	function handleDonation() {
 		(async () => {
 			const params = {
@@ -75,23 +73,12 @@
 			Defund
 		</a>
 		{#if isAuthed}
-			<button class="text-white hover:text-gray-300 focus:outline-none" on:click={toggleDropdown}>
+			<button
+				class="text-white hover:text-gray-300 focus:outline-none"
+				on:click={navigateToProfile}
+			>
 				Profile
 			</button>
-			{#if showDropdown}
-				<div class="absolute right-0 mt-8 w-48 bg-white rounded-md shadow-lg z-10">
-					<a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"> Profile </a>
-					<a
-						href="#"
-						class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-						on:click={handleDonation}
-					>
-						Donate
-					</a>
-
-					<a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"> Logout </a>
-				</div>
-			{/if}
 		{:else}
 			<button
 				class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"

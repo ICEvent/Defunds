@@ -30,6 +30,9 @@ export default defineConfig({
     environment("all", { prefix: "CANISTER_" }),
     environment("all", { prefix: "DFX_" }),
   ],
+  ssr: {
+    noExternal: ['svelte'] // Specify any external packages that should be bundled
+  },
   resolve: {
     alias: [
       {

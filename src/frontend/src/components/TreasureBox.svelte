@@ -33,7 +33,7 @@
 		<div class="relative inline-block mb-4">
 			<div class="treasure-box bg-yellow-500 rounded-md p-4 shadow-md">
 				<p class="text-lg text-white font-bold">Treasury : {totalDonations} ICP</p>
-				<button on:click={fetchBalance}>fetch</button>
+				
 			</div>
 			<div class="treasure-lid bg-yellow-600 rounded-t-md absolute top-0 left-0 w-full h-2"></div>
 		</div>
