@@ -15,7 +15,17 @@
   
 </script>
 <div class="bg-white shadow-md rounded-md p-4 mb-4">
-    <p class="text-gray-700">{donation.amount} {donation.currency} from 
+    <p class="text-gray-700">
+      received
+      <a
+            href="{EXPLORER_ICP_TX}{transactionId}"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-blue-500 hover:text-blue-700"
+        >
+        {donation.amount} {donation.currency} 
+        </a>
+      from 
       
       <a
       href="{EXPLORER_PRINCIPAL}{donation.donor.toText()}"
@@ -27,13 +37,6 @@
   </a>
       at {formattedTimestamp}</p>
 
-        <a
-            href="{EXPLORER_ICP_TX}{transactionId}"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-blue-500 hover:text-blue-700"
-        >
-            {`${transactionId.slice(0, 5)}...${transactionId.slice(-5)}`}
-        </a>
+        
    
 </div>

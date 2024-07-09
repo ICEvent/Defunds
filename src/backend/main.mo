@@ -116,6 +116,6 @@ actor {
 	};
 
 	public query func getDonorCredit(donor : Text) : async ?Nat {
-    return donorCredits.get(Principal.fromText(donor));
-};
+		return donorCredits.get(Principal.fromText(donor));
+	};
 };

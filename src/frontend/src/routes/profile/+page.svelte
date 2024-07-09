@@ -1,5 +1,6 @@
 <script>
 	import '../../app.css';
+	import { backend } from '$lib/canisters';
 	import { globalStore } from '../../store.js'; // Import your global store
 	import Notifications from 'svelte-notifications';
 
@@ -10,11 +11,14 @@
 	//import { ProfileIcon, SettingsIcon, HistoryIcon } from '../../Icons.svelte';
 	let activeMenuItem = 'profile';
 	let isAuthed;
+	let principal;
+	let credit = 0;
 
 	onMount(() => {
 		// Subscribe to the global store to get the isAuthed value
 		const unsubscribe = globalStore.subscribe((store) => {
 			isAuthed = store.isAuthed;
+			principal = store.principal;
 		});
 
 		// Check if the user is not authenticated
@@ -24,6 +28,11 @@
 			goto('/');
 		}
 
+		backend.getDonorCredit(principal.toText()).then((result) => {
+			if(result.length > 0){
+				credit = result[0]
+			}
+		});
 		// Clean up the subscription when the component is unmounted
 		return unsubscribe;
 	});
@@ -37,7 +46,7 @@
 			<div class="avatar-container">
 				<img src="/defund_logo.jpg" alt="Avatar" class="avatar" />
 			</div>
-
+			<div>Credit: {credit}</div>
 			<!-- Menu items go here -->
 			<nav>
 				<ul>
