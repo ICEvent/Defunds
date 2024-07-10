@@ -1,5 +1,5 @@
 <script>
-	import { EXPLORER_ICP_TX, EXPLORER_PRINCIPAL } from "$lib/constants";
+	import { EXPLORER_ICP_TX, EXPLORER_PRINCIPAL,getTokenNameByID } from "$lib/constants";
   import { Principal } from "@dfinity/principal";
     export let donation;
     const formattedTimestamp = new Intl.DateTimeFormat('en-US', {
@@ -23,7 +23,7 @@
             rel="noopener noreferrer"
             class="text-blue-500 hover:text-blue-700"
         >
-        {donation.amount} {donation.currency} 
+        {donation.amount} {getTokenNameByID(donation.currency)} 
         </a>
       from 
       

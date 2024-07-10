@@ -18,6 +18,7 @@ actor {
 	stable var upgradeCredits : [(Principal, Nat)] = [];
 	stable var upgradeExchangeRates : [(Text, Nat)] = [];
 	stable var grants : [Grant] = [];
+	stable var DEFAULT_PAGE_SIZE = 10;
 
 	var donorCredits = TrieMap.TrieMap<Principal, Nat>(Principal.equal, Principal.hash);
 	donorCredits := TrieMap.fromEntries<Principal, Nat>(Iter.fromArray(upgradeCredits), Principal.equal, Principal.hash);
@@ -88,7 +89,7 @@ actor {
 		let sortedDonations = Array.sort(
 			filteredDonations,
 			func(d1 : Donation, d2 : Donation) : Order.Order {
-				if (d1.timestamp < d2.timestamp) { #less } else if (d1.timestamp == d2.timestamp) {
+				if (d1.timestamp > d2.timestamp) { #less } else if (d1.timestamp == d2.timestamp) {
 					#equal;
 				} else { #greater };
 			}
@@ -101,18 +102,23 @@ actor {
 		);
 	};
 
-	// Fetch donor's donating history
-	public query func getDonorHistory(donor : Principal) : async [Donation] {
-		Array.filter<Donation>(
-			donations,
-			func(d : Donation) {
-				d.donor == donor;
+	public query func getDonorHistory(donor : Principal, page : Nat) : async [Donation] {
+		let filteredDonations = Array.filter<Donation>(donations, func(d) = d.donor == donor);
+
+		let sortedDonations = Array.sort(
+			filteredDonations,
+			func(d1 : Donation, d2 : Donation) : Order.Order {
+				if (d1.timestamp > d2.timestamp) { #less } else if (d1.timestamp == d2.timestamp) {
+					#equal;
+				} else { #greater };
 			}
 		);
-	};
-
-	public query func getDoantions() : async [Donation] {
-		donations;
+		Array.tabulate<Donation>(
+			DEFAULT_PAGE_SIZE,
+			func(i) {
+				sortedDonations[page * DEFAULT_PAGE_SIZE + i];
+			}
+		);
 	};
 
 	public query func getDonorCredit(donor : Text) : async ?Nat {
