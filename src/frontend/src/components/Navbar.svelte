@@ -1,6 +1,7 @@
 <script>
 	import { globalStore } from '../store';
 	import { goto } from '$app/navigation';
+	import { DEFUND_CANISTER_ID, HOST_MAINNET } from '$lib/constants';
 
 	let isAuthed = false;
 	let principal = '';
@@ -20,14 +21,8 @@
 	}
 	function handleLogin() {
 		(async () => {
-			// Canister Ids
-			const nnsCanisterId = 'qoctq-giaaa-aaaaa-aaaea-cai';
-
 			// Whitelist
-			const whitelist = [nnsCanisterId];
-
-			// Host
-			const host = 'https://mainnet.dfinity.network';
+			const whitelist = [DEFUND_CANISTER_ID];
 
 			// Callback to print sessionData
 			const onConnectionUpdate = () => {
@@ -38,7 +33,7 @@
 			try {
 				const publicKey = await window.ic.plug.requestConnect({
 					whitelist,
-					host,
+					HOST_MAINNET,
 					onConnectionUpdate,
 					timeout: 50000
 				});
