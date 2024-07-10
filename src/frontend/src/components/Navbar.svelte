@@ -1,64 +1,21 @@
 <script>
+	import Dialog from './common/Dialog.svelte';
 	import { globalStore } from '../store';
 	import { goto } from '$app/navigation';
-	import { DEFUND_CANISTER_ID, HOST_MAINNET } from '$lib/constants';
+	import LoginForm from './LoginForm.svelte';
 
 	let isAuthed = false;
 	let principal = '';
+	let showLoginDialog = false;
 
 	globalStore.subscribe((value) => {
 		isAuthed = value.isAuthed;
 		principal = value.principal;
 	});
 
-	const verifyConnection = async () => {
-		const connected = await window.ic.plug.isConnected();
-		if (!connected) await window.ic.plug.requestConnect({ whitelist, host });
-	};
 	function navigateToProfile() {
 		// Instead of toggling the dropdown, navigate to the profile page
 		goto('/profile'); // Navigate to the '/profile' route
-	}
-	function handleLogin() {
-		(async () => {
-			// Whitelist
-			const whitelist = [DEFUND_CANISTER_ID];
-
-			// Callback to print sessionData
-			const onConnectionUpdate = () => {
-				// console.log("principal:",window.ic.plug.principalId);
-				// console.log(window.ic.plug.sessionManager.sessionData);
-			};
-
-			// Make the request
-			try {
-				const publicKey = await window.ic.plug.requestConnect({
-					whitelist,
-					HOST_MAINNET,
-					onConnectionUpdate,
-					timeout: 50000
-				});
-				console.log(`The connected user's public key is:`, publicKey.toString());
-				let isConnected = await window.ic.plug.isConnected();
-				if (isConnected) {
-					globalStore.set({ isAuthed: true });
-				}
-			} catch (e) {
-				console.log(e);
-			}
-		})();
-	}
-
-	function handleDonation() {
-		(async () => {
-			const params = {
-				to: 'be2us-64aaa-aaaaa-qaabq-cai',
-				strAmount: '0.01',
-				token: 'qoctq-giaaa-aaaaa-aaaea-cai'
-			};
-			const result = await window.ic.plug.requestTransferToken(params);
-			console.log(result);
-		})();
 	}
 </script>
 
@@ -78,10 +35,13 @@
 		{:else}
 			<button
 				class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-				on:click={handleLogin}
+				on:click={() => (showLoginDialog = true)}
 			>
 				Login
 			</button>
 		{/if}
+		<Dialog isOpen={showLoginDialog} on:close={() => (showLoginDialog = false)}>
+			<LoginForm />
+		</Dialog>
 	</div>
 </nav>
