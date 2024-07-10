@@ -3,7 +3,7 @@ export const ckBTC_LEDGER_CANISTER_ID = 'mxzaz-hqaaa-aaaar-qaada-cai';
 export const ckETH_LEDGER_CANISTER_ID = 'ss2fx-dyaaa-aaaar-qacoq-cai';
 export const ckUSDC_LEDGER_CANISTER_ID = 'xevnm-gaaaa-aaaar-qafnq-cai';
 
-export const DEFUND_CANISTER_ID = 'gncpj-jyaaa-aaaan-qagta-cai';
+export const DEFUND_CANISTER_ID = 'be2us-64aaa-aaaaa-qaabq-cai';
 export const ICP_TOKEN_DECIMALS = 100_000_000;
 
 export const HOST_MAINNET = "https://ic0.app";//"https://mainnet.dfinity.network";

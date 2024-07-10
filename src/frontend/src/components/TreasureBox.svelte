@@ -1,6 +1,7 @@
 <script>
 	import '../app.css';
-	import { backend } from '$lib/canisters';
+	
+
 	import { onMount } from 'svelte';
 	import { getNotificationsContext } from 'svelte-notifications';
 
@@ -12,6 +13,7 @@
 	import { globalStore } from '../store'; // Import your global store
 
 	let icpledger = undefined;
+	let backend	= undefined;
 
 	let isAuthed = false;
 	let showDonationForm = false;
@@ -22,6 +24,7 @@
 	globalStore.subscribe((value) => {
 		icpledger = value.icpledger;
 		isAuthed = value.isAuthed;
+		backend = value.backend;
 	});
 
 	let totalDonations = 0;

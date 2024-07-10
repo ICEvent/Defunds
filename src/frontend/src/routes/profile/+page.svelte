@@ -1,6 +1,6 @@
 <script>
 	import '../../app.css';
-	import { backend } from '$lib/canisters';
+
 	import { globalStore } from '../../store.js'; // Import your global store
 	import Notifications from 'svelte-notifications';
 
@@ -13,12 +13,14 @@
 	let isAuthed;
 	let principal;
 	let credit = 0;
+	let backend = undefined;
 
 	onMount(() => {
 		// Subscribe to the global store to get the isAuthed value
 		const unsubscribe = globalStore.subscribe((store) => {
 			isAuthed = store.isAuthed;
 			principal = store.principal;
+			backend = store.backend;
 		});
 
 		// Check if the user is not authenticated

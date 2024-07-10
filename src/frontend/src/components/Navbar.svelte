@@ -26,7 +26,8 @@
 
 			// Callback to print sessionData
 			const onConnectionUpdate = () => {
-				console.log(window.ic.plug.sessionManager.sessionData);
+				// console.log("principal:",window.ic.plug.principalId);
+				// console.log(window.ic.plug.sessionManager.sessionData);
 			};
 
 			// Make the request
@@ -37,10 +38,10 @@
 					onConnectionUpdate,
 					timeout: 50000
 				});
-				console.log(`The connected user's public key is:`, publicKey);
+				console.log(`The connected user's public key is:`, publicKey.toString());
 				let isConnected = await window.ic.plug.isConnected();
 				if (isConnected) {
-					globalStore.set({ isAuthed: true, principal });
+					globalStore.set({ isAuthed: true });
 				}
 			} catch (e) {
 				console.log(e);

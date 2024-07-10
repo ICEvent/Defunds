@@ -1,10 +1,15 @@
 <script>
 	import ListItem from "./Donation/ListItem.svelte";
-    import { backend } from "$lib/canisters";
+    // import { backend } from "$lib/canisters";
+	import { globalStore} from "../store"
 	import { onMount } from 'svelte';
 	let donationHistory = [];
+	let backend = null;
 
 	onMount(async () => {
+		const unsubscribe = globalStore.subscribe((store) => {
+			backend = store.backend;
+		});
 		try {
 			const response = await backend.getDonationHistory(1,5,[],[]);
 			console.log(response);
@@ -13,6 +18,7 @@
 		} catch (error) {
 			console.error('Error fetching donation history:', error);
 		}
+		return unsubscribe;
 	});
 
 	
