@@ -51,6 +51,7 @@
 					<img src="/defund_logo.jpg" alt="Avatar" class="avatar" />
 				</div>
 				<div>Credit: {credit}</div>
+				<div>Principal: {principal}</div>
 				<!-- Menu items go here -->
 				<nav>
 					<ul>

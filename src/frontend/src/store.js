@@ -1,6 +1,6 @@
 import { writable } from 'svelte/store';
-import {HttpAgent } from "@dfinity/agent"
-import * as ICRCLEDGER from "../../declarations/icrc1_ledger_canister/index"
+import { HttpAgent } from "@dfinity/agent"
+import * as ICPLEDGER from "../../declarations/icrc1_ledger_canister/index"
 import { createActor } from '../../declarations/backend';
 import { DEFUND_CANISTER_ID, HOST_MAINNET, ICP_LEDGER_CANISTER_ID } from './lib/constants';
 
@@ -9,7 +9,7 @@ const initialValue = {
     principal: undefined,
     notifications: [],
     loading: false,
-    icpledger: ICRCLEDGER.createActor(new HttpAgent({
+    icpledger: ICPLEDGER.createActor(new HttpAgent({
         host: HOST_MAINNET
       }),ICP_LEDGER_CANISTER_ID, { actorOptions: {} }),
     backend: createActor(DEFUND_CANISTER_ID),
@@ -17,11 +17,11 @@ const initialValue = {
 
 export const globalStore = writable(initialValue);
 
-export const setdAgent = (agent) => {
+export const setAgent = (agent) => {
   globalStore.update(store => {
       return {
           ...store,
-          icpledger: ICRCLEDGER.createActor(agent,ICP_LEDGER_CANISTER_ID, { actorOptions: {} }),
+          icpledger: ICPLEDGER.createActor(agent,ICP_LEDGER_CANISTER_ID, { actorOptions: {} }),
           backend: createActor(DEFUND_CANISTER_ID, { agent })
       };
   });

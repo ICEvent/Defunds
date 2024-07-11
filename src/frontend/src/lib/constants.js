@@ -8,8 +8,15 @@ export const ICP_TOKEN_DECIMALS = 100_000_000;
 
 export const HOST_MAINNET = "https://ic0.app";//"https://mainnet.dfinity.network";
 
+export const DERIVATION_ORIGION = "https://32pz7-5qaaa-aaaag-qacra-cai.ic0.app";
+export const IDENTITY_PROVIDER = 'https://identity.ic0.app';
+
 export const EXPLORER_ICP_TX = "https://dashboard.internetcomputer.org/transaction/"
 export const EXPLORER_PRINCIPAL = "https://ic.house/ICP/address/";
+
+export const ONE_WEEK_SEC = 7 * 24 * 60 * 60;
+export const ONE_WEEK_NS = BigInt(ONE_WEEK_SEC * 1e9);
+
 
 export const getTokenNameByID = (tokenId) => {
     switch (tokenId) {

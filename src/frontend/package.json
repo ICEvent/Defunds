@@ -15,6 +15,7 @@
     "@dfinity/agent": "^0.20.0",
     "@dfinity/candid": "^0.20.0",
     "@dfinity/principal": "^0.20.0",
+    "@dfinity/auth-client": "^1.4.0",
     "svelte-notifications": "^0.9.98"
   },
   "devDependencies": {

@@ -41,7 +41,7 @@
 			</button>
 		{/if}
 		<Dialog isOpen={showLoginDialog} on:close={() => (showLoginDialog = false)}>
-			<LoginForm />
+			<LoginForm closeLoginForm={() => (showLoginDialog = false)} />
 		</Dialog>
 	</div>
 </nav>
