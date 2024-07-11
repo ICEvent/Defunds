@@ -35,20 +35,25 @@
 			handleAuthenticated(authClient);
 		}
 	});
-	
-	const handleAuthenticated = async (authClient) => {
 
+	const handleAuthenticated = async (authClient) => {
 		const identity = authClient.getIdentity();
-		console.log("principal: " + identity.getPrincipal().toText());
+
 		setAgent(
 			new HttpAgent({
 				identity,
 				host: HOST_MAINNET
 			})
 		);
-		globalStore.set({ isAuthed: true, principal: identity.getPrincipal().toText() });
-		closeLoginForm();		
-	
+		
+		globalStore.update((store) => {
+						return {
+							...store,
+							isAuthed: true,
+							principal: identity.getPrincipal()
+						};
+					});
+		closeLoginForm();
 	};
 	function handleIILogin() {
 		authClient.login({
@@ -57,9 +62,7 @@
 			// maxTimeToLive: ONE_WEEK_NS,
 			onSuccess: () => {
 				handleAuthenticated(authClient);
-				
-			},
-			
+			}
 		});
 	}
 	function handlePluginLogin() {
@@ -85,7 +88,12 @@
 				console.log(`The connected user's public key is:`, publicKey);
 				let isConnected = await window.ic.plug.isConnected();
 				if (isConnected) {
-					globalStore.set({ isAuthed: true });
+					globalStore.update((store) => {
+						return {
+							...store,
+							isAuthed: true
+						};
+					});
 					closeLoginForm();
 				}
 			} catch (e) {

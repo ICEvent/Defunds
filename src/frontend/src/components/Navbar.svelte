@@ -33,14 +33,20 @@
 	});
 	const handleAuthenticated = async (authClient) => {
 		const identity = authClient.getIdentity();
-		console.log('principal: ' + identity.getPrincipal().toText());
+
 		setAgent(
 			new HttpAgent({
 				identity,
 				host: HOST_MAINNET
 			})
 		);
-		globalStore.set({ isAuthed: true, principal: identity.getPrincipal().toText() });
+		globalStore.update((store) => {
+			return {
+				...store,
+				isAuthed: true,
+				principal: identity.getPrincipal()
+			};
+		});
 	};
 	function navigateToProfile() {
 		// Instead of toggling the dropdown, navigate to the profile page
@@ -55,22 +61,22 @@
 			Defund
 		</a>
 		{#if isAuthed}
-		<div class="flex items-center space-x-4">
-			<button
-				class="text-white hover:text-gray-300 focus:outline-none"
-				on:click={navigateToProfile}
-			>
-				Profile
-			</button>
-			<button
-				class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-				on:click={() => (
-					authClient.logout(), globalStore.set({ isAuthed: false, principal: undefined })
-				)}
-			>
-				Logout
-			</button>
-		</div>
+			<div class="flex items-center space-x-4">
+				<button
+					class="text-white hover:text-gray-300 focus:outline-none"
+					on:click={navigateToProfile}
+				>
+					Profile
+				</button>
+				<button
+					class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+					on:click={() => (
+						authClient.logout(), globalStore.set({ isAuthed: false, principal: undefined })
+					)}
+				>
+					Logout
+				</button>
+			</div>
 		{:else}
 			<button
 				class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
