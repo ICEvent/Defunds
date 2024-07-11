@@ -24,17 +24,18 @@
 	});
 
 	onMount(async () => {
-		const auth = await AuthClient.create({
+		authClient = await AuthClient.create({
 			idleOptions: {
 				disableIdle: true,
 				disableDefaultIdleCallback: true
 			}
 		});
-		authClient = auth;
+
 		if (await authClient.isAuthenticated()) {
 			handleAuthenticated(authClient);
 		}
 	});
+	
 	const handleAuthenticated = async (authClient) => {
 
 		const identity = authClient.getIdentity();

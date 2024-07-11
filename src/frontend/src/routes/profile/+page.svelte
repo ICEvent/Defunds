@@ -1,6 +1,6 @@
 <script>
 	import '../../app.css';
-
+	import { AuthClient } from '@dfinity/auth-client';
 	import { globalStore } from '../../store.js'; // Import your global store
 	import Notifications from 'svelte-notifications';
 
@@ -10,12 +10,13 @@
 	import MenuItem from '../../components/Profile/MenuItem.svelte';
 	//import { ProfileIcon, SettingsIcon, HistoryIcon } from '../../Icons.svelte';
 	let activeMenuItem = 'profile';
-	let isAuthed;
-	let principal;
+	let isAuthed = false;
+	let principal= undefined;
 	let credit = 0;
 	let backend = undefined;
+	let authClient = null;
 
-	onMount(() => {
+	onMount(async () => {
 		// Subscribe to the global store to get the isAuthed value
 		const unsubscribe = globalStore.subscribe((store) => {
 			isAuthed = store.isAuthed;
@@ -29,6 +30,14 @@
 			goto('/');
 		}
 
+		authClient = await AuthClient.create({
+			idleOptions: {
+				disableIdle: true,
+				disableDefaultIdleCallback: true
+			}
+		});
+
+		
 		if (principal) {
 			backend.getDonorCredit(principal.toText()).then((result) => {
 				if (result.length > 0) {
@@ -51,13 +60,14 @@
 					<img src="/defund_logo.jpg" alt="Avatar" class="avatar" />
 				</div>
 				<div>Credit: {credit}</div>
-				<div>Principal: {principal}</div>
+				
 				<!-- Menu items go here -->
 				<nav>
 					<ul>
 						<MenuItem bind:active={activeMenuItem} name="profile">Profile</MenuItem>
 						<MenuItem bind:active={activeMenuItem} name="settings">Settings</MenuItem>
 						<MenuItem bind:active={activeMenuItem} name="history">History</MenuItem>
+						<MenuItem bind:active={activeMenuItem} on:click={authClient.logout()} name="logout">Logout</MenuItem>
 					</ul>
 				</nav>
 			</div>
@@ -66,6 +76,7 @@
 				<!-- Content based on active menu item -->
 				{#if activeMenuItem === 'profile'}
 					<h1>Welcome to your profile</h1>
+					<div>Principal: {principal}</div>
 					<p>This is where you can view and manage your profile information.</p>
 				{:else if activeMenuItem === 'settings'}
 					<h1>Settings</h1>
