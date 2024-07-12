@@ -52,7 +52,7 @@ actor {
 				donor = caller;
 				amount = amount;
 				currency = currency;
-				txid = "6fe2b74bb8613858041c6be2888a8a561fb289a4800a0f3ad04ae815b7c8ddd3";
+				txid = "0f733c38a76b3ef1e697e6bf1e195ea4bb3be128f1a65515e7a881e06f413791";
 			});
 			donations := Buffer.toArray(bdonations);
 

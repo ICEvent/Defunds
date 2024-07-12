@@ -3,7 +3,9 @@ export const ckBTC_LEDGER_CANISTER_ID = 'mxzaz-hqaaa-aaaar-qaada-cai';
 export const ckETH_LEDGER_CANISTER_ID = 'ss2fx-dyaaa-aaaar-qacoq-cai';
 export const ckUSDC_LEDGER_CANISTER_ID = 'xevnm-gaaaa-aaaar-qafnq-cai';
 
-export const DEFUND_CANISTER_ID = 'be2us-64aaa-aaaaa-qaabq-cai';
+export const DEFUND_CANISTER_ID = 'ixuio-siaaa-aaaam-qacxq-cai';
+export const DEFUND_TREASURY_ACCOUNT = "https://dashboard.internetcomputer.org/account/940bf5d45976b003f3c747e9f65cc0c3b06547057daa5e800180860f7fe197af";
+ 
 export const ICP_TOKEN_DECIMALS = 100_000_000;
 
 export const HOST_MAINNET = "https://ic0.app";//"https://mainnet.dfinity.network";

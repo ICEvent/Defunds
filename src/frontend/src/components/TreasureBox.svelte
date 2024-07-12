@@ -5,7 +5,7 @@
 	import { onMount } from 'svelte';
 	import { getNotificationsContext } from 'svelte-notifications';
 
-	import { DEFUND_CANISTER_ID, getTokenNameByID, ICP_LEDGER_CANISTER_ID, ICP_TOKEN_DECIMALS } from '$lib/constants';
+	import { DEFUND_CANISTER_ID, DEFUND_TREASURY_ACCOUNT, getTokenNameByID, ICP_LEDGER_CANISTER_ID, ICP_TOKEN_DECIMALS } from '$lib/constants';
 	import DonationForm from './Donation/DonationForm.svelte';
 	import Dialog from './common/Dialog.svelte';
 	import { Principal } from '@dfinity/principal';
@@ -120,7 +120,9 @@
 		<h1 class="text-4xl font-bold text-indigo-600 mb-2">Know Your Donation</h1>
 		<div class="relative inline-block mb-4">
 			<div class="treasure-box bg-yellow-500 rounded-md p-4 shadow-md">
-				<p class="text-lg text-white font-bold">{totalDonations} {getTokenNameByID(ICP_LEDGER_CANISTER_ID)}</p>
+				<a href={DEFUND_TREASURY_ACCOUNT} target="_blank" rel="noopener noreferrer" class="text-lg text-white font-bold hover:underline">
+					{totalDonations} {getTokenNameByID(ICP_LEDGER_CANISTER_ID)}
+				</a>
 			</div>
 			<div class="treasure-lid bg-yellow-600 rounded-t-md absolute top-0 left-0 w-full h-2"></div>
 		</div>

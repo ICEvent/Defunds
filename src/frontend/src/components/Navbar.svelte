@@ -56,8 +56,8 @@
 
 <nav class="bg-gray-700 py-4">
 	<div class="container mx-auto px-4 flex justify-between items-center">
-		<a href="/" class="text-white font-bold flex items-center">
-			<img src="/defund_logo.jpg" alt="Defund Logo" class="h-8 mr-2" />
+		<a href="/" class="text-yellow-500 font-bold flex items-center text-2xl">
+			<img src="/defund_logo.jpg" alt="Defund Logo" class="h-8 mr-2" style="color: #FFD700;"/>
 			Defund
 		</a>
 		{#if isAuthed}

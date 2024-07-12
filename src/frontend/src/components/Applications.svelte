@@ -3,9 +3,8 @@
 
 	
 	let applications = [
-		{ id: 1, name: 'Application 1', description: 'Description for Application 1' },
-		{ id: 2, name: 'Application 2', description: 'Description for Application 2' }
-		// Add more applications as needed
+		{ id: 1, name: 'Developing grant', description: 'Request 100 ICP for developing grant', status: 'Pending' },
+		{ id: 1, name: 'Support Children Food Security', description: 'Request 1000 ICP to support children in poor counties', status: 'Pending' },
 	];
 
 </script>
