@@ -5,7 +5,6 @@
 	import Navbar from '../../components/Navbar.svelte';
 </script>
 
-<Navbar />
 <div class="spacer"></div>
 <main class="mt-30">
 	<div class="description-box">

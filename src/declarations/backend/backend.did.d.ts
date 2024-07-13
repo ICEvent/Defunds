@@ -13,7 +13,10 @@ export type Result = { 'ok' : bigint } |
   { 'err' : string };
 export type Time = bigint;
 export interface _SERVICE {
-  'donate' : ActorMethod<[bigint, string], Result>,
+  'donate' : ActorMethod<
+    [bigint, string, { 'txid' : string } | { 'block' : bigint }],
+    Result
+  >,
   'getDonationHistory' : ActorMethod<
     [bigint, bigint, [] | [Time], [] | [Time]],
     Array<Donation>

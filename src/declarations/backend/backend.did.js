@@ -9,7 +9,15 @@ export const idlFactory = ({ IDL }) => {
     'donor' : IDL.Principal,
   });
   return IDL.Service({
-    'donate' : IDL.Func([IDL.Nat, IDL.Text], [Result], []),
+    'donate' : IDL.Func(
+        [
+          IDL.Nat,
+          IDL.Text,
+          IDL.Variant({ 'txid' : IDL.Text, 'block' : IDL.Nat }),
+        ],
+        [Result],
+        [],
+      ),
     'getDonationHistory' : IDL.Func(
         [IDL.Nat, IDL.Nat, IDL.Opt(Time), IDL.Opt(Time)],
         [IDL.Vec(Donation)],

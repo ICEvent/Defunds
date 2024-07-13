@@ -20,18 +20,7 @@
       border-bottom: none; /* Remove the bottom border for the last item */
     }
   
-    .menu-item a {
-      display: flex;
-      align-items: center;
-      padding: 10px;
-      text-decoration: none;
-      color: #333;
-    }
-  
-    .menu-item a:hover {
-      background-color: #f5f5f5;
-    }
-  
+   
     .menu-item.active {
       font-weight: bold;
       background-color: #f0f0f0;

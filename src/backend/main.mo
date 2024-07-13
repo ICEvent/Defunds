@@ -10,65 +10,77 @@ import Result "mo:base/Result";
 import Principal "mo:base/Principal";
 import TrieMap "mo:base/TrieMap";
 
-actor {
-	type Donation = Types.Donation;
-	type Grant = Types.Grant;
+actor {type Donation = Types.Donation;
+type Grant = Types.Grant;
 
-	stable var donations : [Donation] = [];
-	stable var upgradeCredits : [(Principal, Nat)] = [];
-	stable var upgradeExchangeRates : [(Text, Nat)] = [];
-	stable var grants : [Grant] = [];
-	stable var DEFAULT_PAGE_SIZE = 10;
+stable var donations : [Donation] = [];
+stable var upgradeCredits : [(Principal, Nat)] = [];
+stable var upgradeExchangeRates : [(Text, Nat)] = [];
+stable var grants : [Grant] = [];
+stable var DEFAULT_PAGE_SIZE = 10;
 
-	var donorCredits = TrieMap.TrieMap<Principal, Nat>(Principal.equal, Principal.hash);
-	donorCredits := TrieMap.fromEntries<Principal, Nat>(Iter.fromArray(upgradeCredits), Principal.equal, Principal.hash);
-	var donorExchangeRates = TrieMap.TrieMap<Text, Nat>(Text.equal, Text.hash);
-	donorExchangeRates := TrieMap.fromEntries<Text, Nat>(Iter.fromArray(upgradeExchangeRates), Text.equal, Text.hash);
+var donorCredits = TrieMap.TrieMap<Principal, Nat>(Principal.equal, Principal.hash);
+donorCredits := TrieMap.fromEntries<Principal, Nat>(Iter.fromArray(upgradeCredits), Principal.equal, Principal.hash);
+var donorExchangeRates = TrieMap.TrieMap<Text, Nat>(Text.equal, Text.hash);
+donorExchangeRates := TrieMap.fromEntries<Text, Nat>(Iter.fromArray(upgradeExchangeRates), Text.equal, Text.hash);
 
-	system func preupgrade() {
-		upgradeCredits := Iter.toArray(donorCredits.entries());
-		upgradeExchangeRates := Iter.toArray(donorExchangeRates.entries());
+system func preupgrade() {
+	upgradeCredits := Iter.toArray(donorCredits.entries());
+	upgradeExchangeRates := Iter.toArray(donorExchangeRates.entries());
+};
+
+system func postupgrade() {
+	upgradeCredits := [];
+	upgradeExchangeRates := [];
+};
+
+public shared ({ caller }) func updateExchangeRates(currency : Text, rate : Nat) : async Result.Result<Nat, Text> {
+	if (Principal.isAnonymous(caller)) {
+		#err("no permission for anonymous caller to set exchange rate");
+	} else {
+		donorExchangeRates.put(currency, rate);
+		#ok(1);
 	};
-
-	system func postupgrade() {
-		upgradeCredits := [];
-		upgradeExchangeRates := [];
-	};
-
-	public shared ({ caller }) func updateExchangeRates(currency : Text, rate : Nat) : async Result.Result<Nat, Text> {
-		if (Principal.isAnonymous(caller)) {
-			#err("no permission for anonymous caller to set exchange rate");
-		} else {
-			donorExchangeRates.put(currency, rate);
-			#ok(1);
-		};
-	};
-	// Add a new donation
-	public shared ({ caller }) func donate(amount : Nat, currency : Text) : async Result.Result<Nat, Text> {
+};
+// Add a new donation
+public shared ({ caller }) func donate(amount : Nat, currency : Text, payment : { #block:Nat; #txid:Text }) : async Result.Result<Nat, Text> {
+	if (Principal.isAnonymous(caller)) {
+		#err("no permission for anonymous caller to donate");
+	} else {
 		let bdonations : Buffer.Buffer<Donation> = Buffer.fromArray(donations);
 		try {
-			bdonations.add({
-				timestamp = Time.now();
-				donor = caller;
-				amount = amount;
-				currency = currency;
-				txid = "0f733c38a76b3ef1e697e6bf1e195ea4bb3be128f1a65515e7a881e06f413791";
-			});
-			donations := Buffer.toArray(bdonations);
+			switch (payment) {
+				case (#block(block)) {
+					//TODO: check block is valid
+				};
+				case (#txid(txid)) {
 
-			// Update donor's credit
-			let currentCredit = donorCredits.get(caller);
-			donorCredits.put(
-				caller,
-				switch (currentCredit) {
-					case (null) amount;
-					case (?credit) credit + amount;
-				}
-			);
+					//TODO: check transaction is valid
+					bdonations.add({
+						timestamp = Time.now();
+						donor = caller;
+						amount = amount;
+						currency = currency;
+						txid = txid;
+					});
+				};
+			};
+				donations := Buffer.toArray(bdonations);
 
-			#ok(1);
-		} catch (err) {
-			#err("failed to add donation");
+				// Update donor's credit
+				let currentCredit = donorCredits.get(caller);
+				donorCredits.put(
+					caller,
+					switch (currentCredit) {
+						case (null) amount;
+						case (?credit) credit + amount;
+					}
+				);
+
+				#ok(1);
+			} catch (err) {
+				#err("failed to add donation");
+			};
 		};
 	};
 

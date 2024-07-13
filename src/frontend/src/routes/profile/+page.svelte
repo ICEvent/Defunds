@@ -51,7 +51,7 @@
 </script>
 
 <Notifications>
-	<Navbar />
+	
 	<div class="container">
 		<div class="profile-layout">
 			<div class="menu-column">
