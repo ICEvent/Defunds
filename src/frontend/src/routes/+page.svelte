@@ -2,20 +2,19 @@
 	import '../app.css';
 	import Notifications from 'svelte-notifications';
 
-	import Donations from '../components/Donations.svelte';
-	import Applications from '../components/Applications.svelte';
-	import TreasureBox from '../components/TreasureBox.svelte';
-	import Navbar from '../components/Navbar.svelte';
-	import Footer from '../components/Footer.svelte';
-	
+	import Donations from '$lib/components/Donations.svelte';
+	import Applications from '$lib/components/Applications.svelte';
+	import TreasureBox from '$lib/components/TreasureBox.svelte';
+
+	export let data;
 </script>
 <Notifications>
 
 <main class="container mx-auto px-4 py-8 bg-gray-100">
 
-	<TreasureBox />
+	<TreasureBox totalDonations={data.totalDonations} />
 	<div class="flex flex-col md:flex-row mt-8">
-		<Donations />
+		<Donations donationHistory={data.donationHistory}/>
 		<Applications/>
 	</div>
 </main>

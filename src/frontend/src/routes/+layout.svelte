@@ -1,6 +1,8 @@
 <script>
-    import Navbar from "../components/Navbar.svelte"
-    import Footer from '../components/Footer.svelte';
+    export const prerender = true;
+    import Navbar from "$lib/components/Navbar.svelte"
+    import Footer from '$lib/components/Footer.svelte';
+
 </script>
 <Navbar />
 <main>

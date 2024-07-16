@@ -1,5 +1,5 @@
 <script>
-	import '../app.css';
+	import '../../app.css';
 	
 
 	import { onMount } from 'svelte';
@@ -8,9 +8,8 @@
 	import { DEFUND_CANISTER_ID, DEFUND_TREASURY_ACCOUNT, getTokenNameByID, ICP_LEDGER_CANISTER_ID, ICP_TOKEN_DECIMALS } from '$lib/constants';
 	import DonationForm from './Donation/DonationForm.svelte';
 	import Dialog from './common/Dialog.svelte';
-	import { Principal } from '@dfinity/principal';
 
-	import { globalStore } from '../store'; // Import your global store
+	import { globalStore } from '../../store'; // Import your global store
 
 	let icpledger = undefined;
 	let backend	= undefined;
@@ -27,18 +26,18 @@
 		backend = value.backend;
 	});
 
-	let totalDonations = 0;
-	onMount(async () => {
-		try {
-			let balance = await icpledger.icrc1_balance_of({
-				owner: Principal.fromText(DEFUND_CANISTER_ID),
-				subaccount: []
-			});
-			totalDonations = Number(balance) / ICP_TOKEN_DECIMALS;
-		} catch (error) {
-			console.error('Error fetching user balance:', error);
-		}
-	});
+	export let totalDonations = 0;
+	// onMount(async () => {
+	// 	try {
+	// 		let balance = await icpledger.icrc1_balance_of({
+	// 			owner: Principal.fromText(DEFUND_CANISTER_ID),
+	// 			subaccount: []
+	// 		});
+	// 		totalDonations = Number(balance) / ICP_TOKEN_DECIMALS;
+	// 	} catch (error) {
+	// 		console.error('Error fetching user balance:', error);
+	// 	}
+	// });
 
 	function handleDonation() {
 		if (!isAuthed) {

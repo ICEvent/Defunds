@@ -6,7 +6,7 @@
 
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import Navbar from '../../components/Navbar.svelte';
+
 	import MenuItem from '../../components/Profile/MenuItem.svelte';
 	//import { ProfileIcon, SettingsIcon, HistoryIcon } from '../../Icons.svelte';
 	let activeMenuItem = 'profile';

@@ -28,12 +28,12 @@
       from 
       
       <a
-      href="{EXPLORER_PRINCIPAL}{donation.donor.toText()}"
+      href="{EXPLORER_PRINCIPAL}{donation.donor}"
       target="_blank"
       rel="noopener noreferrer"
       class="text-blue-500 hover:text-blue-700"
   >
-      {`${donation.donor.toText().slice(0, 5)}...${donation.donor.toText().slice(-5)}`}
+      {`${donation.donor.slice(0, 5)}...${donation.donor.slice(-5)}`}
   </a>
       at {formattedTimestamp}</p>
 

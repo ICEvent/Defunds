@@ -1,10 +1,3 @@
-<script>
-	// Import necessary components and functions
-
-	import Footer from '../../components/Footer.svelte';
-	import Navbar from '../../components/Navbar.svelte';
-</script>
-
 
 <main class="container mx-auto px-4 py-8 bg-gray-50 min-h-screen">
 	<h1 class="text-4xl font-bold mb-8 text-center text-blue-600">Defund DAO</h1>

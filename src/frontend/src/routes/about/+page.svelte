@@ -1,9 +1,3 @@
-<script>
-	// You can add any necessary logic or data here
-
-	import Footer from '../../components/Footer.svelte';
-	import Navbar from '../../components/Navbar.svelte';
-</script>
 
 <div class="spacer"></div>
 <main class="mt-30">

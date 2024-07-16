@@ -4,7 +4,7 @@
 	import { HttpAgent } from '@dfinity/agent';
 	import { onMount } from 'svelte';
 
-	import { globalStore, setAgent } from '../store';
+	import { globalStore, setAgent } from '../../store';
 	import { goto } from '$app/navigation';
 	import LoginForm from './LoginForm.svelte';
 	import { HOST_MAINNET } from '$lib/constants';
