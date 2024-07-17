@@ -7,7 +7,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 
-	import MenuItem from '../../components/Profile/MenuItem.svelte';
+	import MenuItem from '$lib/components/Profile/MenuItem.svelte';
 	//import { ProfileIcon, SettingsIcon, HistoryIcon } from '../../Icons.svelte';
 	let activeMenuItem = 'profile';
 	let isAuthed = false;
