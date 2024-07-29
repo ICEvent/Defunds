@@ -63,13 +63,18 @@ actor {
 		} else {
 			let bdonations : Buffer.Buffer<Donation> = Buffer.fromArray(donations);
 			try {
-
+				let rate = switch (donorExchangeRates.get(currency)) {
+						case (null) 0;
+						case (?rate) rate;
+					};
+				
 				bdonations.add({
 					timestamp = Time.now();
 					donor = caller;
 					amount = amount;
 					currency = currency;
 					txid = txid;
+					credit = rate;
 				});
 
 				donations := Buffer.toArray(bdonations);
@@ -79,24 +84,19 @@ actor {
 				donorCredits.put(
 					caller,
 					switch (currentCredit) {
-						case (null) amount;
+						case (null) amount * rate;
 						case (?credit) {
-							let rate = donorExchangeRates.get(currency);
-							switch (rate) {
-								case (null) credit + amount;
-								case (?rate) credit + amount * rate;
-							};
-							
-						}
+							 credit + amount * rate;
+							}						
 					}
 				);
 
 				#ok(1);
 			} catch (err) {
 				#err("failed to add donation with error: ");
-			};
-		};
-	};	
+			}
+		}
+	};
 
 	// Fetch donation history by page and donation time
 	public query func getDonationHistory(page : Nat, pageSize : Nat, startTime : ?Time.Time, endTime : ?Time.Time) : async [Donation] {
