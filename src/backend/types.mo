@@ -1,14 +1,15 @@
 import Text "mo:base/Text";
 
 module{
+
     //donation from donor to the fund
     public type Donation = {
         timestamp: Int;
         donor: Principal; // Represents the donor's principal ID
         amount: Nat; // Represents the donation amount
         currency: Text; // ICRC Canisterid
-        txid: Text; //transaction id
- 
+        txid: Text; //transaction id 
+        credit: Nat; // Represents the donor's credit
     };
 
     //grant fund to recipients

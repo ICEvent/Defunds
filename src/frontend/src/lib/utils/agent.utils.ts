@@ -1,5 +1,4 @@
 import { HttpAgent, type Identity } from '@dfinity/agent';
-
 export type GetAgentParams = { identity: Identity };
 
 export const getAgent = async (params: GetAgentParams): Promise<HttpAgent> => {
@@ -11,7 +10,7 @@ export const getAgent = async (params: GetAgentParams): Promise<HttpAgent> => {
 };
 
 const getMainnetAgent = async (params: GetAgentParams) => {
-	const host = 'https://icp0.io';
+	const host ='https://icp0.io';
 	return new HttpAgent({ ...params, host });
 };
 

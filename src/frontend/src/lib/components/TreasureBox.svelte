@@ -1,11 +1,16 @@
 <script>
 	import '../../app.css';
 	
-
 	import { onMount } from 'svelte';
 	import { getNotificationsContext } from 'svelte-notifications';
 
-	import { DEFUND_CANISTER_ID, DEFUND_TREASURY_ACCOUNT, getTokenNameByID, ICP_LEDGER_CANISTER_ID, ICP_TOKEN_DECIMALS } from '$lib/constants';
+	import { getAgent } from '$lib/utils/agent.utils';
+	import { createActor } from '$lib/utils/actor.utils';
+	import { HttpAgent } from "@dfinity/agent";
+	import { Principal } from "@dfinity/principal";
+	import * as ICPLedger from "$declarations/icrc1_ledger_canister";
+
+	import { DEFUND_CANISTER_ID, DEFUND_TREASURY_ACCOUNT,HOST_MAINNET, getTokenNameByID, ICP_LEDGER_CANISTER_ID, ICP_TOKEN_DECIMALS } from '$lib/constants';
 	import DonationForm from './Donation/DonationForm.svelte';
 	import Dialog from './common/Dialog.svelte';
 
@@ -26,18 +31,21 @@
 		backend = value.backend;
 	});
 
-	export let totalDonations = 0;
-	// onMount(async () => {
-	// 	try {
-	// 		let balance = await icpledger.icrc1_balance_of({
-	// 			owner: Principal.fromText(DEFUND_CANISTER_ID),
-	// 			subaccount: []
-	// 		});
-	// 		totalDonations = Number(balance) / ICP_TOKEN_DECIMALS;
-	// 	} catch (error) {
-	// 		console.error('Error fetching user balance:', error);
-	// 	}
-	// });
+	let totalDonations = 0;
+	onMount(async () => {
+		try {
+			icpledger = ICPLedger.createActor(new HttpAgent({
+        host: HOST_MAINNET
+    }), ICP_LEDGER_CANISTER_ID, { actorOptions: {} });
+			let balance = await icpledger.icrc1_balance_of({
+				owner: Principal.fromText(DEFUND_CANISTER_ID),
+				subaccount: []
+			});
+			totalDonations = Number(balance) / ICP_TOKEN_DECIMALS;
+		} catch (error) {
+			console.error('Error fetching user balance:', error);
+		}
+	});
 
 	function handleDonation() {
 		if (!isAuthed) {
@@ -78,7 +86,7 @@
 		// 		if (result.ok) {
 		// 			// Handle successful donation
 		// 			console.log(`Donated ${donationAmount} ${selectedCurrency} successfully!`);
-					backend.donate(amount,ICP_LEDGER_CANISTER_ID
+					backend.donate(amount,ICP_LEDGER_CANISTER_ID,{txid:""}
 						).then((result) => {
 						if (result.ok) {
 							// Handle successful donation

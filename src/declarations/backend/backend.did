@@ -13,10 +13,7 @@ type Donation =
    txid: text;
  };
 service : {
-  donate: (nat, text, variant {
-                        block: nat;
-                        txid: text;
-                      }) -> (Result);
+  donate: (nat, text, text) -> (Result);
   getDonationHistory: (nat, nat, opt Time, opt Time) -> (vec Donation) query;
   getDonorCredit: (text) -> (opt nat) query;
   getDonorHistory: (principal, nat) -> (vec Donation) query;

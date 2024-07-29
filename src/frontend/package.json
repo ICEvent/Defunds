@@ -15,6 +15,7 @@
     "@dfinity/agent": "^1.4.0",
     "@dfinity/auth-client": "^1.4.0",
     "@dfinity/candid": "^1.4.0",
+    "@dfinity/gix-components": "^4.5.0",
     "@dfinity/principal": "^1.4.0",
     "@sveltejs/kit": "^2.5.18",
     "svelte-notifications": "^0.9.98"

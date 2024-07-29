@@ -1,22 +1,23 @@
 <script>
 	import ListItem from './Donation/ListItem.svelte';
-	// import { globalStore } from '../store';
+	import { globalStore } from '../../store';
 	import { onMount } from 'svelte';
-	export let donationHistory;
+	let donationHistory = [];
 	let backend = null;
 
-	// onMount(async () => {
-	// 	const unsubscribe = globalStore.subscribe((store) => {
-	// 		backend = store.backend;
-	// 	});
-	// 	try {
-	// 		const response = await backend.getDonationHistory(0, 3, [], []);
-	// 		donationHistory = response;
-	// 	} catch (error) {
-	// 		console.error('Error fetching donation history:', error);
-	// 	}
-	// 	return unsubscribe;
-	// });
+	onMount(async () => {
+		const unsubscribe = globalStore.subscribe((store) => {
+			backend = store.backend;
+		});
+		try {
+			const response = await backend.getDonationHistory(0, 10, [], []);
+			donationHistory = response;
+			console.log(donationHistory);
+		} catch (error) {
+			console.error('Error fetching donation history:', error);
+		}
+		return unsubscribe;
+	});
 	
 </script>
 
