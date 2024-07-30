@@ -124,7 +124,7 @@
 
 <div class="treasure-box-container bg-green-200 py-8">
 	<header class="mb-8 text-center">
-		<h1 class="text-4xl font-bold text-indigo-600 mb-2">Know Your Donation</h1>
+		<h1 class="text-4xl font-bold text-indigo-600 mb-8">Know Your Donation</h1>
 		<div class="relative inline-block mb-4">
 			<div class="treasure-box bg-yellow-500 rounded-md p-4 shadow-md">
 				<a href={DEFUND_TREASURY_ACCOUNT} target="_blank" rel="noopener noreferrer" class="text-lg text-white font-bold hover:underline">
@@ -133,7 +133,7 @@
 			</div>
 			<div class="treasure-lid bg-yellow-600 rounded-t-md absolute top-0 left-0 w-full h-2"></div>
 		</div>
-		<div class="flex justify-center space-x-4">
+		<!-- <div class="flex justify-center space-x-4">
 			<button
 				class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-1.5 px-3 rounded-md text-sm"
 				on:click={handleDonation}
@@ -146,7 +146,7 @@
 			>
 				Apply
 			</button>
-		</div>
+		</div> -->
 		<Dialog isOpen={showDonationForm} on:close={() => (showDonationForm = false)}>
 			<DonationForm on:submit={submitDonation} cancel={() => (showDonationForm = false)} />
 		</Dialog>

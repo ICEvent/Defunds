@@ -1,22 +1,44 @@
-type Time = int;
+type Status = 
+ variant {
+   approved;
+   cancelled;
+   expired;
+   rejected;
+   review;
+   submitted;
+ };
 type Result = 
  variant {
    err: text;
    ok: nat;
  };
-type Donation = 
+type NewGrant = 
  record {
    amount: nat;
-   credit: nat;
    currency: text;
-   donor: principal;
-   timestamp: int;
-   txid: text;
+   description: text;
+   grantType: text;
+   recipient: principal;
+   reference: text;
+   title: text;
+ };
+type Grant = 
+ record {
+   amount: nat;
+   applicant: principal;
+   currency: text;
+   description: text;
+   grantId: int;
+   grantStatus: Status;
+   grantType: text;
+   recipient: principal;
+   reference: text;
+   submitime: int;
+   title: text;
  };
 service : {
-  donate: (nat, text, text) -> (Result);
-  getDonationHistory: (nat, nat, opt Time, opt Time) -> (vec Donation) query;
+  applyGrant: (NewGrant) -> (Result);
   getDonorCredit: (text) -> (opt nat) query;
-  getDonorHistory: (principal, nat) -> (vec Donation) query;
+  getGrants: (nat, nat) -> (vec Grant) query;
   updateExchangeRates: (text, nat) -> (Result);
 }
