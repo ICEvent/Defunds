@@ -1,17 +1,43 @@
 <script>
-	import ListItem from "./Application/ListItem.svelte";
+	import ListItem from './Application/ListItem.svelte';
+	import { globalStore } from '../../store';
+	import { onMount } from 'svelte';
+	import { DEFUND_CANISTER_ID, EXPLORER_PRINCIPAL, ICP_LEDGER_CANISTER_ID } from '$lib/constants';
+	import {Principal} from '@dfinity/principal';
 
-	
 	let applications = [
-		{ id: 1, name: 'Developing grant', description: 'Request 100 ICP for developing grant', status: 'Pending' },
-		{ id: 1, name: 'Support Children Food Security', description: 'Request 1000 ICP to support children in poor counties', status: 'Pending' },
+		
 	];
+	let backend = null;
 
+	onMount(async () => {
+		const unsubscribe = globalStore.subscribe((store) => {
+			backend = store.backend;
+		});
+		try {
+			// await backend.applyGrant({
+			// 	amount: 1,
+			// 	currency: ICP_LEDGER_CANISTER_ID,
+			// 	description: 'Topup treasury and application canister',
+			// 	grantType: 'Develop',
+			// 	recipient: Principal.fromText(DEFUND_CANISTER_ID),
+			// 	reference: 'https://icevent/calendar/105',
+			// 	title: 'Topup Canister'
+			// });
+
+			const response = await backend.getGrants(1, 1);
+			applications = response;
+			console.log(applications);
+		} catch (error) {
+			console.error('Error fetching applications:', error);
+		}
+		return unsubscribe;
+	});
 </script>
 
 <div class="w-full md:w-1/2">
-    <h3 class="text-2xl font-bold mb-4 text-center">Applications</h3>
-    {#each applications as app}
-        <ListItem {app}/>
-    {/each}
+	<h3 class="text-2xl font-bold mb-4 text-center">Applications</h3>
+	{#each applications as app}
+		<ListItem {app} />
+	{/each}
 </div>
