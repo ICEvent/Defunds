@@ -3,6 +3,7 @@ export const idlFactory = ({ IDL }) => {
   const Time = IDL.Int;
   const Donation = IDL.Record({
     'txid' : IDL.Text,
+    'credit' : IDL.Nat,
     'currency' : IDL.Text,
     'timestamp' : IDL.Int,
     'amount' : IDL.Nat,

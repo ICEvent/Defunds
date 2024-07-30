@@ -4,6 +4,7 @@ import type { IDL } from '@dfinity/candid';
 
 export interface Donation {
   'txid' : string,
+  'credit' : bigint,
   'currency' : string,
   'timestamp' : bigint,
   'amount' : bigint,

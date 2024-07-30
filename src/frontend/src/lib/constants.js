@@ -1,4 +1,5 @@
 export const ICP_LEDGER_CANISTER_ID = 'ryjl3-tyaaa-aaaaa-aaaba-cai';
+export const ICP_INDEX_CANISTER_ID = 'qhbym-qaaaa-aaaaa-aaafq-cai';
 export const ckBTC_LEDGER_CANISTER_ID = 'mxzaz-hqaaa-aaaar-qaada-cai';
 export const ckETH_LEDGER_CANISTER_ID = 'ss2fx-dyaaa-aaaar-qacoq-cai';
 export const ckUSDC_LEDGER_CANISTER_ID = 'xevnm-gaaaa-aaaar-qafnq-cai';
@@ -15,6 +16,7 @@ export const IDENTITY_PROVIDER = 'https://identity.ic0.app';
 
 export const EXPLORER_ICP_TX = "https://dashboard.internetcomputer.org/transaction/"
 export const EXPLORER_PRINCIPAL = "https://ic.house/ICP/address/";
+export const EXPLORER_ACCOUNT = "https://dashboard.internetcomputer.org/account/";
 
 export const ONE_WEEK_SEC = 7 * 24 * 60 * 60;
 export const ONE_WEEK_NS = BigInt(ONE_WEEK_SEC * 1e9);
