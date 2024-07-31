@@ -28,20 +28,21 @@
 	};
 </script>
 
-<div>
+<div >
 	
 	<form on:submit={handleSubmit}>
-        <h2>Make Your Donate</h2>
-		
-		<div>
+        <!-- <h2>Make Your Donate</h2>
+		 -->
+		<!-- <div>
 			<label for="amount">Amount(ICP):</label>
 			<input type="number" id="amount" bind:value={amount} placeholder="Amount(ICP)" required />
-		</div>
-		<div>transfer {amount} ICP to treasury account: {DEFUND_CANISTER_ID}, then copy the transaction id in below input</div>
-		<div>
+		</div> -->
+		<div>please transfer ICP to treasury account: </div>
+		<div class="primary">{DEFUND_CANISTER_ID}</div>
+		<!-- <div>
 			<label for="txid">Tranction ID:</label>
 			<input id="txid" bind:value={txid} placeholder="xxxxxx-xxxxxx...." required />
-		</div>
+		</div> -->
 		<!-- <div>
 			<label for="currency">Currency:</label>
 			<select id="currency" bind:value={selectedCurrency}>
@@ -51,8 +52,9 @@
 			</select>
 		</div> -->
 		<div class="button-group">
-			<button type="submit" class="primary">Donate</button>
-			<button type="button" on:click={cancel} class="secondary">Cancel</button>
+			<!-- <button type="submit" class="primary">Donate</button>
+			<button type="button" on:click={cancel} class="secondary">Cancel</button> -->
+			<button type="button" on:click={cancel} class="secondary">Close</button>
 		</div>
 	</form>
 </div>
@@ -86,4 +88,5 @@
 		border-radius: 4px;
 		cursor: pointer;
 	}
+	
 </style>
