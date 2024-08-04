@@ -124,7 +124,7 @@
 
 <div class="treasure-box-container bg-green-200 py-8">
 	<header class="mb-8 text-center">
-		<h1 class="text-4xl font-bold text-indigo-600 mb-8">Your Fund, Your Decision</h1>
+		<h1 class="text-4xl font-bold text-indigo-600 mb-8">Your Fund, You Decide</h1>
 		<div  class="mb-8">Transfer ICP to treasury account:<span class="text-indigo-800">
 			<a href={DEFUND_TREASURY_ACCOUNT} target="_blank">940bf...e197af</a> </span>to donate</div>
 		<div class="relative inline-block ">
@@ -159,10 +159,6 @@
 	.treasure-box {
 		position: relative;
 		z-index: 1;
-	}
-
-	.treasure-lid {
-		z-index: 2;
 	}
 
 	.treasure-box-container {
