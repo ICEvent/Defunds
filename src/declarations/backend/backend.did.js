@@ -33,6 +33,7 @@ export const idlFactory = ({ IDL }) => {
   return IDL.Service({
     'applyGrant' : IDL.Func([NewGrant], [Result], []),
     'getDonorCredit' : IDL.Func([IDL.Text], [IDL.Opt(IDL.Nat)], ['query']),
+    'getGrant' : IDL.Func([IDL.Nat], [IDL.Opt(Grant)], ['query']),
     'getGrants' : IDL.Func([IDL.Nat, IDL.Nat], [IDL.Vec(Grant)], ['query']),
     'updateExchangeRates' : IDL.Func([IDL.Text, IDL.Nat], [Result], []),
   });

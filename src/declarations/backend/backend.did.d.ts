@@ -35,6 +35,7 @@ export type Status = { 'review' : null } |
 export interface _SERVICE {
   'applyGrant' : ActorMethod<[NewGrant], Result>,
   'getDonorCredit' : ActorMethod<[string], [] | [bigint]>,
+  'getGrant' : ActorMethod<[bigint], [] | [Grant]>,
   'getGrants' : ActorMethod<[bigint, bigint], Array<Grant>>,
   'updateExchangeRates' : ActorMethod<[string, bigint], Result>,
 }

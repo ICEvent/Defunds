@@ -15,17 +15,19 @@
 			backend = store.backend;
 		});
 		try {
-			// await backend.applyGrant({
+			// let r = await backend.applyGrant({
 			// 	amount: 1,
 			// 	currency: ICP_LEDGER_CANISTER_ID,
-			// 	description: 'Topup treasury and application canister',
+			// 	description: 'Topup Defund treasury and application canister',
 			// 	grantType: 'Develop',
 			// 	recipient: Principal.fromText(DEFUND_CANISTER_ID),
 			// 	reference: 'https://icevent/calendar/105',
 			// 	title: 'Topup Canister'
 			// });
 
-			const response = await backend.getGrants(1, 1);
+			// console.log(r);
+
+			const response = await backend.getGrants(0, 0);
 			applications = response;
 			console.log(applications);
 		} catch (error) {

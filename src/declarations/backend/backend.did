@@ -39,6 +39,7 @@ type Grant =
 service : {
   applyGrant: (NewGrant) -> (Result);
   getDonorCredit: (text) -> (opt nat) query;
+  getGrant: (nat) -> (opt Grant) query;
   getGrants: (nat, nat) -> (vec Grant) query;
   updateExchangeRates: (text, nat) -> (Result);
 }

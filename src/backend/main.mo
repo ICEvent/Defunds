@@ -25,7 +25,7 @@ actor {
 
 	stable var upgradeCredits : [(Principal, Nat)] = [];
 	stable var upgradeExchangeRates : [(Text, Nat)] = [];
-	stable var _stable_grants : [Grant] = [];
+	stable var _stable_grants : [(Nat,Grant)] = [];
 
 	stable var DEFAULT_PAGE_SIZE = 10;
 
@@ -77,7 +77,10 @@ actor {
 		grants.getGrants();
 	};
 
-
+	public query func getGrant(grantId: Nat) : async ?Grant {
+		grants.getGrant(grantId);
+	};
+	
 	// Add a new donation by external wallet, need to verify the transaction before adding to the donation list.
 	// public shared ({ caller }) func donate(amount : Nat, currency : Text, txid: Text) : async Result.Result<Nat, Text> {
 	// 	if (Principal.isAnonymous(caller)) {

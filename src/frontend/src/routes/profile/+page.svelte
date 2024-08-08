@@ -11,7 +11,7 @@
 	//import { ProfileIcon, SettingsIcon, HistoryIcon } from '../../Icons.svelte';
 	let activeMenuItem = 'profile';
 	let isAuthed = false;
-	let principal= undefined;
+	let principal = undefined;
 	let credit = 0;
 	let backend = undefined;
 	let authClient = null;
@@ -37,7 +37,6 @@
 			}
 		});
 
-		
 		if (principal) {
 			backend.getDonorCredit(principal.toText()).then((result) => {
 				if (result.length > 0) {
@@ -48,10 +47,13 @@
 		// Clean up the subscription when the component is unmounted
 		return unsubscribe;
 	});
+	function changeActiveMenu(menuName) {
+		activeMenuItem = menuName;
+		// You can add additional logic here if needed
+	}
 </script>
 
 <Notifications>
-	
 	<div class="container">
 		<div class="profile-layout">
 			<div class="menu-column">
@@ -60,14 +62,25 @@
 					<img src="/defund_logo.jpg" alt="Avatar" class="avatar" />
 				</div>
 				<div>Credit: {credit}</div>
-				
+
 				<!-- Menu items go here -->
 				<nav>
 					<ul>
-						<MenuItem bind:active={activeMenuItem} name="profile">Profile</MenuItem>
-						<MenuItem bind:active={activeMenuItem} name="settings">Settings</MenuItem>
-						<MenuItem bind:active={activeMenuItem} name="history">History</MenuItem>
-						<MenuItem bind:active={activeMenuItem} on:click={authClient.logout()} name="logout">Logout</MenuItem>
+						<MenuItem
+							on:click={() => changeActiveMenu('profile')}
+							bind:active={activeMenuItem}
+							name="profile">Profile</MenuItem
+						>
+						<MenuItem
+							on:click={() => changeActiveMenu('donations')}
+							bind:active={activeMenuItem}
+							name="donations">Donations</MenuItem
+						>
+						<MenuItem
+							on:click={() => changeActiveMenu('applications')}
+							bind:active={activeMenuItem}
+							name="applications">Applications</MenuItem
+						>
 					</ul>
 				</nav>
 			</div>
@@ -77,11 +90,11 @@
 				{#if activeMenuItem === 'profile'}
 					<h1>Welcome to your profile</h1>
 					<div>Principal: {principal}</div>
-					<p>This is where you can view and manage your profile information.</p>
-				{:else if activeMenuItem === 'settings'}
+					<p></p>
+				{:else if activeMenuItem === 'donations'}
 					<h1>Settings</h1>
 					<p>Manage your account settings here.</p>
-				{:else if activeMenuItem === 'history'}
+				{:else if activeMenuItem === 'applications'}
 					<h1>History</h1>
 					<p>View your donation history.</p>
 				{/if}
