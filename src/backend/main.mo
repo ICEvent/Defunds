@@ -16,18 +16,24 @@ import GrantTypes "./grant/types";
 import Grants "./grant";
 
 actor {
+
+	type Donation = Types.Donation;
+	type VotingPower = Types.VotingPower;
+	type PowerChange = Types.PowerChange;
+
 	type Grant = GrantTypes.Grant;
 	type NewGrant = GrantTypes.NewGrant;
 
 	stable var pendingAmount = 0; // Amount of pending donations
 	stable var grantedAmount = 0; // Amount of granted donations
 	stable var _stable_grantId = 1; // Unique ID for each grant
+	stable var _accumulated_donations = 0; // Accumulated donations -- total voting power
 
 	stable var upgradeCredits : [(Principal, Nat)] = [];
 	stable var upgradeExchangeRates : [(Text, Nat)] = [];
-	stable var _stable_grants : [(Nat,Grant)] = [];
+	stable var _stable_grants : [(Nat, Grant)] = [];
 
-	stable var DEFAULT_PAGE_SIZE = 10;
+	stable var DEFAULT_PAGE_SIZE = 50;
 
 	let grants = Grants.Grants(_stable_grantId, _stable_grants);
 
@@ -42,143 +48,204 @@ actor {
 	var donorExchangeRates = TrieMap.TrieMap<Text, Nat>(Text.equal, Text.hash);
 	donorExchangeRates := TrieMap.fromEntries<Text, Nat>(Iter.fromArray(upgradeExchangeRates), Text.equal, Text.hash);
 
+	// Add these state variables
+	stable var upgradeVotingPowers : [(Principal, VotingPower)] = [];
+	var votingPowers = TrieMap.TrieMap<Principal, VotingPower>(Principal.equal, Principal.hash);
+
+	private func currencyToText(currency : Types.Currency) : Text {
+		switch (currency) {
+			case (#ICP) { "ICP" };
+			case (#ckBTC) { "ckBTC" };
+			case (#ckETH) { "ckETH" };
+			case (#ckUSDC) { "ckUSDC" };
+		};
+	};
 
 	system func preupgrade() {
 		upgradeCredits := Iter.toArray(donorCredits.entries());
 		upgradeExchangeRates := Iter.toArray(donorExchangeRates.entries());
 		_stable_grants := grants.toStable();
 		_stable_grantId := grants.getNextGrantId();
+		upgradeVotingPowers := Iter.toArray(votingPowers.entries());
 	};
 
 	system func postupgrade() {
 		upgradeCredits := [];
 		upgradeExchangeRates := [];
+		upgradeVotingPowers := [];
 	};
 
-	public shared ({ caller }) func updateExchangeRates(currency : Text, rate : Nat) : async Result.Result<Nat, Text> {
+	public shared ({ caller }) func updateExchangeRates(currency : Types.Currency, rate : Nat) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("no permission for anonymous caller to set exchange rate");
 		} else {
-			donorExchangeRates.put(currency, rate);
+			let currencyText = currencyToText(currency);
+			donorExchangeRates.put(currencyText, rate);
 			#ok(1);
 		};
 	};
 
-	public shared ({ caller }) func applyGrant(application: NewGrant) : async Result.Result<Nat, Text> {
+	public shared ({ caller }) func applyGrant(application : NewGrant) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("no permission for anonymous caller to apply grant");
 		} else {
 			grants.apply(caller, application);
 			#ok(1);
-		}
+		};
 	};
 
-	public query func getGrants(page : Nat, size : Nat) : async [Grant] {
-		grants.getGrants();
+	public query func getGrants(status : [GrantTypes.Status], page : Nat) : async [Grant] {
+		let pageSize = DEFAULT_PAGE_SIZE;
+		let allGrants = grants.getGrants();
+
+		// Filter grants by status
+		let filteredGrants = Array.filter<Grant>(
+			allGrants,
+			func(grant : Grant) : Bool {
+				if (status.size() == 0) {
+					return true; // Return all if no status filter
+				};
+				for (s in status.vals()) {
+					if (grant.grantStatus == s) {
+						return true;
+					};
+				};
+				false;
+			},
+		);
+
+		// Calculate pagination
+		let startIndex = page * pageSize;
+		let endIndex = Nat.min(startIndex + pageSize, filteredGrants.size());
+
+		if (startIndex >= filteredGrants.size()) {
+			return [];
+		};
+
+		Iter.toArray(Array.slice<Grant>(filteredGrants, startIndex, endIndex - startIndex));
 	};
 
-	public query func getGrant(grantId: Nat) : async ?Grant {
+	public query func getGrant(grantId : Nat) : async ?Grant {
 		grants.getGrant(grantId);
 	};
-	
-	// Add a new donation by external wallet, need to verify the transaction before adding to the donation list.
-	// public shared ({ caller }) func donate(amount : Nat, currency : Text, txid: Text) : async Result.Result<Nat, Text> {
-	// 	if (Principal.isAnonymous(caller)) {
-	// 		#err("no permission for anonymous caller to donate");
-	// 	} else {
-	// 		let bdonations : Buffer.Buffer<Donation> = Buffer.fromArray(donations);
-	// 		try {
-	// 			let rate = switch (donorExchangeRates.get(currency)) {
-	// 					case (null) 0;
-	// 					case (?rate) rate;
-	// 				};
-				
-	// 			bdonations.add({
-	// 				timestamp = Time.now();
-	// 				donor = caller;
-	// 				amount = amount;
-	// 				currency = currency;
-	// 				txid = txid;
-	// 				credit = rate;
-	// 			});
 
-	// 			donations := Buffer.toArray(bdonations);
+	// New function to collect voting power from donations
+	public shared ({ caller }) func donate(amount : Nat, currency : Types.Currency, txid : Text) : async Result.Result<Nat, Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("no permission for anonymous caller to donate");
+		} else {
+			let currencyText = currencyToText(currency);
+			let rate = switch (donorExchangeRates.get(currencyText)) {
+				case (null) 0;
+				case (?rate) rate;
+			};
 
-	// 			// Update donor credit
-	// 			let currentCredit = donorCredits.get(caller);
-	// 			donorCredits.put(
-	// 				caller,
-	// 				switch (currentCredit) {
-	// 					case (null) amount * rate;
-	// 					case (?credit) {
-	// 						 credit + amount * rate;
-	// 						}						
-	// 				}
-	// 			);
+			let votePowerAmount = amount * rate;
+			let donation : Donation = {
+				donorId = caller;
+				amount = amount;
+				currency = currency;
+				timestamp = Time.now();
+				txid = txid;
+			};
 
-	// 			#ok(1);
-	// 		} catch (err) {
-	// 			#err("failed to add donation with error: ");
-	// 		}
-	// 	}
-	// };
+			let powerChange : PowerChange = {
+				amount = votePowerAmount;
+				timestamp = Time.now();
+				source = donation;
+			};
 
-	// // Fetch donation history by page and donation time
-	// public query func getDonationHistory(page : Nat, pageSize : Nat, startTime : ?Time.Time, endTime : ?Time.Time) : async [Donation] {
-	// 	let filteredDonations = Array.filter<Donation>(
-	// 		donations,
-	// 		func(d : Donation) {
-	// 			let donationTime = d.timestamp;
-	// 			switch (startTime, endTime) {
-	// 				case (null, null) true;
-	// 				case (?start, null) donationTime >= start;
-	// 				case (null, ?end) donationTime <= end;
-	// 				case (?start, ?end) donationTime >= start and donationTime <= end;
-	// 			};
-	// 		}
-	// 	);
-	// 	let sortedDonations = Array.sort(
-	// 		filteredDonations,
-	// 		func(d1 : Donation, d2 : Donation) : Order.Order {
-	// 			if (d1.timestamp > d2.timestamp) { #less } else if (d1.timestamp == d2.timestamp) {
-	// 				#equal;
-	// 			} else { #greater };
-	// 		}
-	// 	);
+			// Update voting power
+			switch (votingPowers.get(caller)) {
+				case (null) {
+					let newVotingPower : VotingPower = {
+						userId = caller;
+						totalPower = votePowerAmount;
+						powerHistory = [powerChange];
+					};
+					votingPowers.put(caller, newVotingPower);
+				};
+				case (?existingPower) {
+					let updatedHistory = Buffer.fromArray<PowerChange>(existingPower.powerHistory);
+					updatedHistory.add(powerChange);
 
-	// 	let startIndex = page * pageSize;
-	// 	let endIndex = Nat.min(startIndex + pageSize, sortedDonations.size());
+					let updatedPower : VotingPower = {
+						userId = caller;
+						totalPower = existingPower.totalPower + votePowerAmount;
+						powerHistory = Buffer.toArray(updatedHistory);
+					};
+					votingPowers.put(caller, updatedPower);
+				};
+			};
 
-	// 	if (startIndex >= sortedDonations.size()) {
-	// 		return [];
-	// 	};
+			#ok(1);
+		};
+	};
 
-	// 	Iter.toArray(Array.slice<Donation>(sortedDonations, startIndex, endIndex - startIndex));
-	// };
-
-	// public query func getDonorHistory(donor : Principal, page : Nat) : async [Donation] {
-	// 	let filteredDonations = Array.filter<Donation>(donations, func(d) = d.donor == donor);
-
-	// 	let sortedDonations = Array.sort(
-	// 		filteredDonations,
-	// 		func(d1 : Donation, d2 : Donation) : Order.Order {
-	// 			if (d1.timestamp > d2.timestamp) { #less } else if (d1.timestamp == d2.timestamp) {
-	// 				#equal;
-	// 			} else { #greater };
-	// 		}
-	// 	);
-
-	// 	let startIndex = page * DEFAULT_PAGE_SIZE;
-	// 	let endIndex = Nat.min(startIndex + DEFAULT_PAGE_SIZE, sortedDonations.size());
-
-	// 	if (startIndex >= sortedDonations.size()) {
-	// 		return [];
-	// 	};
-
-	// 	Iter.toArray(Array.slice<Donation>(sortedDonations, startIndex, endIndex - startIndex));
-	// };
+	// Query available voting power
+	public query func getVotingPower(userId : Principal) : async ?VotingPower {
+		votingPowers.get(userId);
+	};
 
 	public query func getDonorCredit(donor : Text) : async ?Nat {
 		return donorCredits.get(Principal.fromText(donor));
+	};
+
+	// Add these public functions
+
+	// Start voting period for a grant
+	public shared ({ caller }) func startGrantVoting(grantId : Nat) : async Result.Result<Nat, Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot start voting");
+		} else {
+			if (grants.startVoting(grantId)) {
+				#ok(1);
+			} else {
+				#err("Failed to start voting for grant");
+			};
+		};
+	};
+	// Cast vote on a grant
+	public shared ({ caller }) func voteOnGrant(grantId : Nat, voteType : GrantTypes.VoteType) : async Result.Result<Nat, Text> {
+		if (Principal.isAnonymous(caller)) {
+			return #err("Anonymous users cannot vote");
+		};
+
+		// First check and deduct voting power
+		switch (votingPowers.get(caller)) {
+			case (null) {
+				return #err("User does not have voting power");
+			};
+			case (?power) {
+				let votePowerAmount = power.totalPower;
+				let voteResult = grants.vote(grantId, caller, votePowerAmount, voteType);
+				if (voteResult) {
+					#ok(1);
+				} else {
+					#err("Insufficient voting power");
+				};
+			};
+		}
+
+	};
+	// Finalize voting for a grant
+	public shared ({ caller }) func finalizeGrantVoting(grantId : Nat) : async Result.Result<Nat, Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot finalize voting");
+		} else {
+			if (grants.finalizeVoting(grantId)) {
+				#ok(1);
+			} else {
+				#err("Failed to finalize voting");
+			};
+		};
+	};
+
+	// Get voting status for a grant
+	public query func getGrantVotingStatus(grantId : Nat) : async ?GrantTypes.VotingStatus {
+		switch (grants.getGrant(grantId)) {
+			case null { null };
+			case (?grant) { grant.votingStatus };
+		};
 	};
 };
