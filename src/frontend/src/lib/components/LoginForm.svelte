@@ -12,7 +12,6 @@
 		IDENTITY_PROVIDER,
 		ONE_WEEK_NS
 	} from '$lib/constants';
-	import { onMount } from 'svelte';
 
 	let isAuthed = false;
 	let principal = '';
@@ -21,19 +20,6 @@
 	globalStore.subscribe((value) => {
 		isAuthed = value.isAuthed;
 		principal = value.principal;
-	});
-
-	onMount(async () => {
-		authClient = await AuthClient.create({
-			idleOptions: {
-				disableIdle: true,
-				disableDefaultIdleCallback: true
-			}
-		});
-
-		if (await authClient.isAuthenticated()) {
-			handleAuthenticated(authClient);
-		}
 	});
 
 	const handleAuthenticated = async (authClient) => {
@@ -47,82 +33,62 @@
 		);
 		
 		globalStore.update((store) => {
-						return {
-							...store,
-							isAuthed: true,
-							principal: identity.getPrincipal()
-						};
-					});
+			return {
+				...store,
+				isAuthed: true,
+				principal: identity.getPrincipal()
+			};
+		});
 		closeLoginForm();
 	};
-	function handleIILogin() {
+
+	async function handleIILogin() {
+		authClient = await AuthClient.create({
+			idleOptions: {
+				disableIdle: true,
+				disableDefaultIdleCallback: true
+			}
+		});
+		
 		authClient.login({
-			// derivationOrigin: DERIVATION_ORIGION,
 			identityProvider: IDENTITY_PROVIDER,
-			// maxTimeToLive: ONE_WEEK_NS,
 			onSuccess: () => {
 				handleAuthenticated(authClient);
 			}
 		});
 	}
-	function handlePluginLogin() {
-		(async () => {
-			// Whitelist
-			const whitelist = [DEFUND_CANISTER_ID];
-
-			// Callback to print sessionData
-			const onConnectionUpdate = () => {
-				setAgent(window.ic.plug.agent);
-				// console.log("principal:",window.ic.plug.principalId);
-				// console.log(window.ic.plug.sessionManager.sessionData);
-			};
-
-			// Make the request
-			try {
-				const publicKey = await window.ic.plug.requestConnect({
-					whitelist,
-					HOST_MAINNET,
-					onConnectionUpdate,
-					timeout: 50000
-				});
-				console.log(`The connected user's public key is:`, publicKey);
-				let isConnected = await window.ic.plug.isConnected();
-				if (isConnected) {
-					globalStore.update((store) => {
-						return {
-							...store,
-							isAuthed: true
-						};
-					});
-					closeLoginForm();
-				}
-			} catch (e) {
-				console.log(e);
-			}
-		})();
-	}
-	function handleNFIDLogin() {
-		async () => {
-			// Whitelist
-			const whitelist = [DEFUND_CANISTER_ID];
-		};
-	}
 </script>
+	<div class="flex flex-col items-center justify-center p-8 bg-white rounded-lg">
+		<h2 class="text-3xl font-bold mb-8 text-gray-800">Welcome to Defund</h2>
+	
+		<div class="flex flex-col space-y-6 w-full max-w-sm">
+			<button
+				class="flex items-center justify-center space-x-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-3 px-6 rounded-lg transform transition-all duration-200 hover:scale-105 shadow-md"
+				on:click={() => handleIILogin('Internet Identity')}
+			>
+				<img src="/ii_logo.png" alt="Internet Identity" class="w-12 h-6" />
+				<span> Internet Identity</span>
+			</button>
 
-<div class="flex flex-col items-center justify-center">
-	<h2 class="text-2xl font-bold mb-6">Defund Login</h2>
-	<div class="flex flex-col space-y-4">
-		<button
-			class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-			on:click={() => handleIILogin('Internet Identity')}
-		>
-			Internet Identity
-		</button>
-		<!-- <button
-			class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-			on:click={() => handlePluginLogin('Plugin')}
-		>
-			Plugin Wallet
-		</button> -->
+			<!-- <div class="relative my-6">
+				<div class="absolute inset-0 flex items-center">
+					<div class="w-full border-t border-gray-300"></div>
+				</div>
+				<div class="relative flex justify-center text-sm">
+					<span class="px-2 bg-white text-gray-500">or</span>
+				</div>
+			</div> -->
+
+			<!-- <button
+				class="flex items-center justify-center space-x-3 bg-white border-2 border-gray-200 hover:border-gray-300 text-gray-700 font-semibold py-3 px-6 rounded-lg transform transition-all duration-200 hover:scale-105 shadow-sm"
+				on:click={() => handlePluginLogin('Plugin')}
+			>
+				<img src="/plug-logo.svg" alt="Plug Wallet" class="w-6 h-6" />
+				<span>Connect with Plug Wallet</span>
+			</button> -->
+		</div>
+
+		<p class="mt-6 text-sm text-gray-500">
+			By continuing, you agree to our Terms of Service
+		</p>
 	</div>
-</div>

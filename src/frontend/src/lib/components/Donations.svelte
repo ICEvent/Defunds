@@ -14,7 +14,31 @@
 
 	let donationHistory = [];
 	let backend = null;
+	let icpledger = null;
+	let principal = null;
 
+	onMount(async () => {
+        const unsubscribe = globalStore.subscribe((store) => {
+            icpledger = store.icpledger;
+
+        });
+
+        if (backend && principal) {
+            const power = await backend.getVotingPower(principal);
+            if (power.length > 0) { 
+                votingPower = Number(power[0].totalPower)/VOTE_POWER_DECIMALS;
+            }
+        }
+        if (icpledger && principal) {
+            const icpbalance = await icpledger.icrc1_balance_of({
+                owner: principal,
+                subaccount: [],
+            });
+            balance = Number(icpbalance) / ICP_TOKEN_DECIMALS;
+        };
+
+        return unsubscribe;
+    });
 	onMount(async () => {
 		let icpindex = ICPIndex.createActor(
 			new HttpAgent({
@@ -61,10 +85,32 @@
 		// return unsubscribe;
 	});
 </script>
+	<div class="w-full md:w-1/2 mb-8 md:mb-0 md:mr-4">
+		<h3 class="text-2xl font-bold mb-4 text-center">Donations</h3>
+		<div class="h-[600px] overflow-y-auto">
+			{#each donationHistory as donation}
+				<ListItem {donation} />
+			{/each}
+		</div>
+	</div>
 
-<div class="w-full md:w-1/2 mb-8 md:mb-0 md:mr-4">
-	<h3 class="text-2xl font-bold mb-4 text-center">Donations</h3>
-	{#each donationHistory as donation}
-		<ListItem {donation} />
-	{/each}
-</div>
+	<style>
+		.overflow-y-auto {
+			scrollbar-width: thin;
+			scrollbar-color: #cbd5e1 #f1f5f9;
+		}
+
+		.overflow-y-auto::-webkit-scrollbar {
+			width: 6px;
+		}
+
+		.overflow-y-auto::-webkit-scrollbar-track {
+			background: #f1f5f9;
+			border-radius: 3px;
+		}
+
+		.overflow-y-auto::-webkit-scrollbar-thumb {
+			background-color: #cbd5e1;
+			border-radius: 3px;
+		}
+	</style>

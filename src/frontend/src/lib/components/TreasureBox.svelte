@@ -1,23 +1,25 @@
 <script>
-	import '../../app.css';
-	
-	import { onMount } from 'svelte';
-	import { getNotificationsContext } from 'svelte-notifications';
+	import "../../app.css";
 
-	import { getAgent } from '$lib/utils/agent.utils';
-	import { createActor } from '$lib/utils/actor.utils';
-	import { HttpAgent } from "@dfinity/agent";
+	import { onMount } from "svelte";
+	import { getNotificationsContext } from "svelte-notifications";
+
 	import { Principal } from "@dfinity/principal";
-	import * as ICPLedger from "$declarations/icrc1_ledger_canister";
 
-	import { DEFUND_CANISTER_ID, DEFUND_TREASURY_ACCOUNT,HOST_MAINNET, getTokenNameByID, ICP_LEDGER_CANISTER_ID, ICP_TOKEN_DECIMALS } from '$lib/constants';
-	import DonationForm from '$lib/components/Donation/DonationForm.svelte';
-	import Dialog from '$lib/components/common/Dialog.svelte';
+	import {
+		DEFUND_CANISTER_ID,
+		DEFUND_TREASURY_ACCOUNT,
+		getTokenNameByID,
+		ICP_LEDGER_CANISTER_ID,
+		ICP_TOKEN_DECIMALS,
+	} from "$lib/constants";
+	import DonationForm from "$lib/components/Donation/DonationForm.svelte";
+	import Dialog from "$lib/components/common/Dialog.svelte";
 
-	import { globalStore } from '$lib/store'; // Import your global store
+	import { globalStore } from "$lib/store"; // Import your global store
 
 	let icpledger = undefined;
-	let backend	= undefined;
+	let backend = undefined;
 
 	let isAuthed = false;
 	let showDonationForm = false;
@@ -34,25 +36,31 @@
 	let totalDonations = 0;
 	onMount(async () => {
 		try {
-			icpledger = ICPLedger.createActor(new HttpAgent({
-        host: HOST_MAINNET
-    }), ICP_LEDGER_CANISTER_ID, { actorOptions: {} });
-			let balance = await icpledger.icrc1_balance_of({
-				owner: Principal.fromText(DEFUND_CANISTER_ID),
-				subaccount: []
-			});
-			totalDonations = Number(balance) / ICP_TOKEN_DECIMALS;
+			if (icpledger) {
+				let balance = await icpledger.icrc1_balance_of({
+					owner: Principal.fromText(DEFUND_CANISTER_ID),
+					subaccount: [],
+				});
+				totalDonations = Number(balance) / ICP_TOKEN_DECIMALS;
+			}
+			// icpledger = ICPLedger.createActor(
+			// 	new HttpAgent({
+			// 		host: HOST_MAINNET,
+			// 	}),
+			// 	ICP_LEDGER_CANISTER_ID,
+			// 	{ actorOptions: {} },
+			// );
 		} catch (error) {
-			console.error('Error fetching user balance:', error);
+			console.error("Error fetching user balance:", error);
 		}
 	});
 
 	function handleDonation() {
 		if (!isAuthed) {
 			addNotification({
-				text: 'Please login to donate',
-				type: 'error',
-				position: 'top-right'
+				text: "Please login to donate",
+				type: "error",
+				position: "top-right",
 			});
 		} else {
 			showDonationForm = true;
@@ -61,9 +69,9 @@
 	function handleApplication() {
 		if (!isAuthed) {
 			addNotification({
-				text: 'Please login to apply',
-				type: 'error',
-				position: 'top-right'
+				text: "Please login to apply",
+				type: "error",
+				position: "top-right",
 			});
 		} else {
 			showApplicationForm = true;
@@ -73,11 +81,11 @@
 	function submitDonation(event) {
 		// Call the backend function to process the donation
 		// with the provided amount and currency
-		const {amount, currency} = event.detail;
+		const { amount, currency } = event.detail;
 		const params = {
 			to: DEFUND_CANISTER_ID,
 			amount: amount * ICP_TOKEN_DECIMALS,
-			memo: 'donate fund'
+			memo: "donate fund",
 		};
 		console.log(params);
 		// window.ic.plug
@@ -86,54 +94,67 @@
 		// 		if (result.ok) {
 		// 			// Handle successful donation
 		// 			console.log(`Donated ${donationAmount} ${selectedCurrency} successfully!`);
-					backend.donate(amount,ICP_LEDGER_CANISTER_ID,{txid:""}
-						).then((result) => {
-						if (result.ok) {
-							// Handle successful donation
-							console.log(`Donated ${amount} ${currency} successfully!`);
-							addNotification({
-								text: `Donated ${amount} ${currency} successfully!`,
-								type:'success',
-								position: 'top-right'
-							});
-							showDonationForm = false;
-						} else {
-							// Handle donation error
-							console.error(`Error donating: ${result.err}`);
-							addNotification({
-								text: `Error donating: ${result.err}`,
-								type: 'error',
-								position: 'top-right'
-							});
-						}
-					})
-			// 	} else {
-			// 		// Handle donation error
-			// 		console.error(`Error donating: ${result.err}`);
-			// 	}
-			// })
-			// .catch((error) => {
-			// 	console.error('Error donating:', error);
-			// })
-			// .finally(() => {
-			// 	showDonationForm = false;
-			// 	donationAmount = '';
-			// });
+		backend
+			.donate(amount, ICP_LEDGER_CANISTER_ID, { txid: "" })
+			.then((result) => {
+				if (result.ok) {
+					// Handle successful donation
+					console.log(`Donated ${amount} ${currency} successfully!`);
+					addNotification({
+						text: `Donated ${amount} ${currency} successfully!`,
+						type: "success",
+						position: "top-right",
+					});
+					showDonationForm = false;
+				} else {
+					// Handle donation error
+					console.error(`Error donating: ${result.err}`);
+					addNotification({
+						text: `Error donating: ${result.err}`,
+						type: "error",
+						position: "top-right",
+					});
+				}
+			});
+		// 	} else {
+		// 		// Handle donation error
+		// 		console.error(`Error donating: ${result.err}`);
+		// 	}
+		// })
+		// .catch((error) => {
+		// 	console.error('Error donating:', error);
+		// })
+		// .finally(() => {
+		// 	showDonationForm = false;
+		// 	donationAmount = '';
+		// });
 	}
 </script>
 
 <div class="treasure-box-container bg-green-200 py-8">
 	<header class="mb-8 text-center">
-		<h1 class="text-4xl font-bold text-indigo-600 mb-8">Your Fund, You Decide</h1>
-		<div  class="mb-8">Transfer ICP to treasury account:<span class="text-indigo-800">
-			<a href={DEFUND_TREASURY_ACCOUNT} target="_blank">940bf...e197af</a> </span>to donate</div>
-		<div class="relative inline-block ">
+		<h1 class="text-4xl font-bold text-indigo-600 mb-8">
+			Your Fund, You Decide
+		</h1>
+		<div class="mb-8">
+			Transfer ICP to treasury account:<span class="text-indigo-800">
+				<a href={DEFUND_TREASURY_ACCOUNT} target="_blank"
+					>940bf...e197af</a
+				>
+			</span>to donate
+		</div>
+		<div class="relative inline-block">
 			<div class="treasure-box bg-yellow-500 rounded-md p-4 shadow-md">
-				<a href={DEFUND_TREASURY_ACCOUNT} target="_blank" rel="noopener noreferrer" class="text-lg text-white font-bold hover:underline">
-					{totalDonations} {getTokenNameByID(ICP_LEDGER_CANISTER_ID)}
+				<a
+					href={DEFUND_TREASURY_ACCOUNT}
+					target="_blank"
+					rel="noopener noreferrer"
+					class="text-lg text-white font-bold hover:underline"
+				>
+					{totalDonations}
+					{getTokenNameByID(ICP_LEDGER_CANISTER_ID)}
 				</a>
 			</div>
-	
 		</div>
 		<!-- <div class="flex justify-center space-x-4">
 			<button
@@ -149,8 +170,14 @@
 				Apply
 			</button>
 		</div> -->
-		<Dialog isOpen={showDonationForm} on:close={() => (showDonationForm = false)}>
-			<DonationForm on:submit={submitDonation} cancel={() => (showDonationForm = false)} />
+		<Dialog
+			isOpen={showDonationForm}
+			on:close={() => (showDonationForm = false)}
+		>
+			<DonationForm
+				on:submit={submitDonation}
+				cancel={() => (showDonationForm = false)}
+			/>
 		</Dialog>
 	</header>
 </div>

@@ -7,6 +7,7 @@
     import { showNotification } from "$lib/stores/notification";
     import { hideProgress, showProgress } from "$lib/stores/progress";
 
+    let isAuthed=false;
     let application;
     let backend;
     let grantId;
@@ -25,6 +26,7 @@
         grantId = parseInt($page.params.id);
 
         const unsubscribe = globalStore.subscribe((store) => {
+            isAuthed = store.isAuthed;
             backend = store.backend;
         });
 
@@ -41,6 +43,7 @@
         if (backend) {
             let result = await backend.getGrant(grantId);
             if (result.length > 0) {
+                console.log("applicaiton:", result[0])
                 application = parseApplication(result[0]);
             }
         }
@@ -74,7 +77,6 @@
                 console.log(result);
                 if (result.ok) {
                     showNotification("Cast vote successful!", "success");
-
                     loadApplication(grantId);
                 } else {
                     showNotification(result.err, "error");
@@ -146,7 +148,7 @@
                         {application.description}
                     </p>
                 </div>
-                {#if application.grantStatus === "submitted"}
+                {#if isAuthed && application.grantStatus === "submitted"}
                     <button
                         on:click={() => startVoting(application.grantId)}
                         class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 text-sm font-medium"
@@ -163,7 +165,10 @@
                 </div> -->
             </div>
         </div>
+
+        
         <div class="voting-section mt-8">
+            {#if isAuthed && application.grantStatus === "voting"}
             <div class="voting-buttons">
                 <button
                     on:click={() =>
@@ -180,7 +185,7 @@
                     <span class="vote-text">Reject</span>
                 </button>
             </div>
-
+            {/if}
             <div class="voting-progress mt-5 mb-6">
                 {#if application.votingStatus}
                     <div class="progress-bar">
@@ -199,6 +204,7 @@
                     </div>
                 {/if}
             </div>
+            
             {#if application.votingStatus.length > 0}
                 <div class="votes-list mt-4">
                     {#each application.votingStatus.votes.sort((a, b) => Number(b.timestamp) - Number(a.timestamp)) as vote}

@@ -8,6 +8,8 @@
 	import { goto } from '$app/navigation';
 
 	import MenuItem from '$lib/components/Profile/MenuItem.svelte';
+
+	import ProfilePanel from '$lib/components/Profile/ProfilePanel.svelte';
 	import ApplicationsPanel from '$lib/components/Profile/ApplicationsPanel.svelte';
 	import DonationPanel from '$lib/components/Profile/DonationPanel.svelte';
 
@@ -64,9 +66,9 @@
 				<div class="avatar-container">
 					<img src="/defund_logo.jpg" alt="Avatar" class="avatar" />
 				</div>
-				<div class="credit-display">
+				<!-- <div class="credit-display">
 					Available Credit: {credit} ICP
-				</div>
+				</div> -->
 					<!-- Menu items go here -->
 					<nav>
 						<ul>
@@ -82,6 +84,10 @@
 								on:click={() => changeActiveMenu('applications')}
 								active={activeMenuItem === 'applications'}
 								name="Applications" />
+								<MenuItem
+								on:click={() => changeActiveMenu('funds')}
+								active={activeMenuItem === 'funds'}
+								name="Funds" />
 						</ul>
 						
 					</nav>
@@ -90,10 +96,7 @@
 			<div class="content-column">
 				<!-- Content based on active menu item -->
 				{#if activeMenuItem === 'profile'}
-					<h1>Welcome to your profile</h1>
-					<div class="principal-display">
-						Principal ID: {principal}
-					</div>
+				<ProfilePanel />
 				{:else if activeMenuItem === 'donations'}
 					<DonationPanel />
 				{:else if activeMenuItem === 'applications'}
