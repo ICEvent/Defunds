@@ -8,6 +8,7 @@
 	import { goto } from '$app/navigation';
 
 	import MenuItem from '$lib/components/Profile/MenuItem.svelte';
+	import ApplicationsPanel from '$lib/components/Profile/ApplicationsPanel.svelte';
 	//import { ProfileIcon, SettingsIcon, HistoryIcon } from '../../Icons.svelte';
 	let activeMenuItem = 'profile';
 	let isAuthed = false;
@@ -61,79 +62,152 @@
 				<div class="avatar-container">
 					<img src="/defund_logo.jpg" alt="Avatar" class="avatar" />
 				</div>
-				<div>Credit: {credit}</div>
-
-				<!-- Menu items go here -->
-				<nav>
-					<ul>
-						<MenuItem
-							on:click={() => changeActiveMenu('profile')}
-							bind:active={activeMenuItem}
-							name="profile">Profile</MenuItem
-						>
-						<MenuItem
-							on:click={() => changeActiveMenu('donations')}
-							bind:active={activeMenuItem}
-							name="donations">Donations</MenuItem
-						>
-						<MenuItem
-							on:click={() => changeActiveMenu('applications')}
-							bind:active={activeMenuItem}
-							name="applications">Applications</MenuItem
-						>
-					</ul>
-				</nav>
+				<div class="credit-display">
+					Available Credit: {credit} ICP
+				</div>
+					<!-- Menu items go here -->
+					<nav>
+						<ul>
+							<MenuItem
+								on:click={() => changeActiveMenu('profile')}
+								active={activeMenuItem === 'profile'}
+								name="Profile" />
+							<MenuItem
+								on:click={() => changeActiveMenu('donations')}
+								active={activeMenuItem === 'donations'}
+								name="Donations" />
+							<MenuItem
+								on:click={() => changeActiveMenu('applications')}
+								active={activeMenuItem === 'applications'}
+								name="Applications" />
+						</ul>
+					</nav>
+					
 			</div>
-
 			<div class="content-column">
 				<!-- Content based on active menu item -->
 				{#if activeMenuItem === 'profile'}
 					<h1>Welcome to your profile</h1>
-					<div>Principal: {principal}</div>
-					<p></p>
+					<div class="principal-display">
+						Principal ID: {principal}
+					</div>
 				{:else if activeMenuItem === 'donations'}
 					<h1>Settings</h1>
 					<p>Manage your account settings here.</p>
 				{:else if activeMenuItem === 'applications'}
-					<h1>History</h1>
-					<p>View your donation history.</p>
+				<ApplicationsPanel />
 				{/if}
 			</div>
 		</div>
 	</div>
 </Notifications>
+	<style>
+		.container {
+			max-width: 1200px;
+			margin: 0 auto;
+			padding: 40px 20px;
+			min-height: 100vh;
+			background-color: #fafafa;
+		}
 
-<style>
-	.container {
-		max-width: 1200px; /* Adjust the maximum width as needed */
-		margin: 0 auto; /* Center the container horizontally */
-		padding: 20px; /* Add some padding around the container */
-	}
-	.profile-layout {
-		display: flex;
-	}
+		.profile-layout {
+			display: flex;
+			gap: 40px;
+			background-color: white;
+			border-radius: 12px;
+			box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+		}
 
-	.menu-column {
-		flex: 0 0 200px; /* Adjust the width as needed */
-		background-color: #f0f0f0; /* Optional background color for the menu column */
-		padding: 20px;
-	}
-	.avatar-container {
-		text-align: center; /* Center the avatar image horizontally */
-		margin: 0 auto 20px; /* Center the avatar container vertically */
-		display: flex; /* Use flexbox to center the avatar */
-		justify-content: center; /* Center the avatar horizontally */
-		align-items: center; /* Center the avatar vertically */
-	}
+		.menu-column {
+			flex: 0 0 280px;
+			background-color: white;
+			padding: 32px 24px;
+			border-right: 1px solid #eaeaea;
+			min-height: 600px;
+		}
 
-	.avatar {
-		width: 100px;
-		height: 100px;
-		border-radius: 50%;
-		object-fit: cover;
-	}
-	.content-column {
-		flex: 1;
-		padding: 20px;
-	}
-</style>
+		.avatar-container {
+			text-align: center;
+			margin: 0 auto 32px;
+			display: flex;
+			flex-direction: column;
+			gap: 16px;
+			align-items: center;
+		}
+
+		.avatar {
+			width: 120px;
+			height: 120px;
+			border-radius: 50%;
+			object-fit: cover;
+			border: 4px solid #ffffff;
+			box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+			transition: transform 0.2s ease;
+		}
+
+		.avatar:hover {
+			transform: scale(1.05);
+		}
+
+		.content-column {
+			flex: 1;
+			padding: 32px;
+			background-color: white;
+		}
+
+		.credit-display {
+			background-color: #f8f9fa;
+			padding: 12px 16px;
+			border-radius: 8px;
+			font-weight: 600;
+			color: #2d3748;
+			margin-bottom: 24px;
+			text-align: center;
+		}
+
+		h1 {
+			color: #1a202c;
+			font-size: 24px;
+			margin-bottom: 24px;
+			font-weight: 600;
+		}
+
+		.principal-display {
+			background-color: #f8f9fa;
+			padding: 16px;
+			border-radius: 8px;
+			word-break: break-all;
+			font-family: monospace;
+			font-size: 14px;
+		}
+
+		nav {
+			margin-top: 24px;
+		}
+
+		nav ul {
+			list-style: none;
+			padding: 0;
+			margin: 0;
+			display: flex;
+			flex-direction: column;
+			gap: 8px;
+		}
+
+		:global(nav .menu-item) {
+			padding: 12px 16px;
+			border-radius: 8px;
+			transition: all 0.2s ease;
+			cursor: pointer;
+			font-weight: 500;
+		}
+
+		:global(nav .menu-item:hover) {
+			background-color: #f3f4f6;
+		}
+
+		:global(nav .menu-item.active) {
+			background-color: #e5e7eb;
+			color: #1a202c;
+		}
+	</style>

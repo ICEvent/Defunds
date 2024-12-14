@@ -1,3 +1,31 @@
+type VotingStatus = 
+ record {
+   approvalVotePower: nat;
+   endTime: int;
+   rejectVotePower: nat;
+   startTime: int;
+   totalVotePower: nat;
+   votes: vec Vote;
+ };
+type VotingPower = 
+ record {
+   powerHistory: vec PowerChange;
+   totalPower: nat;
+   userId: principal;
+ };
+type VoteType = 
+ variant {
+   approve;
+   reject;
+ };
+type Vote = 
+ record {
+   grantId: int;
+   timestamp: int;
+   votePower: nat;
+   voteType: VoteType;
+   voterId: principal;
+ };
 type Status = 
  variant {
    approved;
@@ -6,40 +34,78 @@ type Status =
    rejected;
    review;
    submitted;
+   voting;
  };
 type Result = 
  variant {
    err: text;
    ok: nat;
  };
+type PowerChange = 
+ record {
+   amount: nat;
+   source: Donation;
+   timestamp: int;
+ };
 type NewGrant = 
  record {
    amount: nat;
-   currency: text;
+   category: text;
+   currency: Currency__1;
    description: text;
-   grantType: text;
+   proofs: vec text;
    recipient: principal;
-   reference: text;
    title: text;
  };
 type Grant = 
  record {
    amount: nat;
    applicant: principal;
-   currency: text;
+   category: text;
+   currency: Currency__1;
    description: text;
    grantId: int;
    grantStatus: Status;
-   grantType: text;
+   proofs: vec text;
    recipient: principal;
-   reference: text;
    submitime: int;
    title: text;
+   votingStatus: opt VotingStatus;
+ };
+type Donation = 
+ record {
+   amount: nat;
+   currency: Currency;
+   donorId: principal;
+   timestamp: int;
+   txid: text;
+ };
+type Currency__1 = 
+ variant {
+   ICP;
+   ckBTC;
+   ckETH;
+   ckUSDC;
+ };
+type Currency = 
+ variant {
+   ICP;
+   ckBTC;
+   ckETH;
+   ckUSDC;
  };
 service : {
   applyGrant: (NewGrant) -> (Result);
+  cancelGrant: (nat) -> (Result);
+  donate: (nat, Currency, text) -> (Result);
+  finalizeGrantVoting: (nat) -> (Result);
   getDonorCredit: (text) -> (opt nat) query;
   getGrant: (nat) -> (opt Grant) query;
-  getGrants: (nat, nat) -> (vec Grant) query;
-  updateExchangeRates: (text, nat) -> (Result);
+  getGrantVotingStatus: (nat) -> (opt VotingStatus) query;
+  getGrants: (vec Status, nat) -> (vec Grant) query;
+  getMyGrants: () -> (vec Grant) query;
+  getVotingPower: (principal) -> (opt VotingPower) query;
+  startGrantVoting: (nat) -> (Result);
+  updateExchangeRates: (Currency, nat) -> (Result);
+  voteOnGrant: (nat, VoteType) -> (Result);
 }

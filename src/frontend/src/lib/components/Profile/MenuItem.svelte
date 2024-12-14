@@ -1,30 +1,40 @@
 <script>
-	export let name;
+    export let name;
+    export let active;
 
-	export let active;
+    // Capitalize the first letter of the name
+    $: displayName = name.charAt(0).toUpperCase() + name.slice(1);
 </script>
 
 <button
-	type="button"
-	class="menu-item"
-	class:active
-	on:click
-	on:keydown={(e) => e.key === 'Enter' && e.target.click()}
+    type="button"
+    class="menu-item"
+    class:active
+    on:click
+    on:keydown={(e) => e.key === 'Enter' && e.target.click()}
 >
-	<span>{name}</span>
+    <span>{displayName}</span>
 </button>
 
 <style>
-	.menu-item {
-		border-bottom: 1px solid #ddd; /* Add a bottom border for separators */
-	}
+    .menu-item {
+        width: 100%;
+        text-align: left;
+        padding: 12px 16px;
+        border: none;
+        background: none;
+        cursor: pointer;
+        border-radius: 8px;
+        transition: all 0.2s ease;
+    }
 
-	.menu-item:last-child {
-		border-bottom: none; /* Remove the bottom border for the last item */
-	}
+    .menu-item:hover {
+        background-color: #f3f4f6;
+    }
 
-	.menu-item.active {
-		font-weight: bold;
-		background-color: #f0f0f0;
-	}
+    .menu-item.active {
+        font-weight: 600;
+        background-color: #e5e7eb;
+        color: #1a202c;
+    }
 </style>

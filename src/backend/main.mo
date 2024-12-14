@@ -129,6 +129,39 @@ actor {
 		grants.getGrant(grantId);
 	};
 
+	public query ({ caller }) func getMyGrants() : async [Grant] {
+		let allGrants = grants.getGrants();
+
+		// Filter grants where recipient matches caller
+		Array.filter<Grant>(
+			allGrants,
+			func(grant : Grant) : Bool {
+				grant.applicant == caller;
+			},
+		);
+	};
+
+	public shared ({ caller }) func cancelGrant(grantId : Nat) : async Result.Result<Nat, Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot cancel grants");
+		} else {
+			switch (grants.getGrant(grantId)) {
+				case null { #err("Grant not found") };
+				case (?grant) {
+					if (grant.applicant != caller) {
+						#err("Only grant owner can cancel");
+					} else {
+						if (grants.changeGrantStatus(grantId, #cancelled)) {
+							#ok(1);
+						} else {
+							#err("Failed to cancel grant");
+						};
+					};
+				};
+			};
+		};
+	};
+
 	// New function to collect voting power from donations
 	public shared ({ caller }) func donate(amount : Nat, currency : Types.Currency, txid : Text) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
@@ -190,8 +223,6 @@ actor {
 	public query func getDonorCredit(donor : Text) : async ?Nat {
 		return donorCredits.get(Principal.fromText(donor));
 	};
-
-	// Add these public functions
 
 	// Start voting period for a grant
 	public shared ({ caller }) func startGrantVoting(grantId : Nat) : async Result.Result<Nat, Text> {

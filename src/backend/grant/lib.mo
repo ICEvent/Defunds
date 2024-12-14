@@ -16,20 +16,19 @@ module {
 	type VoteType = Types.VoteType;
 	type VotingStatus = Types.VotingStatus;
 
-	public class Grants(stableId : Nat, stableGrants : [(Nat,Grant)]) {
+	public class Grants(stableId : Nat, stableGrants : [(Nat, Grant)]) {
 		private var nextGrantId = stableId;
 
 		// Add this custom hash function
-		private func natHash(n: Nat) : Hash.Hash {
-			Text.hash(Nat.toText(n))
+		private func natHash(n : Nat) : Hash.Hash {
+			Text.hash(Nat.toText(n));
 		};
 
 		// Update the TrieMap initialization
 		var grants = TrieMap.TrieMap<Nat, Grant>(Nat.equal, natHash);
 		grants := TrieMap.fromEntries<Nat, Grant>(Iter.fromArray(stableGrants), Nat.equal, natHash);
 
-
-		public func toStable() : [(Nat,Grant)] {
+		public func toStable() : [(Nat, Grant)] {
 			Iter.toArray(grants.entries());
 		};
 
@@ -52,22 +51,22 @@ module {
 				proofs = grant.proofs;
 				votingStatus = null;
 			};
-			
-			grants.put(nextGrantId,newGrant);
+
+			grants.put(nextGrantId, newGrant);
 			nextGrantId += 1;
 		};
 
-		public func getGrant(grantId: Nat) : ?Grant {
+		public func getGrant(grantId : Nat) : ?Grant {
 			grants.get(grantId);
 		};
 
 		public func getGrants() : [Grant] {
-			Iter.toArray(grants.vals());    
-		};     
+			Iter.toArray(grants.vals());
+		};
 
 		// Initialize voting for a grant
-		public func startVoting(grantId: Nat) : Bool {
-			switch(grants.get(grantId)) {
+		public func startVoting(grantId : Nat) : Bool {
+			switch (grants.get(grantId)) {
 				case null { false };
 				case (?grant) {
 					let votingStatus : VotingStatus = {
@@ -78,24 +77,24 @@ module {
 						startTime = Time.now();
 						endTime = Time.now() + 7 * 24 * 60 * 60 * 1_000_000_000; // 7 days in nanoseconds
 					};
-					
+
 					let updatedGrant = {
 						grant with
 						votingStatus = ?votingStatus;
 						grantStatus = #review;
 					};
 					grants.put(grantId, updatedGrant);
-					true
+					true;
 				};
 			};
 		};
 
 		// Cast a vote on a grant
-		public func vote(grantId: Nat, voter: Principal, votePower: Nat, voteType: VoteType) : Bool {
-			switch(grants.get(grantId)) {
+		public func vote(grantId : Nat, voter : Principal, votePower : Nat, voteType : VoteType) : Bool {
+			switch (grants.get(grantId)) {
 				case null { false };
 				case (?grant) {
-					switch(grant.votingStatus) {
+					switch (grant.votingStatus) {
 						case null { false };
 						case (?status) {
 							if (Time.now() > status.endTime) { return false };
@@ -111,14 +110,18 @@ module {
 							let newVotes = Buffer.fromArray<Vote>(status.votes);
 							newVotes.add(newVote);
 
-							let newApprovalPower = switch(voteType) {
-								case (#approve) { status.approvalVotePower + votePower };
+							let newApprovalPower = switch (voteType) {
+								case (#approve) {
+									status.approvalVotePower + votePower;
+								};
 								case (#reject) { status.approvalVotePower };
 							};
 
-							let newRejectPower = switch(voteType) {
+							let newRejectPower = switch (voteType) {
 								case (#approve) { status.rejectVotePower };
-								case (#reject) { status.rejectVotePower + votePower };
+								case (#reject) {
+									status.rejectVotePower + votePower;
+								};
 							};
 
 							let newStatus : VotingStatus = {
@@ -135,7 +138,7 @@ module {
 								votingStatus = ?newStatus;
 							};
 							grants.put(grantId, updatedGrant);
-							true
+							true;
 						};
 					};
 				};
@@ -143,11 +146,11 @@ module {
 		};
 
 		// Check if voting has ended and finalize the grant status
-		public func finalizeVoting(grantId: Nat) : Bool {
-			switch(grants.get(grantId)) {
+		public func finalizeVoting(grantId : Nat) : Bool {
+			switch (grants.get(grantId)) {
 				case null { false };
 				case (?grant) {
-					switch(grant.votingStatus) {
+					switch (grant.votingStatus) {
 						case null { false };
 						case (?status) {
 							if (Time.now() <= status.endTime) { return false };
@@ -163,11 +166,26 @@ module {
 								grantStatus = newStatus;
 							};
 							grants.put(grantId, updatedGrant);
-							true
+							true;
 						};
 					};
 				};
 			};
 		};
+
+		public func changeGrantStatus(grantId : Nat, newStatus : Status) : Bool {
+			switch (grants.get(grantId)) {
+				case null { false };
+				case (?grant) {
+					let updatedGrant = {
+						grant with
+						grantStatus = newStatus;
+					};
+					grants.put(grantId, updatedGrant);
+					true;
+				};
+			};
+		}
+
 	};
 };
