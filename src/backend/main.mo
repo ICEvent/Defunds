@@ -141,6 +141,11 @@ actor {
 		);
 	};
 
+	public query func getAllGrants() : async [Grant] {
+		let allGrants = grants.getGrants();
+		allGrants;
+	};
+	
 	public shared ({ caller }) func cancelGrant(grantId : Nat) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot cancel grants");

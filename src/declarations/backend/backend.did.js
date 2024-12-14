@@ -82,6 +82,7 @@ export const idlFactory = ({ IDL }) => {
     'cancelGrant' : IDL.Func([IDL.Nat], [Result], []),
     'donate' : IDL.Func([IDL.Nat, Currency, IDL.Text], [Result], []),
     'finalizeGrantVoting' : IDL.Func([IDL.Nat], [Result], []),
+    'getAllGrants' : IDL.Func([], [IDL.Vec(Grant)], ['query']),
     'getDonorCredit' : IDL.Func([IDL.Text], [IDL.Opt(IDL.Nat)], ['query']),
     'getGrant' : IDL.Func([IDL.Nat], [IDL.Opt(Grant)], ['query']),
     'getGrantVotingStatus' : IDL.Func(

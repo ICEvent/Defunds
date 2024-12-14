@@ -2,6 +2,7 @@
     import { onMount } from "svelte";
     import { Principal } from "@dfinity/principal";
     import { globalStore } from "../../../store";
+    import { parseApplication } from "../../../utils";
 
     let isAuthed;
     let principal;
@@ -34,18 +35,7 @@
         category: "",
         proofs: [],
     };
-    function parseApplication(application) {
-        return {
-            ...application,
-            grantStatus: application.grantStatus
-                ? Object.keys(application.grantStatus)[0]
-                : "Pending",
-            currencyText: application.currency
-                ? Object.keys(application.currency)[0]
-                : "Unknown",
-            amount: Number(application.amount) / 10 ** 6,
-        };
-    }
+
     async function handleSubmit() {
         let grant = {
             title: formData.title,

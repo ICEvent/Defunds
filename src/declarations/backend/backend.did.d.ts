@@ -81,6 +81,7 @@ export interface _SERVICE {
   'cancelGrant' : ActorMethod<[bigint], Result>,
   'donate' : ActorMethod<[bigint, Currency, string], Result>,
   'finalizeGrantVoting' : ActorMethod<[bigint], Result>,
+  'getAllGrants' : ActorMethod<[], Array<Grant>>,
   'getDonorCredit' : ActorMethod<[string], [] | [bigint]>,
   'getGrant' : ActorMethod<[bigint], [] | [Grant]>,
   'getGrantVotingStatus' : ActorMethod<[bigint], [] | [VotingStatus]>,

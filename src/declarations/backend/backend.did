@@ -99,6 +99,7 @@ service : {
   cancelGrant: (nat) -> (Result);
   donate: (nat, Currency, text) -> (Result);
   finalizeGrantVoting: (nat) -> (Result);
+  getAllGrants: () -> (vec Grant) query;
   getDonorCredit: (text) -> (opt nat) query;
   getGrant: (nat) -> (opt Grant) query;
   getGrantVotingStatus: (nat) -> (opt VotingStatus) query;
