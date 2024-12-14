@@ -84,13 +84,92 @@ actor {
 			#ok(1);
 		};
 	};
-	
+
 	public query func getExchangeRates() : async [(Text, Nat)] {
 		Iter.toArray(donorExchangeRates.entries());
 	};
 
+	public query func getTotalVotingPower() : async Nat {
+		return _accumulated_donations;
+	};
+
 	//---------------------------------------
 	// Donations
+	//---------------------------------------
+	public shared ({ caller }) func donate(amount : Nat, currency : Types.Currency, txid : Text) : async Result.Result<Nat, Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("no permission for anonymous caller to donate");
+		} else {
+			let currencyText = currencyToText(currency);
+			let rate = switch (donorExchangeRates.get(currencyText)) {
+				case (null) 0;
+				case (?rate) rate;
+			};
+
+			let votePowerAmount = amount * rate;
+			//update global totoal voting power
+			_accumulated_donations += votePowerAmount;
+
+			//TODO: transfer to treasury
+
+			let donation : Donation = {
+				donorId = caller;
+				amount = amount;
+				currency = currency;
+				timestamp = Time.now();
+				txid = txid;
+			};
+
+			let powerChange : PowerChange = {
+				amount = votePowerAmount;
+				timestamp = Time.now();
+				source = donation;
+			};
+
+			// Update voting power
+			switch (votingPowers.get(caller)) {
+				case (null) {
+					let newVotingPower : VotingPower = {
+						userId = caller;
+						totalPower = votePowerAmount;
+						powerHistory = [powerChange];
+					};
+					votingPowers.put(caller, newVotingPower);
+				};
+				case (?existingPower) {
+					let updatedHistory = Buffer.fromArray<PowerChange>(existingPower.powerHistory);
+					updatedHistory.add(powerChange);
+
+					let updatedPower : VotingPower = {
+						userId = caller;
+						totalPower = existingPower.totalPower + votePowerAmount;
+						powerHistory = Buffer.toArray(updatedHistory);
+					};
+					votingPowers.put(caller, updatedPower);
+				};
+			};
+
+			#ok(1);
+		};
+	};
+
+	public query ({ caller }) func getMyDonations() : async [Donation] {
+		switch (votingPowers.get(caller)) {
+			case (null) { [] };
+			case (?power) {
+				let myDonations = Buffer.Buffer<Donation>(0);
+				for (powerChange in power.powerHistory.vals()) {
+
+					myDonations.add(powerChange.source);
+
+				};
+				Buffer.toArray(myDonations);
+			};
+		};
+	};
+
+	//---------------------------------------
+	// Grant
 	//---------------------------------------
 
 	public shared ({ caller }) func applyGrant(application : NewGrant) : async Result.Result<Nat, Text> {
@@ -172,59 +251,6 @@ actor {
 					};
 				};
 			};
-		};
-	};
-
-	// New function to collect voting power from donations
-	public shared ({ caller }) func donate(amount : Nat, currency : Types.Currency, txid : Text) : async Result.Result<Nat, Text> {
-		if (Principal.isAnonymous(caller)) {
-			#err("no permission for anonymous caller to donate");
-		} else {
-			let currencyText = currencyToText(currency);
-			let rate = switch (donorExchangeRates.get(currencyText)) {
-				case (null) 0;
-				case (?rate) rate;
-			};
-
-			let votePowerAmount = amount * rate;
-			let donation : Donation = {
-				donorId = caller;
-				amount = amount;
-				currency = currency;
-				timestamp = Time.now();
-				txid = txid;
-			};
-
-			let powerChange : PowerChange = {
-				amount = votePowerAmount;
-				timestamp = Time.now();
-				source = donation;
-			};
-
-			// Update voting power
-			switch (votingPowers.get(caller)) {
-				case (null) {
-					let newVotingPower : VotingPower = {
-						userId = caller;
-						totalPower = votePowerAmount;
-						powerHistory = [powerChange];
-					};
-					votingPowers.put(caller, newVotingPower);
-				};
-				case (?existingPower) {
-					let updatedHistory = Buffer.fromArray<PowerChange>(existingPower.powerHistory);
-					updatedHistory.add(powerChange);
-
-					let updatedPower : VotingPower = {
-						userId = caller;
-						totalPower = existingPower.totalPower + votePowerAmount;
-						powerHistory = Buffer.toArray(updatedHistory);
-					};
-					votingPowers.put(caller, updatedPower);
-				};
-			};
-
-			#ok(1);
 		};
 	};
 

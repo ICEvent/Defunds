@@ -17,12 +17,19 @@ export interface Donation {
   'timestamp' : bigint,
   'amount' : bigint,
 }
+export interface Donation__1 {
+  'donorId' : Principal,
+  'txid' : string,
+  'currency' : Currency,
+  'timestamp' : bigint,
+  'amount' : bigint,
+}
 export interface Grant {
   'applicant' : Principal,
   'grantStatus' : Status,
   'title' : string,
   'submitime' : bigint,
-  'recipient' : Principal,
+  'recipient' : string,
   'votingStatus' : [] | [VotingStatus],
   'description' : string,
   'grantId' : bigint,
@@ -33,7 +40,7 @@ export interface Grant {
 }
 export interface NewGrant {
   'title' : string,
-  'recipient' : Principal,
+  'recipient' : string,
   'description' : string,
   'currency' : Currency__1,
   'category' : string,
@@ -83,10 +90,13 @@ export interface _SERVICE {
   'finalizeGrantVoting' : ActorMethod<[bigint], Result>,
   'getAllGrants' : ActorMethod<[], Array<Grant>>,
   'getDonorCredit' : ActorMethod<[string], [] | [bigint]>,
+  'getExchangeRates' : ActorMethod<[], Array<[string, bigint]>>,
   'getGrant' : ActorMethod<[bigint], [] | [Grant]>,
   'getGrantVotingStatus' : ActorMethod<[bigint], [] | [VotingStatus]>,
   'getGrants' : ActorMethod<[Array<Status>, bigint], Array<Grant>>,
+  'getMyDonations' : ActorMethod<[], Array<Donation__1>>,
   'getMyGrants' : ActorMethod<[], Array<Grant>>,
+  'getTotalVotingPower' : ActorMethod<[], bigint>,
   'getVotingPower' : ActorMethod<[Principal], [] | [VotingPower]>,
   'startGrantVoting' : ActorMethod<[bigint], Result>,
   'updateExchangeRates' : ActorMethod<[Currency, bigint], Result>,

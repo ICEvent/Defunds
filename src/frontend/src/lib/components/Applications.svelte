@@ -3,7 +3,7 @@
 	import { globalStore } from '$lib/store';
 	import { onMount } from 'svelte';
 
-	import { parseApplication } from '$lib/utils';
+	import { parseApplication } from '$lib/utils/grant.utils';
 
 	let applications = [
 		

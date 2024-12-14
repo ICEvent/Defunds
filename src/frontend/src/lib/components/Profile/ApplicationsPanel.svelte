@@ -2,7 +2,9 @@
     import { onMount } from "svelte";
     import { Principal } from "@dfinity/principal";
     import { globalStore } from "$lib/store";
-    import { parseApplication } from "$lib/utils";
+    import { parseApplication } from "$lib/utils/grant.utils";
+    import { getDecimalsByCurrency, getCurrencyObjectByName } from "$lib/utils/currency.utils";
+    import { showProgress, hideProgress } from "$lib/stores/progress";
 
     let isAuthed = false;
     let principal;
@@ -14,11 +16,7 @@
             principal = store.principal;
             backend = store.backend;
         });
-        if (backend) {
-            let rapplications = await backend.getMyGrants();
-            applications = rapplications.map(parseApplication);
-            console.log(applications);
-        }
+        loadApplications();
         return () => {
             unsubscribe();
         };
@@ -30,29 +28,47 @@
         title: "",
         description: "",
         recipient: "",
-        amount: 0,
-        currency: { ICP: null },
+        amount: 0.01,
+        currency: "ICP",
         category: "",
         proofs: [],
     };
+
+    async function loadApplications() {
+        if (backend) {
+            let rapplications = await backend.getMyGrants();
+            applications = rapplications.map(parseApplication);
+            console.log(applications);
+        }
+    }
 
     async function handleSubmit() {
         let grant = {
             title: formData.title,
             description: formData.description,
-            recipient: Principal.fromText(formData.recipient),
-            amount: BigInt(formData.amount * 10 ** 6),
-            currency: formData.currency,
+            recipient: formData.recipient,
+            amount: BigInt(
+                formData.amount *
+                    10 **
+                        getDecimalsByCurrency(
+                            Object.keys(formData.currency)[0],
+                        ),
+            ),
+            currency: getCurrencyObjectByName(formData.currency),
             category: formData.category,
             proofs: formData.proofs,
         };
+        showProgress();
+        try {
+            let result = await backend.applyGrant(grant);
 
-        let result = await backend.applyGrant(grant);
-
-        if (result.ok) {
-            // applications.push(grant);
-        } else {
-            console.error(result.error);
+            if (result.ok) {
+                loadApplications();
+            } else {
+                console.error(result.error);
+            }
+        } finally {
+            hideProgress();
         }
         showApplicationModal = false;
         formData = {
@@ -67,11 +83,16 @@
     }
 
     async function cancelGrant(grantId) {
-        const result = await backend.cancelGrant(grantId);
-        if (result.ok) {
-            let rapplications = await backend.getMyGrants();
-            applications = rapplications.map(parseApplication);
-            console.log(applications);
+        try {
+            showProgress();
+            const result = await backend.cancelGrant(grantId);
+            if (result.ok) {
+                let rapplications = await backend.getMyGrants();
+                applications = rapplications.map(parseApplication);
+                console.log(applications);
+            }
+        } finally {
+            hideProgress();
         }
     }
 </script>
@@ -95,12 +116,12 @@
                     {application.grantStatus}
                 </p>
                 <p class="applicant">
-                    Applicant: {application.recipient.toString()}
+                    Applicant: {application.applicant.toString()}
                 </p>
                 <p class="description">{application.description}</p>
                 <div class="amount">
-                    Requested: {application.amount}
-                    {application.currencyText}
+                    Applying: {application.amount}
+                    {application.currency}
                 </div>
                 {#if application.grantStatus !== "cancelled"}
                     <div class="card-actions">
@@ -164,8 +185,7 @@
                             ></textarea>
                         </div>
                         <div class="form-group">
-                            <label for="recipient">Recipient Principal ID</label
-                            >
+                            <label for="recipient">Recipient Account</label>
                             <input
                                 type="text"
                                 id="recipient"
@@ -180,7 +200,7 @@
                                     type="number"
                                     id="amount"
                                     bind:value={formData.amount}
-                                    min="0"
+                                    min="0.01"
                                     step="0.01"
                                     required
                                 />
@@ -189,9 +209,9 @@
                                     bind:value={formData.currency}
                                     required
                                 >
-                                    <option value={{ ICP: null }}>ICP</option>
-                                    <option value={{ ckBTC: null }}
-                                        >ckBTC</option
+                                    <option selected value={"ICP"}>ICP</option>
+                                    <option value="ckUSDC"
+                                        >ckUSDC</option
                                     >
                                 </select>
                             </div>

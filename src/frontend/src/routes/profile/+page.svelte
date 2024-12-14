@@ -83,6 +83,7 @@
 								active={activeMenuItem === 'applications'}
 								name="Applications" />
 						</ul>
+						
 					</nav>
 					
 			</div>

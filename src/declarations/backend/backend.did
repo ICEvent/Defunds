@@ -54,7 +54,7 @@ type NewGrant =
    currency: Currency__1;
    description: text;
    proofs: vec text;
-   recipient: principal;
+   recipient: text;
    title: text;
  };
 type Grant = 
@@ -67,10 +67,18 @@ type Grant =
    grantId: int;
    grantStatus: Status;
    proofs: vec text;
-   recipient: principal;
+   recipient: text;
    submitime: int;
    title: text;
    votingStatus: opt VotingStatus;
+ };
+type Donation__1 = 
+ record {
+   amount: nat;
+   currency: Currency;
+   donorId: principal;
+   timestamp: int;
+   txid: text;
  };
 type Donation = 
  record {
@@ -101,10 +109,16 @@ service : {
   finalizeGrantVoting: (nat) -> (Result);
   getAllGrants: () -> (vec Grant) query;
   getDonorCredit: (text) -> (opt nat) query;
+  getExchangeRates: () -> (vec record {
+                                 text;
+                                 nat;
+                               }) query;
   getGrant: (nat) -> (opt Grant) query;
   getGrantVotingStatus: (nat) -> (opt VotingStatus) query;
   getGrants: (vec Status, nat) -> (vec Grant) query;
+  getMyDonations: () -> (vec Donation__1) query;
   getMyGrants: () -> (vec Grant) query;
+  getTotalVotingPower: () -> (nat) query;
   getVotingPower: (principal) -> (opt VotingPower) query;
   startGrantVoting: (nat) -> (Result);
   updateExchangeRates: (Currency, nat) -> (Result);

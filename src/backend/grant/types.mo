@@ -14,14 +14,12 @@ module {
 		#expired;
 	};
 
-
-
 	public type Grant = {
 		grantId : Int;
 		submitime : Int;
 		title : Text;
 		description : Text;
-		recipient : Principal;
+		recipient : Text; //address
 		applicant : Principal;
 		amount : Nat;
 		currency : Currency;
@@ -33,7 +31,7 @@ module {
 	public type NewGrant = {
 		title : Text;
 		description : Text;
-		recipient : Principal;
+		recipient : Text;
 		amount : Nat;
 		currency : Currency;
 		category : Text;

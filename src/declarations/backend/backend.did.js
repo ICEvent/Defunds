@@ -7,7 +7,7 @@ export const idlFactory = ({ IDL }) => {
   });
   const NewGrant = IDL.Record({
     'title' : IDL.Text,
-    'recipient' : IDL.Principal,
+    'recipient' : IDL.Text,
     'description' : IDL.Text,
     'currency' : Currency__1,
     'category' : IDL.Text,
@@ -51,13 +51,20 @@ export const idlFactory = ({ IDL }) => {
     'grantStatus' : Status,
     'title' : IDL.Text,
     'submitime' : IDL.Int,
-    'recipient' : IDL.Principal,
+    'recipient' : IDL.Text,
     'votingStatus' : IDL.Opt(VotingStatus),
     'description' : IDL.Text,
     'grantId' : IDL.Int,
     'currency' : Currency__1,
     'category' : IDL.Text,
     'proofs' : IDL.Vec(IDL.Text),
+    'amount' : IDL.Nat,
+  });
+  const Donation__1 = IDL.Record({
+    'donorId' : IDL.Principal,
+    'txid' : IDL.Text,
+    'currency' : Currency,
+    'timestamp' : IDL.Int,
     'amount' : IDL.Nat,
   });
   const Donation = IDL.Record({
@@ -84,6 +91,11 @@ export const idlFactory = ({ IDL }) => {
     'finalizeGrantVoting' : IDL.Func([IDL.Nat], [Result], []),
     'getAllGrants' : IDL.Func([], [IDL.Vec(Grant)], ['query']),
     'getDonorCredit' : IDL.Func([IDL.Text], [IDL.Opt(IDL.Nat)], ['query']),
+    'getExchangeRates' : IDL.Func(
+        [],
+        [IDL.Vec(IDL.Tuple(IDL.Text, IDL.Nat))],
+        ['query'],
+      ),
     'getGrant' : IDL.Func([IDL.Nat], [IDL.Opt(Grant)], ['query']),
     'getGrantVotingStatus' : IDL.Func(
         [IDL.Nat],
@@ -95,7 +107,9 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Vec(Grant)],
         ['query'],
       ),
+    'getMyDonations' : IDL.Func([], [IDL.Vec(Donation__1)], ['query']),
     'getMyGrants' : IDL.Func([], [IDL.Vec(Grant)], ['query']),
+    'getTotalVotingPower' : IDL.Func([], [IDL.Nat], ['query']),
     'getVotingPower' : IDL.Func(
         [IDL.Principal],
         [IDL.Opt(VotingPower)],

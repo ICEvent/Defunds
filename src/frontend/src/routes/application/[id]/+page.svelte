@@ -2,17 +2,25 @@
     import { page } from "$app/stores";
     import { onMount } from "svelte";
     import { globalStore } from "$lib/store";
-    import { parseApplication } from "$lib/utils";
+    import { parseApplication } from "$lib/utils/grant.utils";
     import { VOTE_POWER_DECIMALS } from "$lib/constants";
+    import { showNotification } from "$lib/stores/notification";
+    import { hideProgress, showProgress } from "$lib/stores/progress";
 
     let application;
     let backend;
     let grantId;
-    $: totalPower = application?.votingStatus ? 
-        Number(application.votingStatus.approvalVotePower) + Number(application.votingStatus.rejectVotePower) : 0;
-    
-    $: approvePercent = totalPower > 0 ? 
-        (Number(application.votingStatus.approvalVotePower) / totalPower) * 100 : 0;
+    $: totalPower = application?.votingStatus
+        ? Number(application.votingStatus.approvalVotePower) +
+          Number(application.votingStatus.rejectVotePower)
+        : 0;
+
+    $: approvePercent =
+        totalPower > 0
+            ? (Number(application.votingStatus.approvalVotePower) /
+                  totalPower) *
+              100
+            : 0;
     onMount(async () => {
         grantId = parseInt($page.params.id);
 
@@ -21,7 +29,7 @@
         });
 
         if (backend) {
-            loadApplication(grantId) 
+            loadApplication(grantId);
         }
 
         return () => {
@@ -39,19 +47,43 @@
     }
     async function startVoting(grantId) {
         if (backend) {
-            const result = await backend.startGrantVoting(grantId);
-            if (result.ok) {
-                loadApplication(grantId) 
+            showProgress();
+            try {
+                const result = await backend.startGrantVoting(grantId);
+                if (result.ok) {
+                    loadApplication(grantId);
+                    showNotification("Voting started!", "success");
+                }else{
+                    showNotification(result.err, "error");
+                }
+            }catch (error) {
+                showNotification(
+                    "Error starting voting: " + error.message,
+                    "error",
+                );
+            } finally {
+                hideProgress();
             }
         }
     }
 
     async function voteOnGrant(grantId, voteType) {
         if (backend) {
-            const result = await backend.voteOnGrant(grantId, voteType);
-            console.log(result);
-            if (result.ok) {
-                loadApplication(grantId) 
+            try {
+                const result = await backend.voteOnGrant(grantId, voteType);
+                console.log(result);
+                if (result.ok) {
+                    showNotification("Cast vote successful!", "success");
+
+                    loadApplication(grantId);
+                } else {
+                    showNotification(result.err, "error");
+                }
+            } catch (error) {
+                showNotification(
+                    "Error casting vote: " + error.message,
+                    "error",
+                );
             }
         }
     }
@@ -78,14 +110,6 @@
                     <span class="text-sm text-gray-400">
                         created by {application.applicant}
                     </span>
-                    {#if application.grantStatus === "submitted"}
-                        <button
-                            on:click={() => startVoting(application.grantId)}
-                            class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 text-sm font-medium"
-                        >
-                            Start Voting
-                        </button>
-                    {/if}
                 </div>
             </div>
 
@@ -107,7 +131,7 @@
                         </h3>
                         <p class="mt-2 font-mono text-sm break-all">
                             {application.recipient
-                                ? application.recipient.toString()
+                                ? application.recipient
                                 : "Unknown"}
                         </p>
                     </div>
@@ -122,7 +146,14 @@
                         {application.description}
                     </p>
                 </div>
-
+                {#if application.grantStatus === "submitted"}
+                    <button
+                        on:click={() => startVoting(application.grantId)}
+                        class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 text-sm font-medium"
+                    >
+                        Start Voting
+                    </button>
+                {/if}
                 <!-- Category -->
                 <!-- <div class="bg-gray-50 p-4 rounded-lg">
                     <h3 class="text-sm font-medium text-gray-500 mb-2">
@@ -139,7 +170,6 @@
                         voteOnGrant(application.grantId, { approve: null })}
                     class="vote-btn approve"
                 >
-                   
                     <span class="vote-text">Approve</span>
                 </button>
                 <button
@@ -147,25 +177,29 @@
                         voteOnGrant(application.grantId, { reject: null })}
                     class="vote-btn reject"
                 >
-                    
                     <span class="vote-text">Reject</span>
                 </button>
             </div>
 
-            
             <div class="voting-progress mt-5 mb-6">
                 {#if application.votingStatus}
                     <div class="progress-bar">
-                        <div class="approve-bar" style="width: {approvePercent}%"></div>
+                        <div
+                            class="approve-bar"
+                            style="width: {approvePercent}%"
+                        ></div>
                     </div>
                     <div class="flex justify-between text-sm mt-2">
-                        <span class="text-green-600">{approvePercent.toFixed(1)}% Approve</span>
-                        <span class="text-red-600">{(100 - approvePercent).toFixed(1)}% Reject</span>
+                        <span class="text-green-600"
+                            >{approvePercent.toFixed(1)}% Approve</span
+                        >
+                        <span class="text-red-600"
+                            >{(100 - approvePercent).toFixed(1)}% Reject</span
+                        >
                     </div>
                 {/if}
             </div>
-            {#if application.votingStatus}            
-
+            {#if application.votingStatus.length > 0}
                 <div class="votes-list mt-4">
                     {#each application.votingStatus.votes.sort((a, b) => Number(b.timestamp) - Number(a.timestamp)) as vote}
                         <div class="vote-item">
@@ -174,15 +208,16 @@
                                     >{vote.voterId.toString()}</code
                                 >
                                 <span class="vote-power"
-                                    >{Number(vote.votePower)/VOTE_POWER_DECIMALS} Power</span
+                                    >{Number(vote.votePower) /
+                                        VOTE_POWER_DECIMALS} Power</span
                                 >
                                 <span class="vote-time text-xs text-gray-400">
-                                    {new Date(Number(vote.timestamp) / 1_000_000).toLocaleString()}
+                                    {new Date(
+                                        Number(vote.timestamp) / 1_000_000,
+                                    ).toLocaleString()}
                                 </span>
                             </div>
-                            <span
-                                class="vote-type {vote.voteType}"
-                            >
+                            <span class="vote-type {vote.voteType}">
                                 {vote.voteType}
                             </span>
                         </div>
