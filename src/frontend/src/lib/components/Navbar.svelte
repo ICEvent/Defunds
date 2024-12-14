@@ -1,12 +1,12 @@
 <script>
-	import Dialog from './common/Dialog.svelte';
+	import Dialog from '$lib/components/common/Dialog.svelte';
 	import { AuthClient } from '@dfinity/auth-client';
 	import { HttpAgent } from '@dfinity/agent';
 	import { onMount } from 'svelte';
 
-	import { globalStore, setAgent } from '../../store';
+	import { globalStore, setAgent } from '$lib/store';
 	import { goto } from '$app/navigation';
-	import LoginForm from './LoginForm.svelte';
+	import LoginForm from '$lib/components/LoginForm.svelte';
 	import { HOST_MAINNET } from '$lib/constants';
 
 	let isAuthed = false;

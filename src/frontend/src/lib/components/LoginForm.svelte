@@ -3,7 +3,7 @@
 
 	import { HttpAgent } from '@dfinity/agent';
 	import { AuthClient } from '@dfinity/auth-client';
-	import { globalStore, setAgent } from '../../store';
+	import { globalStore, setAgent } from '$lib/store';
 
 	import {
 		DEFUND_CANISTER_ID,

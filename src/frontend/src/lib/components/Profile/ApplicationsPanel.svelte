@@ -1,10 +1,10 @@
 <script>
     import { onMount } from "svelte";
     import { Principal } from "@dfinity/principal";
-    import { globalStore } from "../../../store";
-    import { parseApplication } from "../../../utils";
+    import { globalStore } from "$lib/store";
+    import { parseApplication } from "$lib/utils";
 
-    let isAuthed;
+    let isAuthed = false;
     let principal;
     let backend;
     let page = 1;

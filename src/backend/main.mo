@@ -84,6 +84,14 @@ actor {
 			#ok(1);
 		};
 	};
+	
+	public query func getExchangeRates() : async [(Text, Nat)] {
+		Iter.toArray(donorExchangeRates.entries());
+	};
+
+	//---------------------------------------
+	// Donations
+	//---------------------------------------
 
 	public shared ({ caller }) func applyGrant(application : NewGrant) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
@@ -145,7 +153,7 @@ actor {
 		let allGrants = grants.getGrants();
 		allGrants;
 	};
-	
+
 	public shared ({ caller }) func cancelGrant(grantId : Nat) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot cancel grants");

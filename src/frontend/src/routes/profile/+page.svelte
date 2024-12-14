@@ -1,7 +1,7 @@
 <script>
 	import '../../app.css';
 	import { AuthClient } from '@dfinity/auth-client';
-	import { globalStore } from '../../store.js'; // Import your global store
+	import { globalStore } from '$lib/store.js'; // Import your global store
 	import Notifications from 'svelte-notifications';
 
 	import { onMount } from 'svelte';
@@ -9,6 +9,8 @@
 
 	import MenuItem from '$lib/components/Profile/MenuItem.svelte';
 	import ApplicationsPanel from '$lib/components/Profile/ApplicationsPanel.svelte';
+	import DonationPanel from '$lib/components/Profile/DonationPanel.svelte';
+
 	//import { ProfileIcon, SettingsIcon, HistoryIcon } from '../../Icons.svelte';
 	let activeMenuItem = 'profile';
 	let isAuthed = false;
@@ -92,8 +94,7 @@
 						Principal ID: {principal}
 					</div>
 				{:else if activeMenuItem === 'donations'}
-					<h1>Settings</h1>
-					<p>Manage your account settings here.</p>
+					<DonationPanel />
 				{:else if activeMenuItem === 'applications'}
 				<ApplicationsPanel />
 				{/if}

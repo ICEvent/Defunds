@@ -1,6 +1,6 @@
 <script>
-	import ListItem from './Donation/ListItem.svelte';
-	import { globalStore } from '../../store';
+	import ListItem from '$lib/components/Donation/ListItem.svelte';
+	import { globalStore } from '$lib/store';
 	import { onMount } from 'svelte';
 	import { HttpAgent } from '@dfinity/agent';
 	import { Principal } from '@dfinity/principal';

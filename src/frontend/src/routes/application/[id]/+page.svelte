@@ -1,40 +1,57 @@
 <script>
     import { page } from "$app/stores";
     import { onMount } from "svelte";
-    import { globalStore } from "../../../store";
+    import { globalStore } from "$lib/store";
     import { parseApplication } from "$lib/utils";
+    import { VOTE_POWER_DECIMALS } from "$lib/constants";
 
     let application;
     let backend;
-
+    let grantId;
+    $: totalPower = application?.votingStatus ? 
+        Number(application.votingStatus.approvalVotePower) + Number(application.votingStatus.rejectVotePower) : 0;
+    
+    $: approvePercent = totalPower > 0 ? 
+        (Number(application.votingStatus.approvalVotePower) / totalPower) * 100 : 0;
     onMount(async () => {
+        grantId = parseInt($page.params.id);
+
         const unsubscribe = globalStore.subscribe((store) => {
             backend = store.backend;
         });
 
         if (backend) {
-            const grantId = parseInt($page.params.id);
-            let result = await backend.getGrant(grantId);
-            if (result.length > 0) {
-                application = parseApplication(result[0]);
-                console.log(application);
-            }
+            loadApplication(grantId) 
         }
 
         return () => {
             unsubscribe();
         };
     });
+
+    async function loadApplication(grantId) {
+        if (backend) {
+            let result = await backend.getGrant(grantId);
+            if (result.length > 0) {
+                application = parseApplication(result[0]);
+            }
+        }
+    }
+    async function startVoting(grantId) {
+        if (backend) {
+            const result = await backend.startGrantVoting(grantId);
+            if (result.ok) {
+                loadApplication(grantId) 
+            }
+        }
+    }
+
     async function voteOnGrant(grantId, voteType) {
         if (backend) {
             const result = await backend.voteOnGrant(grantId, voteType);
+            console.log(result);
             if (result.ok) {
-                // Refresh grant data
-                let result = await backend.getGrant(grantId);
-                if (result) {
-                    application = parseApplication(result);
-                    console.log(application);
-                }
+                loadApplication(grantId) 
             }
         }
     }
@@ -49,21 +66,31 @@
                     {application.title}
                 </h1>
                 <div class="flex items-center gap-4 mb-2 mt-2">
-                    <span class="status {application.grantStatus.toLowerCase()}">{application.grantStatus}</span>
-                    
+                    <span class="status {application.grantStatus.toLowerCase()}"
+                        >{application.grantStatus}</span
+                    >
+
                     <span class="text-sm text-gray-400">
-                        {new Date(Number(application.submitime) / 1_000_000).toLocaleDateString()}
+                        {new Date(
+                            Number(application.submitime) / 1_000_000,
+                        ).toLocaleDateString()}
                     </span>
                     <span class="text-sm text-gray-400">
                         created by {application.applicant}
-                        </span> 
-                  </div>
-                
+                    </span>
+                    {#if application.grantStatus === "submitted"}
+                        <button
+                            on:click={() => startVoting(application.grantId)}
+                            class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 text-sm font-medium"
+                        >
+                            Start Voting
+                        </button>
+                    {/if}
+                </div>
             </div>
 
             <!-- Main Content -->
             <div class="p-6 space-y-6">
-     
                 <div class="grid md:grid-cols-2 gap-6">
                     <div class="bg-gray-50 p-4 rounded-lg">
                         <h3 class="text-sm font-medium text-gray-500">
@@ -112,7 +139,7 @@
                         voteOnGrant(application.grantId, { approve: null })}
                     class="vote-btn approve"
                 >
-                    <span class="vote-count">120</span>
+                   
                     <span class="vote-text">Approve</span>
                 </button>
                 <button
@@ -120,45 +147,43 @@
                         voteOnGrant(application.grantId, { reject: null })}
                     class="vote-btn reject"
                 >
-                    <span class="vote-count">45</span>
+                    
                     <span class="vote-text">Reject</span>
                 </button>
             </div>
 
-            {#if application.votingStatus}
-                <div class="voting-stats mb-6">
-                    <div class="stat-item">
-                        <span class="text-2xl font-bold text-green-600"
-                            >{application.votingStatus.approvalVotePower}</span
-                        >
-                        <span class="text-sm text-gray-500">Approval Power</span
-                        >
+            
+            <div class="voting-progress mt-5 mb-6">
+                {#if application.votingStatus}
+                    <div class="progress-bar">
+                        <div class="approve-bar" style="width: {approvePercent}%"></div>
                     </div>
-                    <div class="stat-item">
-                        <span class="text-2xl font-bold text-red-600"
-                            >{application.votingStatus.rejectVotePower}</span
-                        >
-                        <span class="text-sm text-gray-500">Reject Power</span>
+                    <div class="flex justify-between text-sm mt-2">
+                        <span class="text-green-600">{approvePercent.toFixed(1)}% Approve</span>
+                        <span class="text-red-600">{(100 - approvePercent).toFixed(1)}% Reject</span>
                     </div>
-                </div>
+                {/if}
+            </div>
+            {#if application.votingStatus}            
 
-                <div class="votes-list">
-                    {#each application.votingStatus.votes as vote}
+                <div class="votes-list mt-4">
+                    {#each application.votingStatus.votes.sort((a, b) => Number(b.timestamp) - Number(a.timestamp)) as vote}
                         <div class="vote-item">
                             <div class="vote-info">
                                 <code class="text-sm text-gray-600"
                                     >{vote.voterId.toString()}</code
                                 >
                                 <span class="vote-power"
-                                    >{vote.votePower} Power</span
+                                    >{Number(vote.votePower)/VOTE_POWER_DECIMALS} Power</span
                                 >
+                                <span class="vote-time text-xs text-gray-400">
+                                    {new Date(Number(vote.timestamp) / 1_000_000).toLocaleString()}
+                                </span>
                             </div>
                             <span
-                                class="vote-type {Object.keys(
-                                    vote.voteType,
-                                )[0]}"
+                                class="vote-type {vote.voteType}"
                             >
-                                {Object.keys(vote.voteType)[0]}
+                                {vote.voteType}
                             </span>
                         </div>
                     {/each}
@@ -327,5 +352,17 @@
     .vote-type.reject {
         background: #fee2e2;
         color: #991b1b;
+    }
+    .progress-bar {
+        height: 8px;
+        background: #fee2e2;
+        border-radius: 4px;
+        overflow: hidden;
+    }
+
+    .approve-bar {
+        height: 100%;
+        background: #dcfce7;
+        transition: width 0.3s ease;
     }
 </style>

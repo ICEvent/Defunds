@@ -11,10 +11,10 @@
 	import * as ICPLedger from "$declarations/icrc1_ledger_canister";
 
 	import { DEFUND_CANISTER_ID, DEFUND_TREASURY_ACCOUNT,HOST_MAINNET, getTokenNameByID, ICP_LEDGER_CANISTER_ID, ICP_TOKEN_DECIMALS } from '$lib/constants';
-	import DonationForm from './Donation/DonationForm.svelte';
-	import Dialog from './common/Dialog.svelte';
+	import DonationForm from '$lib/components/Donation/DonationForm.svelte';
+	import Dialog from '$lib/components/common/Dialog.svelte';
 
-	import { globalStore } from '../../store'; // Import your global store
+	import { globalStore } from '$lib/store'; // Import your global store
 
 	let icpledger = undefined;
 	let backend	= undefined;

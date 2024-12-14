@@ -1,9 +1,8 @@
 <script>
-	import ListItem from './Application/ListItem.svelte';
-	import { globalStore } from '../../store';
+	import ListItem from '$lib/components/Application/ListItem.svelte';
+	import { globalStore } from '$lib/store';
 	import { onMount } from 'svelte';
-	import { DEFUND_CANISTER_ID, EXPLORER_PRINCIPAL, ICP_LEDGER_CANISTER_ID } from '$lib/constants';
-	import {Principal} from '@dfinity/principal';
+
 	import { parseApplication } from '$lib/utils';
 
 	let applications = [
