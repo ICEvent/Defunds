@@ -21,7 +21,7 @@ module {
 		description : Text;
 		recipient : Text; //address
 		applicant : Principal;
-		amount : Nat;
+		amount : Nat64;
 		currency : Currency;
 		grantStatus : Status;
 		category : Text;
@@ -32,7 +32,7 @@ module {
 		title : Text;
 		description : Text;
 		recipient : Text;
-		amount : Nat;
+		amount : Nat64;
 		currency : Currency;
 		category : Text;
 		proofs : [Text];
@@ -48,14 +48,14 @@ module {
         voterId: Principal;
         grantId: Int;
         voteType: VoteType;
-        votePower: Nat;
+        votePower: Nat64;
         timestamp: Int;
     };
 
     public type VotingStatus = {
-        totalVotePower: Nat;
-        approvalVotePower: Nat;
-        rejectVotePower: Nat;
+        totalVotePower: Nat64;
+        approvalVotePower: Nat64;
+        rejectVotePower: Nat64;
         votes: [Vote];
         startTime: Int;
         endTime: Int;

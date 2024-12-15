@@ -5,6 +5,7 @@ import Principal "mo:base/Principal";
 import TrieMap "mo:base/TrieMap";
 import Hash "mo:base/Hash";
 import Nat "mo:base/Nat";
+import Nat64 "mo:base/Nat64";
 import Iter "mo:base/Iter";
 import Text "mo:base/Text";
 import Array "mo:base/Array";
@@ -111,13 +112,14 @@ module {
 		};
 
 		// Cast a vote on a grant
-		public func vote(grantId : Nat, voter : Principal, votePower : Nat, voteType : VoteType) : Bool {
+		public func vote(grantId : Nat, voter : Principal, votePower : Nat64, voteType : VoteType) : Bool {
 			switch (grants.get(grantId)) {
 				case null { false };
 				case (?grant) {
 					switch (grant.votingStatus) {
 						case null { false };
 						case (?status) {
+							// Check if voting has ended
 							if (Time.now() > status.endTime) { return false };
 							// Check if the voter has already voted
 							let hasVoted = Array.find<Vote>(
@@ -129,6 +131,7 @@ module {
 							switch (hasVoted) {
 								case (?_) { return false };
 								case null {
+									// Check if the voter has enough voting power
 									let newVote : Vote = {
 										voterId = voter;
 										grantId = grantId;
@@ -181,16 +184,43 @@ module {
 			};
 		};
 
+		public func calculateMinVotes(grantAmount : Nat64, totalFund : Nat64, totalDonors : Nat64) : Nat64 {
+			let ratio = grantAmount / totalFund;
+			let minVotes = (ratio * totalDonors) + 1;
+			minVotes;
+		};
+		public func calculateMinVotingPower(grantAmount : Nat64, totalFund : Nat64, totalVotingPower : Nat64) : Nat64 {
+			let ratio = grantAmount / totalFund;
+			let minPower = (ratio * totalVotingPower) + 1;
+			minPower;
+		};
 		// Check if voting has ended and finalize the grant status
-		public func finalizeVoting(grantId : Nat) : Bool {
+		public func finalizeVoting(grantId : Nat, totalFund : Nat64, totalDonors : Nat64, totalVotingPower : Nat64) : Bool {
 			switch (grants.get(grantId)) {
 				case null { false };
 				case (?grant) {
 					switch (grant.votingStatus) {
 						case null { false };
 						case (?status) {
+							//check if voting has ended
 							if (Time.now() <= status.endTime) { return false };
 
+							//check minimal requirement: votes and voting power	
+							let totalVotes = status.votes.size();
+							let totalPower = status.approvalVotePower + status.rejectVotePower;
+							let requiredVotes = calculateMinVotes(grant.amount, totalFund, totalDonors);
+							let requiredPower = calculateMinVotingPower(grant.amount, totalFund, totalVotingPower);
+
+							if (Nat64.fromNat(totalVotes) < requiredVotes or totalPower < requiredPower) {
+								let updatedGrant = {
+									grant with
+									grantStatus = #rejected
+								};
+								grants.put(grantId, updatedGrant);
+								return true;
+							};
+
+							//check if the grant is approved or rejected
 							let newStatus = if (status.approvalVotePower > status.rejectVotePower) {
 								#approved;
 							} else {
@@ -199,10 +229,11 @@ module {
 
 							let updatedGrant = {
 								grant with
-								grantStatus = newStatus;
+								grantStatus = newStatus
 							};
 							grants.put(grantId, updatedGrant);
 							true;
+
 						};
 					};
 				};

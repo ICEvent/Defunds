@@ -29,10 +29,11 @@ actor {
 	stable var pendingAmount = 0; // Amount of pending donations
 	stable var grantedAmount = 0; // Amount of granted donations
 	stable var _stable_grantId = 1; // Unique ID for each grant
-	stable var _accumulated_donations = 0; // Accumulated donations -- total voting power
+	stable var _accumulated_donations: Nat64 = 0; // Accumulated donations -- total voting power
+	stable var _accumulated_voting_power :Nat64 = 0; // Accumulated voting power
 
 	stable var upgradeCredits : [(Principal, Nat)] = [];
-	stable var upgradeExchangeRates : [(Text, Nat)] = [];
+	stable var upgradeExchangeRates : [(Text, Nat64)] = [];
 	stable var _stable_grants : [(Nat, Grant)] = [];
 
 	stable var DEFAULT_PAGE_SIZE = 50;
@@ -47,8 +48,8 @@ actor {
 
 	var donorCredits = TrieMap.TrieMap<Principal, Nat>(Principal.equal, Principal.hash);
 	donorCredits := TrieMap.fromEntries<Principal, Nat>(Iter.fromArray(upgradeCredits), Principal.equal, Principal.hash);
-	var donorExchangeRates = TrieMap.TrieMap<Text, Nat>(Text.equal, Text.hash);
-	donorExchangeRates := TrieMap.fromEntries<Text, Nat>(Iter.fromArray(upgradeExchangeRates), Text.equal, Text.hash);
+	var donorExchangeRates = TrieMap.TrieMap<Text, Nat64>(Text.equal, Text.hash);
+	donorExchangeRates := TrieMap.fromEntries<Text, Nat64>(Iter.fromArray(upgradeExchangeRates), Text.equal, Text.hash);
 
 	// Add these state variables
 	stable var upgradeVotingPowers : [(Principal, VotingPower)] = [];
@@ -78,7 +79,7 @@ actor {
 		upgradeVotingPowers := [];
 	};
 
-	public shared ({ caller }) func updateExchangeRates(currency : Types.Currency, rate : Nat) : async Result.Result<Nat, Text> {
+	public shared ({ caller }) func updateExchangeRates(currency : Types.Currency, rate : Nat64) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("no permission for anonymous caller to set exchange rate");
 		} else {
@@ -88,30 +89,35 @@ actor {
 		};
 	};
 
-	public query func getExchangeRates() : async [(Text, Nat)] {
+	public query func getExchangeRates() : async [(Text, Nat64)] {
 		Iter.toArray(donorExchangeRates.entries());
 	};
 
-	public query func getTotalVotingPower() : async Nat {
+	public query func getTotalDonations() : async Nat64 {
 		return _accumulated_donations;
+	};
+
+	public query func getTotalVotingPower() : async Nat64 {
+		return _accumulated_voting_power;
 	};
 
 	//---------------------------------------
 	// Donations
 	//---------------------------------------
-	public shared ({ caller }) func donate(amount : Nat, currency : Types.Currency, txid : Text) : async Result.Result<Nat, Text> {
+	public shared ({ caller }) func donate(amount : Nat64, currency : Types.Currency, txid : Text) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("no permission for anonymous caller to donate");
 		} else {
 			let currencyText = currencyToText(currency);
-			let rate = switch (donorExchangeRates.get(currencyText)) {
+			let rate:Nat64 = switch (donorExchangeRates.get(currencyText)) {
 				case (null) 0;
 				case (?rate) rate;
 			};
 
-			let votePowerAmount = amount * rate;
+			let votePowerAmount:Nat64 = amount * rate;
 			//update global totoal voting power
-			_accumulated_donations += votePowerAmount;
+			_accumulated_donations += amount;
+			_accumulated_voting_power += votePowerAmount;
 
 			//TODO: transfer to treasury
 
@@ -187,12 +193,11 @@ actor {
 	public query func getGrants(status : [GrantTypes.Status], page : Nat) : async [Grant] {
 		let pageSize = DEFAULT_PAGE_SIZE;
 
-		
-		var filteredGrants:[Grant] = [];
+		var filteredGrants : [Grant] = [];
 		// Filter grants by status
-		if(status.size() == 0){
+		if (status.size() == 0) {
 			filteredGrants := grants.getGrants();
-		}else{
+		} else {
 			let bufferGrants = Buffer.Buffer<Grant>(0);
 			for (s in status.vals()) {
 				let statusGrants = grants.getGrantsByStatus(s);
@@ -202,12 +207,12 @@ actor {
 		};
 
 		// let filteredGrants = Array.sort<Grant>(
-		// 	Buffer.toArray(bufferGrants),
-		// 	func(a : Grant, b : Grant) : Order.Order {
-		// 		Int.compare(b.submitime, a.submitime);
-		// 	},
+		//     Buffer.toArray(bufferGrants),
+		//     func(a : Grant, b : Grant) : Order.Order {
+		//         Int.compare(b.submitime, a.submitime);
+		//     },
 		// );
-		
+
 		// Calculate pagination
 		let startIndex = page * pageSize;
 		let endIndex = Nat.min(startIndex + pageSize, filteredGrants.size());
@@ -310,10 +315,55 @@ actor {
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot finalize voting");
 		} else {
-			if (grants.finalizeVoting(grantId)) {
+			//grantId : Nat, totalFund : Nat, totalDonors : Nat, totalVotingPower : Nat
+			let totalFund = _accumulated_donations;
+			let totalDonors = votingPowers.size();
+			let totalVotingPower = _accumulated_voting_power;
+
+			if (grants.finalizeVoting(grantId, totalFund, Nat64.fromNat(totalDonors), totalVotingPower)) {
 				#ok(1);
 			} else {
 				#err("Failed to finalize voting");
+			};
+		};
+	};
+	public shared ({ caller }) func claimGrant(grantId : Nat) : async Result.Result<Nat64, Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot claim grants");
+		} else {
+			switch (grants.getGrant(grantId)) {
+				case null { #err("Grant not found") };
+				case (?grant) {
+					if (grant.applicant != caller) {
+						#err("Only grant applicant can claim");
+					} else if (grant.grantStatus != #approved) {
+						#err("Grant must be approved to claim");
+					} else {
+						// Transfer funds to recipient
+						let transferArgs : ICPTypes.TransferArgs = {
+							memo = 0;
+							amount = { e8s = grant.amount };
+							fee = { e8s = 10_000 };
+							from_subaccount = null;
+							to = Text.encodeUtf8(grant.recipient);
+							created_at_time = null;
+						};
+
+						try {
+							let transferResult = await ICPLedger.transfer(transferArgs);
+							switch (transferResult) {
+								case (#Ok(blockIndex)) {
+									#ok(blockIndex);
+								};
+								case (#Err(error)) {
+									#err("Transfer failed");
+								};
+							};
+						} catch (error) {
+							#err("Transfer error");
+						};
+					};
+				};
 			};
 		};
 	};

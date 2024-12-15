@@ -11,7 +11,7 @@ module {
 
     public type Donation = {
         donorId : Principal;
-        amount : Nat;
+        amount : Nat64;
         currency : Currency;
         txid : Text;
         timestamp : Int;
@@ -19,12 +19,12 @@ module {
 
     public type VotingPower = {
         userId : Principal;
-        totalPower : Nat;
+        totalPower : Nat64;
         powerHistory : [PowerChange];
     };
 
     public type PowerChange = {
-        amount : Nat;
+        amount : Nat64;
         timestamp : Int;
         source : Donation;        
     };

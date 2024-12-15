@@ -94,6 +94,28 @@
             }
         }
     }
+
+    async function claimGrant(grantId) {
+        if (backend) {
+            showProgress();
+            try {
+                const result = await backend.claimGrant(grantId);
+                if (result.ok) {
+                    showNotification("Grant claimed successfully!", "success");
+                    loadApplication(grantId);
+                } else {
+                    showNotification(result.err, "error");
+                }
+            } catch (error) {
+                showNotification(
+                    "Error claiming grant: " + error.message,
+                    "error",
+                );
+            } finally {
+                hideProgress();
+            }
+        }
+    }
 </script>
 
 <div class="max-w-4xl mx-auto p-8">
@@ -161,6 +183,16 @@
                         Start Voting
                     </button>
                 {/if}
+                {#if application.grantStatus === "approved"}
+                    <div class="mt-6">
+                        <button
+                            class="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors"
+                            on:click={() => claimGrant(application.grantId)}
+                        >
+                            Claim 
+                        </button>
+                    </div>
+                {/if}
                 <!-- Category -->
                 <!-- <div class="bg-gray-50 p-4 rounded-lg">
                     <h3 class="text-sm font-medium text-gray-500 mb-2">
@@ -172,9 +204,11 @@
         </div>
 
         <div class="voting-section mt-8">
-            {#if isAuthed && application.grantStatus === "voting"}
+            {#if isAuthed && application.grantStatus === "voting" && Number(application.votingStatus.endTime) > Date.now() * 1_000_000}
                 {#if application.votingStatus?.votes.some((vote) => vote.voterId.toString() === principal.toString())}
-                    <div class="text-yellow-700 bg-blue-50 text-blue-700 p-4 rounded-lg mb-4">
+                    <div
+                        class="text-yellow-700 bg-blue-50 text-blue-700 p-4 rounded-lg mb-4"
+                    >
                         You have already cast your vote on this application
                     </div>
                 {:else}
@@ -206,12 +240,50 @@
                         <h3 class="text-xl font-semibold text-gray-800">
                             Voting Status
                         </h3>
-                        <span class="text-base font-medium text-gray-700">
-                            Ends: {new Date(
-                                Number(application.votingStatus.endTime) /
-                                    1_000_000,
-                            ).toLocaleString()}
-                        </span>
+                        {#if Number(application.votingStatus.endTime) < Date.now() * 1_000_000}
+                            <div
+                                class="bg-red-50 border-l-4 border-red-400 p-4 rounded-lg mb-4"
+                            >
+                                <div class="flex">
+                                    <div class="flex-shrink-0">
+                                        <svg
+                                            class="h-5 w-5 text-red-400"
+                                            viewBox="0 0 20 20"
+                                            fill="currentColor"
+                                        >
+                                            <path
+                                                fill-rule="evenodd"
+                                                d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                                                clip-rule="evenodd"
+                                            />
+                                        </svg>
+                                    </div>
+                                    <div class="ml-3">
+                                        <p class="text-red-700 font-medium">
+                                            Voting period has ended
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        {:else}
+                            <!-- Show remaining voting time -->
+                            {#if application.votingStatus}
+                                {@const timeLeft =
+                                    Number(application.votingStatus.endTime) /
+                                        1_000_000 -
+                                    Date.now()}
+                                {@const daysLeft = Math.floor(
+                                    timeLeft / (1000 * 60 * 60 * 24),
+                                )}
+                                {@const hoursLeft = Math.floor(
+                                    (timeLeft % (1000 * 60 * 60 * 24)) /
+                                        (1000 * 60 * 60),
+                                )}
+                                <div class="text-gray-600 font-medium">
+                                    Ends in: {daysLeft} days {hoursLeft} hours
+                                </div>
+                            {/if}
+                        {/if}
                     </div>
                     <div class="flex justify-between text-sm mb-2">
                         <span class="text-green-600 font-medium">
