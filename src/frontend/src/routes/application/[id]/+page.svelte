@@ -7,7 +7,8 @@
     import { showNotification } from "$lib/stores/notification";
     import { hideProgress, showProgress } from "$lib/stores/progress";
 
-    let isAuthed=false;
+    let isAuthed = false;
+    let principal;
     let application;
     let backend;
     let grantId;
@@ -26,6 +27,7 @@
         grantId = parseInt($page.params.id);
 
         const unsubscribe = globalStore.subscribe((store) => {
+            principal = store.principal;
             isAuthed = store.isAuthed;
             backend = store.backend;
         });
@@ -43,9 +45,8 @@
         if (backend) {
             let result = await backend.getGrant(grantId);
             if (result.length > 0) {
-                
                 application = parseApplication(result[0]);
-                console.log("applicaiton:", application)
+                console.log("applicaiton:", application);
             }
         }
     }
@@ -57,10 +58,10 @@
                 if (result.ok) {
                     loadApplication(grantId);
                     showNotification("Voting started!", "success");
-                }else{
+                } else {
                     showNotification(result.err, "error");
                 }
-            }catch (error) {
+            } catch (error) {
                 showNotification(
                     "Error starting voting: " + error.message,
                     "error",
@@ -76,7 +77,7 @@
             try {
                 showProgress();
                 const result = await backend.voteOnGrant(grantId, voteType);
-    
+
                 if (result.ok) {
                     showNotification("Cast vote successful!", "success");
                     loadApplication(grantId);
@@ -88,7 +89,7 @@
                     "Error casting vote: " + error.message,
                     "error",
                 );
-            }finally {
+            } finally {
                 hideProgress();
             }
         }
@@ -170,42 +171,59 @@
             </div>
         </div>
 
-        
         <div class="voting-section mt-8">
             {#if isAuthed && application.grantStatus === "voting"}
-            <div class="voting-buttons">
-                <button
-                    on:click={() =>
-                        voteOnGrant(application.grantId, { approve: null })}
-                    class="vote-btn approve"
-                >
-                    <span class="vote-text">Approve</span>
-                </button>
-                <button
-                    on:click={() =>
-                        voteOnGrant(application.grantId, { reject: null })}
-                    class="vote-btn reject"
-                >
-                    <span class="vote-text">Reject</span>
-                </button>
-            </div>
+                {#if application.votingStatus?.votes.some((vote) => vote.voterId.toString() === principal.toString())}
+                    <div class="text-yellow-700 bg-blue-50 text-blue-700 p-4 rounded-lg mb-4">
+                        You have already cast your vote on this application
+                    </div>
+                {:else}
+                    <div class="voting-buttons">
+                        <button
+                            on:click={() =>
+                                voteOnGrant(application.grantId, {
+                                    approve: null,
+                                })}
+                            class="vote-btn approve"
+                        >
+                            <span class="vote-text">Approve</span>
+                        </button>
+                        <button
+                            on:click={() =>
+                                voteOnGrant(application.grantId, {
+                                    reject: null,
+                                })}
+                            class="vote-btn reject"
+                        >
+                            <span class="vote-text">Reject</span>
+                        </button>
+                    </div>
+                {/if}
             {/if}
             <div class="voting-progress mt-5 mb-6">
                 {#if application.votingStatus}
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-xl font-semibold text-gray-800">Voting Status</h3>
-                    <span class="text-base font-medium text-gray-700">
-                        Ends: {new Date(Number(application.votingStatus.endTime) / 1_000_000).toLocaleString()}
-                    </span>
-                </div>
-                <div class="flex justify-between text-sm mb-2">
-                    <span class="text-green-600 font-medium">
-                        {Number(application.votingStatus.approvalVotePower) / VOTE_POWER_DECIMALS} 
-                    </span>
-                    <span class="text-red-600 font-medium">
-                        {Number(application.votingStatus.rejectVotePower) / VOTE_POWER_DECIMALS} 
-                    </span>
-                </div>
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-xl font-semibold text-gray-800">
+                            Voting Status
+                        </h3>
+                        <span class="text-base font-medium text-gray-700">
+                            Ends: {new Date(
+                                Number(application.votingStatus.endTime) /
+                                    1_000_000,
+                            ).toLocaleString()}
+                        </span>
+                    </div>
+                    <div class="flex justify-between text-sm mb-2">
+                        <span class="text-green-600 font-medium">
+                            {Number(
+                                application.votingStatus.approvalVotePower,
+                            ) / VOTE_POWER_DECIMALS}
+                        </span>
+                        <span class="text-red-600 font-medium">
+                            {Number(application.votingStatus.rejectVotePower) /
+                                VOTE_POWER_DECIMALS}
+                        </span>
+                    </div>
                     <div class="progress-bar">
                         <div
                             class="approve-bar"
@@ -214,15 +232,15 @@
                     </div>
                     <div class="flex justify-between text-sm mt-2">
                         <span class="text-green-600"
-                            >{approvePercent.toFixed(1)}% </span
-                        >
+                            >{approvePercent.toFixed(1)}%
+                        </span>
                         <span class="text-red-600"
-                            >{(100 - approvePercent).toFixed(1)}% </span
-                        >
+                            >{(100 - approvePercent).toFixed(1)}%
+                        </span>
                     </div>
                 {/if}
             </div>
-            
+
             {#if application.votingStatus && application.votingStatus.votes.length > 0}
                 <div class="votes-list mt-4">
                     {#each application.votingStatus.votes.sort((a, b) => Number(b.timestamp) - Number(a.timestamp)) as vote}

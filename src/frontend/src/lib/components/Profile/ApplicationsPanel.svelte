@@ -104,7 +104,7 @@
             class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
             on:click={() => (showApplicationModal = true)}
         >
-            Apply
+            Submit
         </button>
     </div>
 
@@ -115,15 +115,19 @@
                 <p class="status {application.grantStatus.toLowerCase()}">
                     {application.grantStatus}
                 </p>
-                <p class="applicant">
-                    Applicant: {application.applicant.toString()}
+                <p class="status amount">
+                    {application.amount}
+                    {application.currency}
+                </p>
+
+                <p class="status recipient">
+                     {application.recipient.slice(0, 6)}... {application.recipient.slice(-6)}
                 </p>
                 <p class="description">{application.description}</p>
-                <div class="amount">
-                    Applying: {application.amount}
-                    {application.currency}
-                </div>
-                {#if application.grantStatus !== "cancelled"}
+                <p class="text-gray-500 text-sm">
+                    Submitted: {new Date(Number(application.submitime) / 1_000_000).toLocaleString()}
+                </p>
+                {#if application.grantStatus == "submitted"}
                     <div class="card-actions">
                         <button
                             class="cancel-grant-btn"
@@ -286,6 +290,14 @@
         margin-bottom: 16px;
     }
 
+    .amount {
+        background: #edec9e;
+        color: #15d763;
+    }
+    .receipant {
+        background: #aec2e9;
+        color: rgb(16, 17, 16);
+    }
     .status.submitted {
         background: #fef3c7;
         color: #92400e;

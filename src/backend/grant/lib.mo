@@ -119,47 +119,62 @@ module {
 						case null { false };
 						case (?status) {
 							if (Time.now() > status.endTime) { return false };
+							// Check if the voter has already voted
+							let hasVoted = Array.find<Vote>(
+								status.votes,
+								func(vote : Vote) : Bool {
+									vote.voterId == voter;
+								},
+							);
+							switch (hasVoted) {
+								case (?_) { return false };
+								case null {
+									let newVote : Vote = {
+										voterId = voter;
+										grantId = grantId;
+										voteType = voteType;
+										votePower = votePower;
+										timestamp = Time.now();
+									};
 
-							let newVote : Vote = {
-								voterId = voter;
-								grantId = grantId;
-								voteType = voteType;
-								votePower = votePower;
-								timestamp = Time.now();
-							};
+									let newVotes = Buffer.fromArray<Vote>(status.votes);
+									newVotes.add(newVote);
 
-							let newVotes = Buffer.fromArray<Vote>(status.votes);
-							newVotes.add(newVote);
+									let newApprovalPower = switch (voteType) {
+										case (#approve) {
+											status.approvalVotePower + votePower;
+										};
+										case (#reject) {
+											status.approvalVotePower;
+										};
+									};
 
-							let newApprovalPower = switch (voteType) {
-								case (#approve) {
-									status.approvalVotePower + votePower;
+									let newRejectPower = switch (voteType) {
+										case (#approve) {
+											status.rejectVotePower;
+										};
+										case (#reject) {
+											status.rejectVotePower + votePower;
+										};
+									};
+
+									let newStatus : VotingStatus = {
+										totalVotePower = status.totalVotePower + votePower;
+										approvalVotePower = newApprovalPower;
+										rejectVotePower = newRejectPower;
+										votes = Buffer.toArray(newVotes);
+										startTime = status.startTime;
+										endTime = status.endTime;
+									};
+
+									let updatedGrant = {
+										grant with
+										votingStatus = ?newStatus;
+									};
+									grants.put(grantId, updatedGrant);
+									true;
 								};
-								case (#reject) { status.approvalVotePower };
 							};
-
-							let newRejectPower = switch (voteType) {
-								case (#approve) { status.rejectVotePower };
-								case (#reject) {
-									status.rejectVotePower + votePower;
-								};
-							};
-
-							let newStatus : VotingStatus = {
-								totalVotePower = status.totalVotePower + votePower;
-								approvalVotePower = newApprovalPower;
-								rejectVotePower = newRejectPower;
-								votes = Buffer.toArray(newVotes);
-								startTime = status.startTime;
-								endTime = status.endTime;
-							};
-
-							let updatedGrant = {
-								grant with
-								votingStatus = ?newStatus;
-							};
-							grants.put(grantId, updatedGrant);
-							true;
 						};
 					};
 				};
