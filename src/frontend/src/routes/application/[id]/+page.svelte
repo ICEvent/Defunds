@@ -43,8 +43,9 @@
         if (backend) {
             let result = await backend.getGrant(grantId);
             if (result.length > 0) {
-                console.log("applicaiton:", result[0])
+                
                 application = parseApplication(result[0]);
+                console.log("applicaiton:", application)
             }
         }
     }
@@ -222,7 +223,7 @@
                 {/if}
             </div>
             
-            {#if application.votingStatus}
+            {#if application.votingStatus && application.votingStatus.votes.length > 0}
                 <div class="votes-list mt-4">
                     {#each application.votingStatus.votes.sort((a, b) => Number(b.timestamp) - Number(a.timestamp)) as vote}
                         <div class="vote-item">

@@ -4,6 +4,8 @@
 
 	import { parseApplication } from '$lib/utils/grant.utils';
 
+    let selectedStatus = '';
+    let page = 0;
     let backend = null;
     let applications = [];
 
@@ -15,7 +17,8 @@
 		try {
 			
 		if (backend) {
-			let rapplications = await backend.getAllGrants();
+			let rapplications = await backend.getGrants([], BigInt(page));
+            console.log(rapplications);
 			applications = rapplications.map(parseApplication);
 	
 		}
@@ -26,16 +29,28 @@
 		return unsubscribe;
 	});
 
+    async function loadApplications(status) {
+        if (!backend) return;
+        
+        if (status) {
+            let statusVariant = { [status]: null };
+            applications = await backend.getGrants([statusVariant], BigInt(page));
+        } else {
+            applications = await backend.getGrants([], BigInt(page));
+        }
+        applications = applications.map(parseApplication);
+    }
+
+    $: {
+        if (backend) {
+            loadApplications(selectedStatus);
+        }
+    }
 </script>
 
 <div class="max-w-6xl mx-auto p-8">
     <div class="flex justify-between items-center mb-8">
         <h1 class="text-3xl font-bold text-gray-900">Applications</h1>
-        <button
-            class="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700"
-        >
-            New Application
-        </button>
     </div>
 
     <!-- Search and Filters -->
@@ -52,9 +67,11 @@
 
             <!-- Status Filter -->
             <select
+            bind:value={selectedStatus}
                 class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
             >
                 <option value="">All Status</option>
+                <option value="submitted">Submitted</option>
                 <option value="review">Review</option>
                 <option value="voting">Voting</option>
                 <option value="approved">Approved</option>

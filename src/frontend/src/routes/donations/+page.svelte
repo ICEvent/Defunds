@@ -8,11 +8,7 @@
 <div class="max-w-6xl mx-auto p-8">
     <div class="flex justify-between items-center mb-8">
         <h1 class="text-3xl font-bold text-gray-900">Donation History</h1>
-        <button
-            class="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700"
-        >
-            Donate Now
-        </button>
+
     </div>
 
     <!-- Search and Filters -->
@@ -60,11 +56,7 @@
                 No Donations Yet
             </h3>
             <p class="text-gray-600">Be the first to contribute to this fund</p>
-            <button
-                class="mt-6 bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700"
-            >
-                Make a Donation
-            </button>
+           
         </div>
     {:else}
         <div class="space-y-4">

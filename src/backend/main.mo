@@ -1,5 +1,6 @@
 import Types "types";
 import Nat "mo:base/Nat";
+import Int "mo:base/Int";
 import Array "mo:base/Array";
 import Text "mo:base/Text";
 import Iter "mo:base/Iter";
@@ -7,6 +8,7 @@ import Time "mo:base/Time";
 import Order "mo:base/Order";
 import Buffer "mo:base/Buffer";
 import Result "mo:base/Result";
+import Nat64 "mo:base/Nat64";
 
 import Principal "mo:base/Principal";
 import TrieMap "mo:base/TrieMap";
@@ -52,7 +54,7 @@ actor {
 	stable var upgradeVotingPowers : [(Principal, VotingPower)] = [];
 	var votingPowers = TrieMap.TrieMap<Principal, VotingPower>(Principal.equal, Principal.hash);
 	votingPowers := TrieMap.fromEntries<Principal, VotingPower>(Iter.fromArray(upgradeVotingPowers), Principal.equal, Principal.hash);
-	
+
 	private func currencyToText(currency : Types.Currency) : Text {
 		switch (currency) {
 			case (#ICP) { "ICP" };
@@ -184,24 +186,28 @@ actor {
 
 	public query func getGrants(status : [GrantTypes.Status], page : Nat) : async [Grant] {
 		let pageSize = DEFAULT_PAGE_SIZE;
-		let allGrants = grants.getGrants();
 
+		
+		var filteredGrants:[Grant] = [];
 		// Filter grants by status
-		let filteredGrants = Array.filter<Grant>(
-			allGrants,
-			func(grant : Grant) : Bool {
-				if (status.size() == 0) {
-					return true; // Return all if no status filter
-				};
-				for (s in status.vals()) {
-					if (grant.grantStatus == s) {
-						return true;
-					};
-				};
-				false;
-			},
-		);
+		if(status.size() == 0){
+			filteredGrants := grants.getGrants();
+		}else{
+			let bufferGrants = Buffer.Buffer<Grant>(0);
+			for (s in status.vals()) {
+				let statusGrants = grants.getGrantsByStatus(s);
+				bufferGrants.append(Buffer.fromArray(statusGrants));
+				filteredGrants := Buffer.toArray(bufferGrants);
+			};
+		};
 
+		// let filteredGrants = Array.sort<Grant>(
+		// 	Buffer.toArray(bufferGrants),
+		// 	func(a : Grant, b : Grant) : Order.Order {
+		// 		Int.compare(b.submitime, a.submitime);
+		// 	},
+		// );
+		
 		// Calculate pagination
 		let startIndex = page * pageSize;
 		let endIndex = Nat.min(startIndex + pageSize, filteredGrants.size());

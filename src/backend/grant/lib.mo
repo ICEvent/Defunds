@@ -7,6 +7,7 @@ import Hash "mo:base/Hash";
 import Nat "mo:base/Nat";
 import Iter "mo:base/Iter";
 import Text "mo:base/Text";
+import Array "mo:base/Array";
 
 module {
 	type Grant = Types.Grant;
@@ -62,6 +63,26 @@ module {
 
 		public func getGrants() : [Grant] {
 			Iter.toArray(grants.vals());
+		};
+
+		public func getGrantsByStatus(status : Status) : [Grant] {
+			let allGrants = Iter.toArray(grants.vals());
+
+			Array.filter<Grant>(
+				allGrants,
+				func(grant : Grant) : Bool {
+					switch (grant.grantStatus, status) {
+						case (#review, #review) { true };
+						case (#submitted, #submitted) { true };
+						case (#voting, #voting) { true };
+						case (#approved, #approved) { true };
+						case (#rejected, #rejected) { true };
+						case (#cancelled, #cancelled) { true };
+						case (#expired, #expired) { true };
+						case _ { false };
+					};
+				},
+			);
 		};
 
 		// Initialize voting for a grant

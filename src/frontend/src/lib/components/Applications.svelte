@@ -5,9 +5,8 @@
 
 	import { parseApplication } from '$lib/utils/grant.utils';
 
-	let applications = [
-		
-	];
+	let applications = [];
+	let page = 0;
 	let backend = null;
 	
 	onMount(async () => {
@@ -18,13 +17,13 @@
 		try {
 			
 		if (backend) {
-			let rapplications = await backend.getAllGrants();
+			let rapplications = await backend.getGrants([{submitted:null},{review:null},{voting:null}], BigInt(page));
 			applications = rapplications.map(parseApplication);
 			console.log(applications);
 		}
 	
 		} catch (error) {
-			console.error('Error fetching applications:', error);
+			console.error('Error fetching applications:', error.message);
 		}
 		return unsubscribe;
 	});
