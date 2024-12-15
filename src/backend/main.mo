@@ -51,7 +51,8 @@ actor {
 	// Add these state variables
 	stable var upgradeVotingPowers : [(Principal, VotingPower)] = [];
 	var votingPowers = TrieMap.TrieMap<Principal, VotingPower>(Principal.equal, Principal.hash);
-
+	votingPowers := TrieMap.fromEntries<Principal, VotingPower>(Iter.fromArray(upgradeVotingPowers), Principal.equal, Principal.hash);
+	
 	private func currencyToText(currency : Types.Currency) : Text {
 		switch (currency) {
 			case (#ICP) { "ICP" };

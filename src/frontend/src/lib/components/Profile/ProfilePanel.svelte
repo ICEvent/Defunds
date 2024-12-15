@@ -48,9 +48,10 @@
                     <p class="mt-2 text-2xl font-bold text-purple-600">{votingPower}</p>
                 </div>
                 <div class="bg-gray-50 p-4 rounded-lg">
-                    <h3 class="text-sm font-medium text-gray-500">Wallet Balance</h3>
-                    <p class="mt-2 text-2xl font-bold text-green-600">{balance} ICP</p>
+                    <h3 class="text-sm font-medium text-gray-500">ICP</h3>
+                    <p class="mt-2 text-2xl font-bold text-green-600">{balance}</p>
                 </div>
+                
             </div>
         </div>
     </div>

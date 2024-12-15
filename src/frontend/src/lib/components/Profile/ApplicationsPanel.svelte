@@ -101,10 +101,10 @@
     <div class="panel-header">
         <h1>Applications</h1>
         <button
-            class="create-btn"
+            class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
             on:click={() => (showApplicationModal = true)}
         >
-            Apply for Grant
+            Apply
         </button>
     </div>
 
@@ -341,7 +341,7 @@
     }
 
     .create-btn {
-        background: #4caf50;
+        background: #5230d8;
         color: white;
         padding: 8px 16px;
         border-radius: 6px;

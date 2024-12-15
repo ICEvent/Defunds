@@ -14,29 +14,26 @@
   const transactionId = donation.txid;
   
 </script>
-<div class="bg-white shadow-md rounded-md p-4 mb-4">
-    <p class="text-gray-700">
+<div class="bg-white shadow-md rounded-md p-4 mb-4 w-full max-w-full overflow-hidden">
+  <p class="text-gray-700 break-words whitespace-normal">
       received
       <a
-            href="{EXPLORER_ICP_TX}{transactionId}"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-blue-500 hover:text-blue-700"
-        >
-        {Number(donation.amount)/100000000} {getTokenNameByID(donation.currency)} 
-        </a>
-      from 
-      
+          href="{EXPLORER_ICP_TX}{transactionId}"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-blue-500 hover:text-blue-700"
+      >
+          {Number(donation.amount)/100000000} {getTokenNameByID(donation.currency)}
+      </a>
+      from
       <a
-      href="{EXPLORER_ACCOUNT}{donation.donor}"
-      target="_blank"
-      rel="noopener noreferrer"
-      class="text-blue-500 hover:text-blue-700"
-  >
-      {`${donation.donor.slice(0, 5)}...${donation.donor.slice(-5)}`}
-  </a>
-      at {formattedTimestamp}</p>
-
-        
-   
+          href="{EXPLORER_ACCOUNT}{donation.donor}"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-blue-500 hover:text-blue-700"
+      >
+          {`${donation.donor.slice(0, 5)}...${donation.donor.slice(-5)}`}
+      </a>
+      at {formattedTimestamp}
+  </p>
 </div>

@@ -36,22 +36,8 @@
 		return app.grantStatus.toLowerCase() === selectedStatus;
 	});
 </script>
-	<div class="w-full md:w-1/2">
-		<div class="flex justify-between items-center mb-6">
-			<h3 class="text-2xl font-bold">Applications</h3>
-			<select 
-				bind:value={selectedStatus}
-				class="border rounded-lg px-4 py-2">
-				<option value="all">All Status</option>
-				<option value="submitted">Submitted</option>
-				<option value="review">Review</option>
-				<option value="voting">Voting</option>
-				<option value="approved">Approved</option>
-				<option value="rejected">Rejected</option>
-				<option value="cancelled">Cancelled</option>
-				<option value="expired">Expired</option>
-			</select>
-		</div>
+	<div class="w-full">
+		
 
 		<div class="h-[600px] overflow-y-auto">
 			{#each filteredApplications as app}

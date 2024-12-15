@@ -12,10 +12,27 @@
 <main class="container mx-auto px-4 py-8 bg-gray-100">
 
 	<TreasureBox />
-	<div class="flex flex-col md:flex-row mt-8">
-		<Donations/>
-		<Applications/>
-	</div>
+	<div class="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8">
+        <section class="w-full">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold">Donations</h2>
+                <a href="/donations" class="text-blue-500 hover:text-blue-700">More...</a>
+            </div>
+            <div class="w-full">
+                <Donations />
+            </div>
+        </section>
+
+        <section class="w-full">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold">Applications</h2>
+                <a href="/applications" class="text-blue-500 hover:text-blue-700">More...</a>
+            </div>
+            <div class="w-full">
+                <Applications />
+            </div>
+        </section>
+    </div>
 </main>
 
 </Notifications>

@@ -30,12 +30,10 @@
 		if (await authClient.isAuthenticated()) {
 			handleAuthenticated(authClient);
 		}
-		isLoading = false;
-		onDestroy(() => {
-			if (unsubscribe) {
-				unsubscribe();
-			}
-		});
+
+		if (unsubscribe) {
+			unsubscribe();
+		}
 	});
 	const handleAuthenticated = async (authClient) => {
 		const identity = authClient.getIdentity();
@@ -72,49 +70,48 @@
 	}
 </script>
 
-
-	<nav class="bg-gray-700 py-4">
-		<div class="container mx-auto px-4 flex justify-between items-center">
-			<a
-				href="/"
-				class="text-yellow-500 font-bold flex items-center text-2xl"
-			>
-				<img
-					src="/defund_logo.jpg"
-					alt="Defund Logo"
-					class="h-8 mr-2"
-					style="color: #FFD700;"
-				/>
-				Defund
-			</a>
-			{#if isAuthed}
-				<div class="flex items-center space-x-4">
-					<button
-						class="text-white hover:text-gray-300 focus:outline-none"
-						on:click={navigateToProfile}
-					>
-						Profile
-					</button>
-					<button
-						class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-						on:click={handleLogout}
-					>
-						Logout
-					</button>
-				</div>
-			{:else}
+<nav class="bg-gray-700 py-4">
+	<div class="container mx-auto px-4 flex justify-between items-center">
+		<a
+			href="/"
+			class="text-yellow-500 font-bold flex items-center text-2xl"
+		>
+			<img
+				src="/defund_logo.jpg"
+				alt="Defund Logo"
+				class="h-8 mr-2"
+				style="color: #FFD700;"
+			/>
+			Defund
+		</a>
+		{#if isAuthed}
+			<div class="flex items-center space-x-4">
+				<button
+					class="text-white hover:text-gray-300 focus:outline-none"
+					on:click={navigateToProfile}
+				>
+					Profile
+				</button>
 				<button
 					class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-					on:click={() => (showLoginDialog = true)}
+					on:click={handleLogout}
 				>
-					Login
+					Logout
 				</button>
-			{/if}
-			<Dialog
-				isOpen={showLoginDialog}
-				on:close={() => (showLoginDialog = false)}
+			</div>
+		{:else}
+			<button
+				class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+				on:click={() => (showLoginDialog = true)}
 			>
-				<LoginForm closeLoginForm={() => (showLoginDialog = false)} />
-			</Dialog>
-		</div>
-	</nav>
+				Login
+			</button>
+		{/if}
+		<Dialog
+			isOpen={showLoginDialog}
+			on:close={() => (showLoginDialog = false)}
+		>
+			<LoginForm closeLoginForm={() => (showLoginDialog = false)} />
+		</Dialog>
+	</div>
+</nav>

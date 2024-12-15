@@ -81,7 +81,7 @@ module {
 					let updatedGrant = {
 						grant with
 						votingStatus = ?votingStatus;
-						grantStatus = #review;
+						grantStatus = #voting;
 					};
 					grants.put(grantId, updatedGrant);
 					true;

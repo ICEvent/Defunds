@@ -12,6 +12,7 @@
 		getTokenNameByID,
 		ICP_LEDGER_CANISTER_ID,
 		ICP_TOKEN_DECIMALS,
+		VOTE_POWER_DECIMALS,
 	} from "$lib/constants";
 	import DonationForm from "$lib/components/Donation/DonationForm.svelte";
 	import Dialog from "$lib/components/common/Dialog.svelte";
@@ -24,7 +25,7 @@
 	let isAuthed = false;
 	let showDonationForm = false;
 	let showApplicationForm = false;
-
+	let totalVotingPower = 0;
 	const { addNotification } = getNotificationsContext();
 
 	globalStore.subscribe((value) => {
@@ -42,6 +43,9 @@
 					subaccount: [],
 				});
 				totalDonations = Number(balance) / ICP_TOKEN_DECIMALS;
+			}
+			if(backend) {
+				totalVotingPower = await backend.getTotalVotingPower();
 			}
 			// icpledger = ICPLedger.createActor(
 			// 	new HttpAgent({
@@ -137,11 +141,8 @@
 			Your Fund, You Decide
 		</h1>
 		<div class="mb-8">
-			Transfer ICP to treasury account:<span class="text-indigo-800">
-				<a href={DEFUND_TREASURY_ACCOUNT} target="_blank"
-					>940bf...e197af</a
-				>
-			</span>to donate
+			All Time Total Voting Power: {Number(totalVotingPower)/VOTE_POWER_DECIMALS}
+			
 		</div>
 		<div class="relative inline-block">
 			<div class="treasure-box bg-yellow-500 rounded-md p-4 shadow-md">

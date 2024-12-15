@@ -73,8 +73,9 @@
     async function voteOnGrant(grantId, voteType) {
         if (backend) {
             try {
+                showProgress();
                 const result = await backend.voteOnGrant(grantId, voteType);
-                console.log(result);
+    
                 if (result.ok) {
                     showNotification("Cast vote successful!", "success");
                     loadApplication(grantId);
@@ -86,6 +87,8 @@
                     "Error casting vote: " + error.message,
                     "error",
                 );
+            }finally {
+                hideProgress();
             }
         }
     }
@@ -148,7 +151,7 @@
                         {application.description}
                     </p>
                 </div>
-                {#if isAuthed && application.grantStatus === "submitted"}
+                {#if isAuthed && application.grantStatus === "review"}
                     <button
                         on:click={() => startVoting(application.grantId)}
                         class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 text-sm font-medium"
@@ -188,6 +191,20 @@
             {/if}
             <div class="voting-progress mt-5 mb-6">
                 {#if application.votingStatus}
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-semibold text-gray-800">Voting Status</h3>
+                    <span class="text-base font-medium text-gray-700">
+                        Ends: {new Date(Number(application.votingStatus.endTime) / 1_000_000).toLocaleString()}
+                    </span>
+                </div>
+                <div class="flex justify-between text-sm mb-2">
+                    <span class="text-green-600 font-medium">
+                        {Number(application.votingStatus.approvalVotePower) / VOTE_POWER_DECIMALS} 
+                    </span>
+                    <span class="text-red-600 font-medium">
+                        {Number(application.votingStatus.rejectVotePower) / VOTE_POWER_DECIMALS} 
+                    </span>
+                </div>
                     <div class="progress-bar">
                         <div
                             class="approve-bar"
@@ -196,16 +213,16 @@
                     </div>
                     <div class="flex justify-between text-sm mt-2">
                         <span class="text-green-600"
-                            >{approvePercent.toFixed(1)}% Approve</span
+                            >{approvePercent.toFixed(1)}% </span
                         >
                         <span class="text-red-600"
-                            >{(100 - approvePercent).toFixed(1)}% Reject</span
+                            >{(100 - approvePercent).toFixed(1)}% </span
                         >
                     </div>
                 {/if}
             </div>
             
-            {#if application.votingStatus.length > 0}
+            {#if application.votingStatus}
                 <div class="votes-list mt-4">
                     {#each application.votingStatus.votes.sort((a, b) => Number(b.timestamp) - Number(a.timestamp)) as vote}
                         <div class="vote-item">
