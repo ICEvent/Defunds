@@ -9,3 +9,5 @@ src/frontend/node_modules/
 src/frontend/.svelte-kit/
 src/frontend/dist
 
+
+.mops

@@ -50,6 +50,28 @@
             }
         }
     }
+
+    async function startReview(grantId) {
+        if (backend) {
+            showProgress();
+            try {
+                const result = await backend.startReview(grantId);
+                if (result.ok) {
+                    loadApplication(grantId);
+                    showNotification("Review started!", "success");
+                } else {
+                    showNotification(result.err, "error");
+                }
+            } catch (error) {
+                showNotification(
+                    "Error starting review: " + error.message,
+                    "error",
+                );
+            } finally {
+                hideProgress();
+            }
+        }
+    }
     async function startVoting(grantId) {
         if (backend) {
             showProgress();
@@ -71,7 +93,28 @@
             }
         }
     }
+    async function rejectGrant(grantId) {
+        if (backend) {
+            try {
+                showProgress();
+                const result = await backend.rejectGrant(grantId);
 
+                if (result.ok) {
+                    showNotification("Reject grant successful!", "success");
+                    loadApplication(grantId);
+                } else {
+                    showNotification(result.err, "error");
+                }
+            } catch (error) {
+                showNotification(
+                    "Error reject grant: " + error.message,
+                    "error",
+                );
+            } finally {
+                hideProgress();
+            }
+        }
+    }
     async function voteOnGrant(grantId, voteType) {
         if (backend) {
             try {
@@ -175,6 +218,15 @@
                         {application.description}
                     </p>
                 </div>
+
+                {#if isAuthed && application.grantStatus === "submitted"}
+                    <button
+                        on:click={() => startReview(application.grantId)}
+                        class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 text-sm font-medium"
+                    >
+                        Start Review
+                    </button>
+                {/if}
                 {#if isAuthed && application.grantStatus === "review"}
                     <button
                         on:click={() => startVoting(application.grantId)}
@@ -183,13 +235,21 @@
                         Start Voting
                     </button>
                 {/if}
+                {#if isAuthed && (application.grantStatus === "submitted" ||application.grantStatus === "review")}
+                    <button
+                        on:click={() => rejectGrant(application.grantId)}
+                        class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 text-sm font-medium"
+                    >
+                        Reject Grant
+                    </button>
+                {/if}
                 {#if application.grantStatus === "approved"}
                     <div class="mt-6">
                         <button
                             class="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors"
                             on:click={() => claimGrant(application.grantId)}
                         >
-                            Claim 
+                            Claim
                         </button>
                     </div>
                 {/if}

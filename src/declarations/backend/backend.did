@@ -1,16 +1,16 @@
 type VotingStatus = 
  record {
-   approvalVotePower: nat;
+   approvalVotePower: nat64;
    endTime: int;
-   rejectVotePower: nat;
+   rejectVotePower: nat64;
    startTime: int;
-   totalVotePower: nat;
+   totalVotePower: nat64;
    votes: vec Vote;
  };
 type VotingPower = 
  record {
    powerHistory: vec PowerChange;
-   totalPower: nat;
+   totalPower: nat64;
    userId: principal;
  };
 type VoteType = 
@@ -22,7 +22,7 @@ type Vote =
  record {
    grantId: int;
    timestamp: int;
-   votePower: nat;
+   votePower: nat64;
    voteType: VoteType;
    voterId: principal;
  };
@@ -36,6 +36,11 @@ type Status =
    submitted;
    voting;
  };
+type Result_1 = 
+ variant {
+   err: text;
+   ok: nat64;
+ };
 type Result = 
  variant {
    err: text;
@@ -43,13 +48,13 @@ type Result =
  };
 type PowerChange = 
  record {
-   amount: nat;
+   amount: nat64;
    source: Donation;
    timestamp: int;
  };
 type NewGrant = 
  record {
-   amount: nat;
+   amount: nat64;
    category: text;
    currency: Currency__1;
    description: text;
@@ -59,7 +64,7 @@ type NewGrant =
  };
 type Grant = 
  record {
-   amount: nat;
+   amount: nat64;
    applicant: principal;
    category: text;
    currency: Currency__1;
@@ -74,7 +79,7 @@ type Grant =
  };
 type Donation__1 = 
  record {
-   amount: nat;
+   amount: nat64;
    currency: Currency;
    donorId: principal;
    timestamp: int;
@@ -82,7 +87,7 @@ type Donation__1 =
  };
 type Donation = 
  record {
-   amount: nat;
+   amount: nat64;
    currency: Currency;
    donorId: principal;
    timestamp: int;
@@ -103,24 +108,29 @@ type Currency =
    ckUSDC;
  };
 service : {
+  addConcilMember: (principal) -> (Result);
   applyGrant: (NewGrant) -> (Result);
   cancelGrant: (nat) -> (Result);
-  donate: (nat, Currency, text) -> (Result);
+  claimGrant: (nat) -> (Result_1);
+  donate: (nat64, Currency, text) -> (Result);
   finalizeGrantVoting: (nat) -> (Result);
   getAllGrants: () -> (vec Grant) query;
   getDonorCredit: (text) -> (opt nat) query;
   getExchangeRates: () -> (vec record {
                                  text;
-                                 nat;
+                                 nat64;
                                }) query;
   getGrant: (nat) -> (opt Grant) query;
   getGrantVotingStatus: (nat) -> (opt VotingStatus) query;
   getGrants: (vec Status, nat) -> (vec Grant) query;
   getMyDonations: () -> (vec Donation__1) query;
   getMyGrants: () -> (vec Grant) query;
-  getTotalVotingPower: () -> (nat) query;
+  getTotalDonations: () -> (nat64) query;
+  getTotalVotingPower: () -> (nat64) query;
   getVotingPower: (principal) -> (opt VotingPower) query;
+  rejectGrant: (nat) -> (Result);
   startGrantVoting: (nat) -> (Result);
-  updateExchangeRates: (Currency, nat) -> (Result);
+  startReview: (nat) -> (Result);
+  updateExchangeRates: (Currency, nat64) -> (Result);
   voteOnGrant: (nat, VoteType) -> (Result);
 }

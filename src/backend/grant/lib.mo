@@ -85,6 +85,20 @@ module {
 				},
 			);
 		};
+		
+		public func startReview(grantId : Nat) : Bool {
+			switch (grants.get(grantId)) {
+				case null { false };
+				case (?grant) {
+					let updatedGrant = {
+						grant with
+						grantStatus = #review;
+					};
+					grants.put(grantId, updatedGrant);
+					true;
+				};
+			};
+		};
 
 		// Initialize voting for a grant
 		public func startVoting(grantId : Nat) : Bool {
@@ -205,7 +219,7 @@ module {
 							//check if voting has ended
 							if (Time.now() <= status.endTime) { return false };
 
-							//check minimal requirement: votes and voting power	
+							//check minimal requirement: votes and voting power
 							let totalVotes = status.votes.size();
 							let totalPower = status.approvalVotePower + status.rejectVotePower;
 							let requiredVotes = calculateMinVotes(grant.amount, totalFund, totalDonors);

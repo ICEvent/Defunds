@@ -160,31 +160,7 @@
 			background-color: white;
 		}
 
-		.credit-display {
-			background-color: #f8f9fa;
-			padding: 12px 16px;
-			border-radius: 8px;
-			font-weight: 600;
-			color: #2d3748;
-			margin-bottom: 24px;
-			text-align: center;
-		}
-
-		h1 {
-			color: #1a202c;
-			font-size: 24px;
-			margin-bottom: 24px;
-			font-weight: 600;
-		}
-
-		.principal-display {
-			background-color: #f8f9fa;
-			padding: 16px;
-			border-radius: 8px;
-			word-break: break-all;
-			font-family: monospace;
-			font-size: 14px;
-		}
+		
 
 		nav {
 			margin-top: 24px;

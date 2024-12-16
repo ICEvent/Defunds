@@ -9,6 +9,7 @@ import Order "mo:base/Order";
 import Buffer "mo:base/Buffer";
 import Result "mo:base/Result";
 import Nat64 "mo:base/Nat64";
+import Option "mo:base/Option";
 
 import Principal "mo:base/Principal";
 import TrieMap "mo:base/TrieMap";
@@ -29,12 +30,16 @@ actor {
 	stable var pendingAmount = 0; // Amount of pending donations
 	stable var grantedAmount = 0; // Amount of granted donations
 	stable var _stable_grantId = 1; // Unique ID for each grant
-	stable var _accumulated_donations: Nat64 = 0; // Accumulated donations -- total voting power
-	stable var _accumulated_voting_power :Nat64 = 0; // Accumulated voting power
+	stable var _accumulated_donations : Nat64 = 0; // Accumulated donations -- total voting power
+	stable var _accumulated_voting_power : Nat64 = 0; // Accumulated voting power
 
 	stable var upgradeCredits : [(Principal, Nat)] = [];
 	stable var upgradeExchangeRates : [(Text, Nat64)] = [];
 	stable var _stable_grants : [(Nat, Grant)] = [];
+
+	stable var upgradeConcilMembers : [Principal] = [];
+	var concilMembers = TrieMap.TrieMap<Principal, Bool>(Principal.equal, Principal.hash);
+	concilMembers := TrieMap.fromEntries<Principal, Bool>(Iter.map<Principal, (Principal, Bool)>(Iter.fromArray(upgradeConcilMembers), func(p) { (p, true) }), Principal.equal, Principal.hash);
 
 	stable var DEFAULT_PAGE_SIZE = 50;
 
@@ -71,12 +76,14 @@ actor {
 		_stable_grants := grants.toStable();
 		_stable_grantId := grants.getNextGrantId();
 		upgradeVotingPowers := Iter.toArray(votingPowers.entries());
+		upgradeConcilMembers := Iter.toArray(Iter.map<(Principal, Bool), Principal>(concilMembers.entries(), func((p, _)) { p }));
 	};
 
 	system func postupgrade() {
 		upgradeCredits := [];
 		upgradeExchangeRates := [];
 		upgradeVotingPowers := [];
+		upgradeConcilMembers := [];
 	};
 
 	public shared ({ caller }) func updateExchangeRates(currency : Types.Currency, rate : Nat64) : async Result.Result<Nat, Text> {
@@ -101,6 +108,17 @@ actor {
 		return _accumulated_voting_power;
 	};
 
+	public shared ({ caller }) func addConcilMember(member : Principal) : async Result.Result<Nat, Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot add council members");
+		} else if (Option.isNull(concilMembers.get(caller))) {
+			#err("Only controller or council members can add new members");
+		} else {
+			concilMembers.put(member, true);
+			#ok(1);
+		};
+	};
+
 	//---------------------------------------
 	// Donations
 	//---------------------------------------
@@ -109,12 +127,12 @@ actor {
 			#err("no permission for anonymous caller to donate");
 		} else {
 			let currencyText = currencyToText(currency);
-			let rate:Nat64 = switch (donorExchangeRates.get(currencyText)) {
-				case (null) 0;
+			let rate : Nat64 = switch (donorExchangeRates.get(currencyText)) {
+				case (null) 1;
 				case (?rate) rate;
 			};
 
-			let votePowerAmount:Nat64 = amount * rate;
+			let votePowerAmount : Nat64 = amount * rate;
 			//update global totoal voting power
 			_accumulated_donations += amount;
 			_accumulated_voting_power += votePowerAmount;
@@ -275,10 +293,26 @@ actor {
 		return donorCredits.get(Principal.fromText(donor));
 	};
 
-	// Start voting period for a grant
+	public shared ({ caller }) func startReview(grantId : Nat) : async Result.Result<Nat, Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot start review");
+		} else if (Option.isNull(concilMembers.get(caller))) {
+			#err("Only council members can start review");
+		} else {
+			if (grants.startReview(grantId)) {
+				#ok(1);
+			} else {
+				#err("Failed to start review for grant");
+			};
+		};
+	};
+
+	// Update startGrantVoting with concilMember check
 	public shared ({ caller }) func startGrantVoting(grantId : Nat) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot start voting");
+		} else if (Option.isNull(concilMembers.get(caller))) {
+			#err("Only council members can start voting");
 		} else {
 			if (grants.startVoting(grantId)) {
 				#ok(1);
@@ -287,6 +321,21 @@ actor {
 			};
 		};
 	};
+
+	public shared ({ caller }) func rejectGrant(grantId : Nat) : async Result.Result<Nat, Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot reject grants");
+		} else if (Option.isNull(concilMembers.get(caller))) {
+			#err("Only council members can reject grants");
+		} else {
+			if (grants.changeGrantStatus(grantId, #rejected)) {
+				#ok(1);
+			} else {
+				#err("Failed to reject grant");
+			};
+		};
+	};
+
 	// Cast vote on a grant
 	public shared ({ caller }) func voteOnGrant(grantId : Nat, voteType : GrantTypes.VoteType) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
@@ -300,12 +349,17 @@ actor {
 			};
 			case (?power) {
 				let votePowerAmount = power.totalPower;
-				let voteResult = grants.vote(grantId, caller, votePowerAmount, voteType);
-				if (voteResult) {
-					#ok(1);
-				} else {
+				if (votePowerAmount == 0) {
 					#err("Insufficient voting power");
+				} else {
+					let voteResult = grants.vote(grantId, caller, votePowerAmount, voteType);
+					if (voteResult) {
+						#ok(1);
+					} else {
+						#err("Insufficient voting power");
+					};
 				};
+
 			};
 		}
 

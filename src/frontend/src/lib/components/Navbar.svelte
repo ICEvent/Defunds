@@ -2,7 +2,7 @@
 	import Dialog from "$lib/components/common/Dialog.svelte";
 	import { AuthClient } from "@dfinity/auth-client";
 	import { HttpAgent } from "@dfinity/agent";
-	import { onMount } from "svelte";
+	import { onMount, onDestroy } from "svelte";
 
 	import { globalStore, setAgent } from "$lib/store";
 	import { goto } from "$app/navigation";
@@ -30,7 +30,9 @@
 		if (await authClient.isAuthenticated()) {
 			handleAuthenticated(authClient);
 		}
+	});
 
+	onDestroy(() => {
 		if (unsubscribe) {
 			unsubscribe();
 		}

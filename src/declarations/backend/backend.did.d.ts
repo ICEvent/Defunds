@@ -54,6 +54,8 @@ export interface PowerChange {
 }
 export type Result = { 'ok' : bigint } |
   { 'err' : string };
+export type Result_1 = { 'ok' : bigint } |
+  { 'err' : string };
 export type Status = { 'review' : null } |
   { 'cancelled' : null } |
   { 'expired' : null } |
@@ -84,8 +86,10 @@ export interface VotingStatus {
   'totalVotePower' : bigint,
 }
 export interface _SERVICE {
+  'addConcilMember' : ActorMethod<[Principal], Result>,
   'applyGrant' : ActorMethod<[NewGrant], Result>,
   'cancelGrant' : ActorMethod<[bigint], Result>,
+  'claimGrant' : ActorMethod<[bigint], Result_1>,
   'donate' : ActorMethod<[bigint, Currency, string], Result>,
   'finalizeGrantVoting' : ActorMethod<[bigint], Result>,
   'getAllGrants' : ActorMethod<[], Array<Grant>>,
@@ -96,9 +100,12 @@ export interface _SERVICE {
   'getGrants' : ActorMethod<[Array<Status>, bigint], Array<Grant>>,
   'getMyDonations' : ActorMethod<[], Array<Donation__1>>,
   'getMyGrants' : ActorMethod<[], Array<Grant>>,
+  'getTotalDonations' : ActorMethod<[], bigint>,
   'getTotalVotingPower' : ActorMethod<[], bigint>,
   'getVotingPower' : ActorMethod<[Principal], [] | [VotingPower]>,
+  'rejectGrant' : ActorMethod<[bigint], Result>,
   'startGrantVoting' : ActorMethod<[bigint], Result>,
+  'startReview' : ActorMethod<[bigint], Result>,
   'updateExchangeRates' : ActorMethod<[Currency, bigint], Result>,
   'voteOnGrant' : ActorMethod<[bigint, VoteType], Result>,
 }
