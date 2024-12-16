@@ -1,21 +1,29 @@
 <script>
 	export let closeLoginForm = () => {};
 
-	import { HttpAgent } from '@dfinity/agent';
-	import { AuthClient } from '@dfinity/auth-client';
-	import { globalStore, setAgent } from '$lib/store';
+	import { HttpAgent } from "@dfinity/agent";
+	import { AuthClient } from "@dfinity/auth-client";
+	import { globalStore, setAgent } from "$lib/store";
 
 	import {
-		DEFUND_CANISTER_ID,
 		DERIVATION_ORIGION,
 		HOST_MAINNET,
 		IDENTITY_PROVIDER,
-		ONE_WEEK_NS
-	} from '$lib/constants';
+	} from "$lib/constants";
 
 	let isAuthed = false;
-	let principal = '';
+	let principal = "";
 	let authClient = null;
+
+	let windowFeatures = undefined;
+	const isDesktop = window.innerWidth > 768;
+	if (isDesktop) {
+		const width = 500;
+		const height = 600;
+		const left = window.screenX + (window.innerWidth - width) / 2;
+		const top = window.screenY + (window.innerHeight - height) / 2;
+		windowFeatures = `left=${left},top=${top},width=${width},height=${height}`;
+	}
 
 	globalStore.subscribe((value) => {
 		isAuthed = value.isAuthed;
@@ -28,15 +36,15 @@
 		setAgent(
 			new HttpAgent({
 				identity,
-				host: HOST_MAINNET
-			})
+				host: HOST_MAINNET,
+			}),
 		);
-		
+
 		globalStore.update((store) => {
 			return {
 				...store,
 				isAuthed: true,
-				principal: identity.getPrincipal()
+				principal: identity.getPrincipal(),
 			};
 		});
 		closeLoginForm();
@@ -46,31 +54,34 @@
 		authClient = await AuthClient.create({
 			idleOptions: {
 				disableIdle: true,
-				disableDefaultIdleCallback: true
-			}
+				disableDefaultIdleCallback: true,
+			},
 		});
-		
+
 		authClient.login({
+			derivationOrigin: DERIVATION_ORIGION,
 			identityProvider: IDENTITY_PROVIDER,
+			windowOpenerFeatures: windowFeatures,
 			onSuccess: () => {
 				handleAuthenticated(authClient);
-			}
+			},
 		});
 	}
 </script>
-	<div class="flex flex-col items-center justify-center p-8 bg-white rounded-lg">
-		<h2 class="text-3xl font-bold mb-8 text-gray-800">Welcome to Defund</h2>
-	
-		<div class="flex flex-col space-y-6 w-full max-w-sm">
-			<button
-				class="flex items-center justify-center space-x-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-3 px-6 rounded-lg transform transition-all duration-200 hover:scale-105 shadow-md"
-				on:click={() => handleIILogin('Internet Identity')}
-			>
-				<img src="/ii_logo.png" alt="Internet Identity" class="w-12 h-6" />
-				<span> Internet Identity</span>
-			</button>
 
-			<!-- <div class="relative my-6">
+<div class="flex flex-col items-center justify-center p-8 bg-white rounded-lg">
+	<h2 class="text-3xl font-bold mb-8 text-gray-800">Welcome to Defund</h2>
+
+	<div class="flex flex-col space-y-6 w-full max-w-sm">
+		<button
+			class="flex items-center justify-center space-x-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-3 px-6 rounded-lg transform transition-all duration-200 hover:scale-105 shadow-md"
+			on:click={() => handleIILogin("Internet Identity")}
+		>
+			<img src="/ii_logo.png" alt="Internet Identity" class="w-12 h-6" />
+			<span> Internet Identity</span>
+		</button>
+
+		<!-- <div class="relative my-6">
 				<div class="absolute inset-0 flex items-center">
 					<div class="w-full border-t border-gray-300"></div>
 				</div>
@@ -79,16 +90,16 @@
 				</div>
 			</div> -->
 
-			<!-- <button
+		<!-- <button
 				class="flex items-center justify-center space-x-3 bg-white border-2 border-gray-200 hover:border-gray-300 text-gray-700 font-semibold py-3 px-6 rounded-lg transform transition-all duration-200 hover:scale-105 shadow-sm"
 				on:click={() => handlePluginLogin('Plugin')}
 			>
 				<img src="/plug-logo.svg" alt="Plug Wallet" class="w-6 h-6" />
 				<span>Connect with Plug Wallet</span>
 			</button> -->
-		</div>
-
-		<p class="mt-6 text-sm text-gray-500">
-			By continuing, you agree to our Terms of Service
-		</p>
 	</div>
+
+	<p class="mt-6 text-sm text-gray-500">
+		By continuing, you agree to our Terms of Service
+	</p>
+</div>
