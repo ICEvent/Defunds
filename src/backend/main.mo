@@ -144,7 +144,7 @@ actor {
 	//---------------------------------------
 	// Donations
 	//---------------------------------------
-	public shared ({ caller }) func donate(amount : Nat64, currency : Types.Currency, txid : Text) : async Result.Result<Nat, Text> {
+	public shared ({ caller }) func donate(amount : Nat64, currency : Types.Currency, blockIndex : Nat) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("no permission for anonymous caller to donate");
 		} else {
@@ -167,7 +167,8 @@ actor {
 				amount = amount;
 				currency = currency;
 				timestamp = Time.now();
-				txid = txid;
+				blockIndex = blockIndex;
+				isConfirmed = false;
 			};
 
 			let powerChange : PowerChange = {

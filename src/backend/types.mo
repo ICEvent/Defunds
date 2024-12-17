@@ -13,8 +13,9 @@ module {
         donorId : Principal;
         amount : Nat64;
         currency : Currency;
-        txid : Text;
+        blockIndex : Nat;   
         timestamp : Int;
+        isConfirmed : Bool;
     };
 
     public type VotingPower = {
