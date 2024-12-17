@@ -65,32 +65,34 @@
 
 <div class="donation-panel mt-8">
     <!-- Donation Form -->
-    <div class="bg-white rounded-lg p-6 shadow-sm mb-6">
-        <h3 class="text-lg font-semibold mb-4">Make a Donation</h3>
-        <div class="flex gap-4">
+    <div class="bg-white rounded-lg p-4 sm:p-6 shadow-sm mb-6">
+        <h3 class="text-lg sm:text-xl font-semibold mb-4">Make a Donation</h3>
+        
+        <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
             <input
                 type="number"
                 bind:value={donationAmount}
                 placeholder="Amount"
-                class="flex-1 px-4 py-2 border rounded-lg"
+                class="w-full sm:flex-1 px-4 py-2 border rounded-lg text-sm sm:text-base"
                 min="0"
                 step="0.01"
             />
             <select
                 bind:value={donationCurrency}
-                class="px-4 py-2 border rounded-lg"
+                class="w-full sm:w-auto px-4 py-2 border rounded-lg text-sm sm:text-base"
             >
                 <option selected value="ICP">ICP</option>
                 <option value="ckUSDC">ckUSDC</option>
             </select>
             <button
                 on:click={handleDonate}
-                class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
+                class="w-full sm:w-auto bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 text-sm sm:text-base transition-colors"
             >
                 Donate
             </button>
         </div>
     </div>
+    
 
     <!-- Donation List -->
     <div class="bg-white rounded-lg p-6 shadow-sm">

@@ -13,20 +13,22 @@
         <section class="w-full">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-2xl font-bold">Donations</h2>
-                <a href="/donations" class="text-blue-500 hover:text-blue-700">More...</a>
+                
             </div>
             <div class="w-full">
                 <Donations />
+                <a href="/donations" class="text-blue-500 hover:text-blue-700">More...</a>
             </div>
         </section>
 
         <section class="w-full">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-2xl font-bold">Applications</h2>
-                <a href="/applications" class="text-blue-500 hover:text-blue-700">More...</a>
+                
             </div>
             <div class="w-full">
                 <Applications />
+                <a href="/applications" class="text-blue-500 hover:text-blue-700">More...</a>
             </div>
         </section>
     </div>

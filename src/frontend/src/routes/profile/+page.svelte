@@ -57,20 +57,19 @@
 	}
 </script>
 
-
-	<div class="container">
-		<div class="profile-layout">
-			<div class="menu-column">
-				<!-- Avatar -->
-				<div class="avatar-container">
-					<img src="/defund_logo.jpg" alt="Avatar" class="avatar" />
-				</div>
-				<!-- <div class="credit-display">
-					Available Credit: {credit} ICP
-				</div> -->
-					<!-- Menu items go here -->
-					<nav>
-						<ul>
+		<div class="container max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+			<div class="profile-layout flex flex-col lg:flex-row gap-6 bg-white rounded-xl shadow-lg">
+				<!-- Menu Column -->
+				<div class="menu-column w-full lg:w-80 p-6 lg:border-r border-gray-200">
+					<!-- Avatar -->
+					<div class="avatar-container">
+						<img src="/defund_logo.jpg" alt="Avatar" 
+								class="w-24 sm:w-32 h-24 sm:h-32 rounded-full object-cover border-4 border-white shadow-lg transition-transform hover:scale-105" />
+					</div>
+			
+					<!-- Navigation -->
+					<nav class="mt-8">
+						<ul class="space-y-2">
 							<MenuItem
 								on:click={() => changeActiveMenu('profile')}
 								active={activeMenuItem === 'profile'}
@@ -83,111 +82,37 @@
 								on:click={() => changeActiveMenu('applications')}
 								active={activeMenuItem === 'applications'}
 								name="Applications" />
-								<MenuItem
+							<MenuItem
 								on:click={() => changeActiveMenu('funds')}
 								active={activeMenuItem === 'funds'}
 								name="Funds" />
 						</ul>
-						
 					</nav>
-					
-			</div>
-			<div class="content-column">
-				<!-- Content based on active menu item -->
-				{#if activeMenuItem === 'profile'}
-				<ProfilePanel />
-				{:else if activeMenuItem === 'donations'}
-					<DonationPanel />
-				{:else if activeMenuItem === 'applications'}
-				<ApplicationsPanel />
-				{/if}
+				</div>
+
+				<!-- Content Column -->
+				<div class="content-column flex-1 p-4 sm:p-6 lg:p-8">
+					{#if activeMenuItem === 'profile'}
+						<ProfilePanel />
+					{:else if activeMenuItem === 'donations'}
+						<DonationPanel />
+					{:else if activeMenuItem === 'applications'}
+						<ApplicationsPanel />
+					{/if}
+				</div>
 			</div>
 		</div>
-	</div>
 
-	<style>
-		.container {
-			max-width: 1200px;
-			margin: 0 auto;
-			padding: 40px 20px;
-			min-height: 100vh;
-			background-color: #fafafa;
-		}
+		<style>
+			:global(nav .menu-item) {
+				@apply px-4 py-3 rounded-lg transition-all duration-200 cursor-pointer font-medium;
+			}
 
-		.profile-layout {
-			display: flex;
-			gap: 40px;
-			background-color: white;
-			border-radius: 12px;
-			box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-		}
+			:global(nav .menu-item:hover) {
+				@apply bg-gray-100;
+			}
 
-		.menu-column {
-			flex: 0 0 280px;
-			background-color: white;
-			padding: 32px 24px;
-			border-right: 1px solid #eaeaea;
-			min-height: 600px;
-		}
-
-		.avatar-container {
-			text-align: center;
-			margin: 0 auto 32px;
-			display: flex;
-			flex-direction: column;
-			gap: 16px;
-			align-items: center;
-		}
-
-		.avatar {
-			width: 120px;
-			height: 120px;
-			border-radius: 50%;
-			object-fit: cover;
-			border: 4px solid #ffffff;
-			box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
-			transition: transform 0.2s ease;
-		}
-
-		.avatar:hover {
-			transform: scale(1.05);
-		}
-
-		.content-column {
-			flex: 1;
-			padding: 32px;
-			background-color: white;
-		}
-
-		
-
-		nav {
-			margin-top: 24px;
-		}
-
-		nav ul {
-			list-style: none;
-			padding: 0;
-			margin: 0;
-			display: flex;
-			flex-direction: column;
-			gap: 8px;
-		}
-
-		:global(nav .menu-item) {
-			padding: 12px 16px;
-			border-radius: 8px;
-			transition: all 0.2s ease;
-			cursor: pointer;
-			font-weight: 500;
-		}
-
-		:global(nav .menu-item:hover) {
-			background-color: #f3f4f6;
-		}
-
-		:global(nav .menu-item.active) {
-			background-color: #e5e7eb;
-			color: #1a202c;
-		}
-	</style>
+			:global(nav .menu-item.active) {
+				@apply bg-gray-200 text-gray-900;
+			}
+		</style>
