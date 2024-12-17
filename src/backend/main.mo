@@ -27,10 +27,9 @@ actor {
 	type Grant = GrantTypes.Grant;
 	type NewGrant = GrantTypes.NewGrant;
 
-	stable var pendingAmount = 0; // Amount of pending donations
-	stable var grantedAmount = 0; // Amount of granted donations
 	stable var _stable_grantId = 1; // Unique ID for each grant
-	stable var _accumulated_donations : Nat64 = 0; // Accumulated donations -- total voting power
+	stable var _accumulated_donations : Nat64 = 0; // Accumulated donations
+	stable var _avaliable_funds : Nat64 = 0; // Total Available donations 
 	stable var _accumulated_voting_power : Nat64 = 0; // Accumulated voting power
 
 	stable var upgradeCredits : [(Principal, Nat)] = [];
@@ -68,6 +67,29 @@ actor {
 			case (#ckETH) { "ckETH" };
 			case (#ckUSDC) { "ckUSDC" };
 		};
+	};
+	stable var minVotePercentage : Nat = 50; // 50% of total donors must vote
+	stable var minPowerPercentage : Nat = 50; // 50% of total voting power required
+	stable var maxAmountPercentage : Nat = 5; // 5% of total funds maximum
+	public shared ({ caller }) func updateVotingPolicy(
+		newMinVote : Nat,
+		newMinPower : Nat,
+		newMaxAmount : Nat,
+	) : async Result.Result<Nat, Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot update policy");
+		} else if (Option.isNull(concilMembers.get(caller))) {
+			#err("Only council members can update policy");
+		} else {
+			minVotePercentage := newMinVote;
+			minPowerPercentage := newMinPower;
+			maxAmountPercentage := newMaxAmount;
+			#ok(1);
+		};
+	};
+
+	public query func getVotingPolicy() : async (Nat, Nat, Nat) {
+		(minVotePercentage, minPowerPercentage, maxAmountPercentage);
 	};
 
 	system func preupgrade() {
@@ -135,6 +157,7 @@ actor {
 			let votePowerAmount : Nat64 = amount * rate;
 			//update global totoal voting power
 			_accumulated_donations += amount;
+			_avaliable_funds += amount;
 			_accumulated_voting_power += votePowerAmount;
 
 			//TODO: transfer to treasury
@@ -203,8 +226,13 @@ actor {
 		if (Principal.isAnonymous(caller)) {
 			#err("no permission for anonymous caller to apply grant");
 		} else {
-			grants.apply(caller, application);
-			#ok(1);
+			let maxAllowedAmount = (_accumulated_donations * Nat64.fromNat(maxAmountPercentage)) / 100;
+			if (application.amount > maxAllowedAmount) {
+				#err("Requested amount exceeds maximum allowed amount");
+			} else {
+				grants.apply(caller, application);
+				#ok(1);
+			};
 		};
 	};
 
@@ -369,18 +397,37 @@ actor {
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot finalize voting");
 		} else {
-			//grantId : Nat, totalFund : Nat, totalDonors : Nat, totalVotingPower : Nat
 			let totalFund = _accumulated_donations;
 			let totalDonors = votingPowers.size();
 			let totalVotingPower = _accumulated_voting_power;
 
-			if (grants.finalizeVoting(grantId, totalFund, Nat64.fromNat(totalDonors), totalVotingPower)) {
-				#ok(1);
-			} else {
-				#err("Failed to finalize voting");
+			switch (grants.getGrant(grantId)) {
+				case null { #err("Grant not found") };
+				case (?grant) {
+					switch (grant.votingStatus) {
+						case null { #err("No voting status found") };
+						case (?status) {
+							let voterCount = status.votes.size();
+							if (voterCount * 100 < totalDonors * minVotePercentage) {
+								return #err("Insufficient voter participation");
+							};
+
+							if (status.totalVotePower * 100 < totalVotingPower * Nat64.fromNat(minPowerPercentage)) {
+								return #err("Insufficient voting power participation");
+							};
+
+							if (grants.finalizeVoting(grantId, totalFund, Nat64.fromNat(totalDonors), totalVotingPower)) {
+								#ok(1);
+							} else {
+								#err("Failed to finalize voting");
+							};
+						};
+					};
+				};
 			};
 		};
 	};
+
 	public shared ({ caller }) func claimGrant(grantId : Nat) : async Result.Result<Nat64, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot claim grants");
@@ -407,6 +454,8 @@ actor {
 							let transferResult = await ICPLedger.transfer(transferArgs);
 							switch (transferResult) {
 								case (#Ok(blockIndex)) {
+									ignore grants.changeGrantStatus (grantId, #released);
+									_avaliable_funds -= grant.amount;
 									#ok(blockIndex);
 								};
 								case (#Err(error)) {

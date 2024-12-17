@@ -2,7 +2,6 @@
 	import "../../app.css";
 
 	import { onMount } from "svelte";
-	import { getNotificationsContext } from "svelte-notifications";
 
 	import { Principal } from "@dfinity/principal";
 
@@ -26,7 +25,6 @@
 	let showDonationForm = false;
 	let showApplicationForm = false;
 	let totalVotingPower = 0;
-	const { addNotification } = getNotificationsContext();
 
 	globalStore.subscribe((value) => {
 		icpledger = value.icpledger;
@@ -59,80 +57,7 @@
 		}
 	});
 
-	function handleDonation() {
-		if (!isAuthed) {
-			addNotification({
-				text: "Please login to donate",
-				type: "error",
-				position: "top-right",
-			});
-		} else {
-			showDonationForm = true;
-		}
-	}
-	function handleApplication() {
-		if (!isAuthed) {
-			addNotification({
-				text: "Please login to apply",
-				type: "error",
-				position: "top-right",
-			});
-		} else {
-			showApplicationForm = true;
-		}
-	}
-
-	function submitDonation(event) {
-		// Call the backend function to process the donation
-		// with the provided amount and currency
-		const { amount, currency } = event.detail;
-		const params = {
-			to: DEFUND_CANISTER_ID,
-			amount: amount * ICP_TOKEN_DECIMALS,
-			memo: "donate fund",
-		};
-		console.log(params);
-		// window.ic.plug
-		// 	.requestTransfer(params)
-		// 	.then((result) => {
-		// 		if (result.ok) {
-		// 			// Handle successful donation
-		// 			console.log(`Donated ${donationAmount} ${selectedCurrency} successfully!`);
-		backend
-			.donate(amount, ICP_LEDGER_CANISTER_ID, { txid: "" })
-			.then((result) => {
-				if (result.ok) {
-					// Handle successful donation
-					console.log(`Donated ${amount} ${currency} successfully!`);
-					addNotification({
-						text: `Donated ${amount} ${currency} successfully!`,
-						type: "success",
-						position: "top-right",
-					});
-					showDonationForm = false;
-				} else {
-					// Handle donation error
-					console.error(`Error donating: ${result.err}`);
-					addNotification({
-						text: `Error donating: ${result.err}`,
-						type: "error",
-						position: "top-right",
-					});
-				}
-			});
-		// 	} else {
-		// 		// Handle donation error
-		// 		console.error(`Error donating: ${result.err}`);
-		// 	}
-		// })
-		// .catch((error) => {
-		// 	console.error('Error donating:', error);
-		// })
-		// .finally(() => {
-		// 	showDonationForm = false;
-		// 	donationAmount = '';
-		// });
-	}
+	
 </script>
 
 <div class="treasure-box-container bg-green-200 py-8">
@@ -157,29 +82,7 @@
 				</a>
 			</div>
 		</div>
-		<!-- <div class="flex justify-center space-x-4">
-			<button
-				class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-1.5 px-3 rounded-md text-sm"
-				on:click={handleDonation}
-			>
-				Donate
-			</button>
-			<button
-				class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-1.5 px-3 rounded-md text-sm"
-				on:click={handleApplication}
-			>
-				Apply
-			</button>
-		</div> -->
-		<Dialog
-			isOpen={showDonationForm}
-			on:close={() => (showDonationForm = false)}
-		>
-			<DonationForm
-				on:submit={submitDonation}
-				cancel={() => (showDonationForm = false)}
-			/>
-		</Dialog>
+		
 	</header>
 </div>
 

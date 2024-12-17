@@ -10,6 +10,7 @@ module {
 		#voting;
 		#approved;
 		#rejected;
+		#released;
 		#cancelled;
 		#expired;
 	};

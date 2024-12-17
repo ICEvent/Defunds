@@ -2,7 +2,6 @@
 	import '../../app.css';
 	import { AuthClient } from '@dfinity/auth-client';
 	import { globalStore } from '$lib/store.js'; // Import your global store
-	import Notifications from 'svelte-notifications';
 
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
@@ -58,7 +57,7 @@
 	}
 </script>
 
-<Notifications>
+
 	<div class="container">
 		<div class="profile-layout">
 			<div class="menu-column">
@@ -105,7 +104,7 @@
 			</div>
 		</div>
 	</div>
-</Notifications>
+
 	<style>
 		.container {
 			max-width: 1200px;

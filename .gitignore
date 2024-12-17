@@ -11,3 +11,6 @@ src/frontend/dist
 
 
 .mops
+mops.toml
+src/declarations/frontend/
+src/frontend/src/declarations/
