@@ -16,7 +16,7 @@
             backend = store.backend;
         });
 
-        if (backend) {
+        if (backend && principal) {
             const power = await backend.getVotingPower(principal);
             if (power.length > 0) { 
                 votingPower = Number(power[0].totalPower)/VOTE_POWER_DECIMALS;

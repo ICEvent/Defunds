@@ -98,7 +98,24 @@
             }
         }
     }
-
+    async function handleConfirm(blockIndex) {
+        if (backend) {
+            showProgress();
+            try {
+                const result = await backend.confirmDonation(blockIndex);
+                if (result.ok) {
+                    showNotification("Donation confirmed!", "success");
+                    loadDonations();
+                } else {
+                    showNotification(result.err, "error");
+                }
+            }catch (error) {
+                showNotification("Error confirming donation: " + error.message, "error");
+            } finally {
+                hideProgress();
+            }
+        }
+    }
     async function loadDonations() {
         if (backend) {
             donations = await backend.getMyDonations();
@@ -140,29 +157,30 @@
             </button>
         </div>
     </div>
-
     <!-- Donation List -->
     <div class="bg-white rounded-lg p-6 shadow-sm">
         <h3 class="text-lg font-semibold mb-4">Recent Donations</h3>
         <div class="space-y-4">
             {#each donations as donation}
-                <div
-                    class="flex justify-between items-center p-4 bg-gray-50 rounded-lg"
-                >
+                <div class="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
                     <div>
                         <p class="text-sm text-gray-500">
-                            {new Date(
-                                Number(donation.timestamp) / 1_000_000,
-                            ).toLocaleString()}
+                            {new Date(Number(donation.timestamp) / 1_000_000).toLocaleString()}
                         </p>
                     </div>
-                    <div class="text-lg font-semibold text-green-600">
-                        {Number(donation.amount) /
-                            10 **
-                                getDecimalsByCurrency(
-                                    Object.keys(donation.currency)[0],
-                                )}
-                        {Object.keys(donation.currency)[0]}
+                    <div class="flex items-center gap-4">
+                        <div class="text-lg font-semibold text-green-600">
+                            {Number(donation.amount) / 10 ** getDecimalsByCurrency(Object.keys(donation.currency)[0])}
+                            {Object.keys(donation.currency)[0]}
+                        </div>
+                        {#if !donation.isConfirmed}
+                            <button 
+                                on:click={() => handleConfirm(donation.blockIndex)}
+                                class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm"
+                            >
+                                Confirm
+                            </button>
+                        {/if}
                     </div>
                 </div>
             {/each}

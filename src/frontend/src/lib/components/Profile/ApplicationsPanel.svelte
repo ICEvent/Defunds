@@ -3,8 +3,12 @@
     import { Principal } from "@dfinity/principal";
     import { globalStore } from "$lib/store";
     import { parseApplication } from "$lib/utils/grant.utils";
-    import { getDecimalsByCurrency, getCurrencyObjectByName } from "$lib/utils/currency.utils";
+    import {
+        getDecimalsByCurrency,
+        getCurrencyObjectByName,
+    } from "$lib/utils/currency.utils";
     import { showProgress, hideProgress } from "$lib/stores/progress";
+    import { showNotification } from "$lib/stores/notification";
 
     let isAuthed = false;
     let principal;
@@ -61,25 +65,22 @@
         showProgress();
         try {
             let result = await backend.applyGrant(grant);
-
             if (result.ok) {
+                showNotification(
+                    "Application submitted successfully",
+                    "success",
+                );
+                showApplicationModal = false;
+                
                 loadApplications();
             } else {
-                console.error(result.error);
+                showNotification(result.err, "error");
             }
+        } catch (error) {
+            showNotification(error.message, "error");
         } finally {
             hideProgress();
         }
-        showApplicationModal = false;
-        formData = {
-            title: "",
-            description: "",
-            recipient: "",
-            amount: 0,
-            currency: "ICP",
-            category: "",
-            proofs: [],
-        };
     }
 
     async function cancelGrant(grantId) {
@@ -121,11 +122,15 @@
                 </p>
 
                 <p class="status recipient">
-                     {application.recipient.slice(0, 6)}... {application.recipient.slice(-6)}
+                    {application.recipient.slice(0, 6)}... {application.recipient.slice(
+                        -6,
+                    )}
                 </p>
                 <p class="description">{application.description}</p>
                 <p class="text-gray-500 text-sm">
-                    Submitted: {new Date(Number(application.submitime) / 1_000_000).toLocaleString()}
+                    Submitted: {new Date(
+                        Number(application.submitime) / 1_000_000,
+                    ).toLocaleString()}
                 </p>
                 {#if application.grantStatus == "submitted"}
                     <div class="card-actions">
@@ -214,9 +219,7 @@
                                     required
                                 >
                                     <option selected value={"ICP"}>ICP</option>
-                                    <option value="ckUSDC"
-                                        >ckUSDC</option
-                                    >
+                                    <option value="ckUSDC">ckUSDC</option>
                                 </select>
                             </div>
                         </div>

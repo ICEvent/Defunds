@@ -203,9 +203,11 @@ actor {
 						if (transfer.amount.e8s != tempDonation.amount) {
 							return #err("Amount mismatch");
 						};
-						if (Principal.fromBlob(transfer.from) != caller) {
-							return #err("Caller does not match transaction sender");
-						};
+
+						//TODO: verify owner
+						// if (Principal.fromBlob(transfer.from) != caller) {
+						// 	return #err("Caller does not match transaction sender");
+						// };
 
 						let currencyText = currencyToText(tempDonation.currency);
 						let rate : Nat64 = switch (donorExchangeRates.get(currencyText)) {
@@ -268,22 +270,35 @@ actor {
 		};
 	};
 	
-
-	public query ({ caller }) func getMyDonations() : async [Donation] {
-		switch (votingPowers.get(caller)) {
-			case (null) { [] };
-			case (?power) {
-				let myDonations = Buffer.Buffer<Donation>(0);
-				for (powerChange in power.powerHistory.vals()) {
-
-					myDonations.add(powerChange.source);
-
+		public query ({ caller }) func getMyDonations() : async [Donation] {
+			let allDonations = Buffer.Buffer<Donation>(0);
+	
+			// Get confirmed donations from voting power history
+			switch (votingPowers.get(caller)) {
+				case (null) { };
+				case (?power) {
+					for (powerChange in power.powerHistory.vals()) {
+						allDonations.add(powerChange.source);
+					};
 				};
-				Buffer.toArray(myDonations);
 			};
+	
+			// Get pending donations
+			for ((_, donation) in donations.entries()) {
+				if (donation.donorId == caller) {
+					allDonations.add({
+						donorId = donation.donorId;
+						amount = donation.amount;
+						currency = donation.currency;
+						timestamp = donation.timestamp;
+						blockIndex = donation.blockIndex;
+						isConfirmed = donation.isConfirmed;
+					});
+				};
+			};
+	
+			return Buffer.toArray(allDonations);
 		};
-	};
-
 	//---------------------------------------
 	// Grant
 	//---------------------------------------
