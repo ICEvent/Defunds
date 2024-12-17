@@ -13,9 +13,9 @@ module {
         donorId : Principal;
         amount : Nat64;
         currency : Currency;
-        blockIndex : Nat;   
+        blockIndex : Nat64;   
         timestamp : Int;
-        isConfirmed : Bool;
+        isConfirmed : Bool;//two steps donation: transfer and confirm 
     };
 
     public type VotingPower = {

@@ -10,6 +10,7 @@ import Buffer "mo:base/Buffer";
 import Result "mo:base/Result";
 import Nat64 "mo:base/Nat64";
 import Option "mo:base/Option";
+import Hash "mo:base/Hash";
 
 import Principal "mo:base/Principal";
 import TrieMap "mo:base/TrieMap";
@@ -29,12 +30,18 @@ actor {
 
 	stable var _stable_grantId = 1; // Unique ID for each grant
 	stable var _accumulated_donations : Nat64 = 0; // Accumulated donations
-	stable var _avaliable_funds : Nat64 = 0; // Total Available donations 
+	stable var _avaliable_funds : Nat64 = 0; // Total Available donations
 	stable var _accumulated_voting_power : Nat64 = 0; // Accumulated voting power
 
 	stable var upgradeCredits : [(Principal, Nat)] = [];
 	stable var upgradeExchangeRates : [(Text, Nat64)] = [];
 	stable var _stable_grants : [(Nat, Grant)] = [];
+	stable var upgradeDonations : [(Nat64, Donation)] = [];
+	let nat64Hash = func(n : Nat64) : Hash.Hash {
+		Text.hash(Nat64.toText(n));
+	};
+
+	var donations = TrieMap.TrieMap<Nat64, Donation>(Nat64.equal, nat64Hash);
 
 	stable var upgradeConcilMembers : [Principal] = [];
 	var concilMembers = TrieMap.TrieMap<Principal, Bool>(Principal.equal, Principal.hash);
@@ -45,6 +52,7 @@ actor {
 	let grants = Grants.Grants(_stable_grantId, _stable_grants);
 
 	let ICPLedger : actor {
+		query_blocks : shared query ICPTypes.GetBlocksArgs -> async ICPTypes.QueryBlocksResponse;
 		transfer : shared ICPTypes.TransferArgs -> async ICPTypes.Result_6;
 		account_balance : shared query ICPTypes.BinaryAccountBalanceArgs -> async ICPTypes.Tokens;
 
@@ -95,6 +103,8 @@ actor {
 	system func preupgrade() {
 		upgradeCredits := Iter.toArray(donorCredits.entries());
 		upgradeExchangeRates := Iter.toArray(donorExchangeRates.entries());
+		upgradeDonations := Iter.toArray(donations.entries());
+
 		_stable_grants := grants.toStable();
 		_stable_grantId := grants.getNextGrantId();
 		upgradeVotingPowers := Iter.toArray(votingPowers.entries());
@@ -106,6 +116,12 @@ actor {
 		upgradeExchangeRates := [];
 		upgradeVotingPowers := [];
 		upgradeConcilMembers := [];
+		donations := TrieMap.fromEntries<Nat64, Donation>(
+			Iter.fromArray(upgradeDonations),
+			Nat64.equal,
+			nat64Hash,
+		);
+		upgradeDonations := [];
 	};
 
 	public shared ({ caller }) func updateExchangeRates(currency : Types.Currency, rate : Nat64) : async Result.Result<Nat, Text> {
@@ -144,65 +160,114 @@ actor {
 	//---------------------------------------
 	// Donations
 	//---------------------------------------
-	public shared ({ caller }) func donate(amount : Nat64, currency : Types.Currency, blockIndex : Nat) : async Result.Result<Nat, Text> {
+	public shared ({ caller }) func donate(amount : Nat64, currency : Types.Currency, blockIndex : Nat64) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("no permission for anonymous caller to donate");
 		} else {
-			let currencyText = currencyToText(currency);
-			let rate : Nat64 = switch (donorExchangeRates.get(currencyText)) {
-				case (null) 1;
-				case (?rate) rate;
-			};
-
-			let votePowerAmount : Nat64 = amount * rate;
-			//update global totoal voting power
-			_accumulated_donations += amount;
-			_avaliable_funds += amount;
-			_accumulated_voting_power += votePowerAmount;
-
-			//TODO: transfer to treasury
-
-			let donation : Donation = {
-				donorId = caller;
-				amount = amount;
-				currency = currency;
-				timestamp = Time.now();
-				blockIndex = blockIndex;
-				isConfirmed = false;
-			};
-
-			let powerChange : PowerChange = {
-				amount = votePowerAmount;
-				timestamp = Time.now();
-				source = donation;
-			};
-
-			// Update voting power
-			switch (votingPowers.get(caller)) {
-				case (null) {
-					let newVotingPower : VotingPower = {
-						userId = caller;
-						totalPower = votePowerAmount;
-						powerHistory = [powerChange];
-					};
-					votingPowers.put(caller, newVotingPower);
+			switch (donations.get(blockIndex)) {
+				case (?donation) {
+					return #err("This block index has already been processed");
 				};
-				case (?existingPower) {
-					let updatedHistory = Buffer.fromArray<PowerChange>(existingPower.powerHistory);
-					updatedHistory.add(powerChange);
-
-					let updatedPower : VotingPower = {
-						userId = caller;
-						totalPower = existingPower.totalPower + votePowerAmount;
-						powerHistory = Buffer.toArray(updatedHistory);
+				case null {
+					let tempDonation : Donation = {
+						donorId = caller;
+						amount = amount;
+						currency = currency;
+						timestamp = Time.now();
+						blockIndex = blockIndex;
+						isConfirmed = false;
 					};
-					votingPowers.put(caller, updatedPower);
+
+					donations.put(blockIndex, tempDonation);
+					return #ok(1);
 				};
 			};
-
-			#ok(1);
 		};
 	};
+
+	public shared ({ caller }) func confirmDonation(blockIndex : Nat64) : async Result.Result<Nat, Text> {
+		switch (donations.get(blockIndex)) {
+			case null { return #err("Donation not found") };
+			case (?tempDonation) {
+				if (tempDonation.isConfirmed) {
+					return #err("Donation already confirmed");
+				};
+
+				let queryResult = await ICPLedger.query_blocks({
+					start = blockIndex;
+					length = 1;
+				});
+
+				switch (queryResult.blocks[0].transaction.operation) {
+					case (? #Transfer(transfer)) {
+						if (transfer.amount.e8s != tempDonation.amount) {
+							return #err("Amount mismatch");
+						};
+						if (Principal.fromBlob(transfer.from) != caller) {
+							return #err("Caller does not match transaction sender");
+						};
+
+						let currencyText = currencyToText(tempDonation.currency);
+						let rate : Nat64 = switch (donorExchangeRates.get(currencyText)) {
+							case (null) 1;
+							case (?rate) rate;
+						};
+
+						let votePowerAmount : Nat64 = tempDonation.amount * rate;
+						_accumulated_donations += tempDonation.amount;
+						_avaliable_funds += tempDonation.amount;
+						_accumulated_voting_power += votePowerAmount;
+
+						let donation : Donation = {
+							donorId = tempDonation.donorId;
+							amount = tempDonation.amount;
+							currency = tempDonation.currency;
+							timestamp = tempDonation.timestamp;
+							blockIndex = blockIndex;
+							isConfirmed = true;
+						};
+
+						let powerChange : PowerChange = {
+							amount = votePowerAmount;
+							timestamp = Time.now();
+							source = donation;
+						};
+
+						// Update voting power
+						switch (votingPowers.get(tempDonation.donorId)) {
+							case (null) {
+								votingPowers.put(
+									tempDonation.donorId,
+									{
+										userId = tempDonation.donorId;
+										totalPower = votePowerAmount;
+										powerHistory = [powerChange];
+									},
+								);
+							};
+							case (?existingPower) {
+								let updatedHistory = Buffer.fromArray<PowerChange>(existingPower.powerHistory);
+								updatedHistory.add(powerChange);
+								votingPowers.put(
+									tempDonation.donorId,
+									{
+										userId = tempDonation.donorId;
+										totalPower = existingPower.totalPower + votePowerAmount;
+										powerHistory = Buffer.toArray(updatedHistory);
+									},
+								);
+							};
+						};
+						donations.delete(blockIndex);
+						#ok(1);
+					};
+					case (_) { #err("Invalid transaction type") };
+
+				};
+			};
+		};
+	};
+	
 
 	public query ({ caller }) func getMyDonations() : async [Donation] {
 		switch (votingPowers.get(caller)) {
@@ -455,7 +520,7 @@ actor {
 							let transferResult = await ICPLedger.transfer(transferArgs);
 							switch (transferResult) {
 								case (#Ok(blockIndex)) {
-									ignore grants.changeGrantStatus (grantId, #released);
+									ignore grants.changeGrantStatus(grantId, #released);
 									_avaliable_funds -= grant.amount;
 									#ok(blockIndex);
 								};
