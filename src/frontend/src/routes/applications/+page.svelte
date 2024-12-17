@@ -112,7 +112,7 @@
                         <div>
                             <h3 class="text-xl font-semibold text-gray-900">
                                 <a
-                                    href="/application/{application.id}"
+                                    href="/application/{application.grantId}"
                                     class="hover:text-indigo-600"
                                 >
                                     {application.title}
