@@ -28,6 +28,7 @@ export const idlFactory = ({ IDL }) => {
     'expired' : IDL.Null,
     'submitted' : IDL.Null,
     'voting' : IDL.Null,
+    'released' : IDL.Null,
     'approved' : IDL.Null,
     'rejected' : IDL.Null,
   });
@@ -114,6 +115,7 @@ export const idlFactory = ({ IDL }) => {
     'getMyGrants' : IDL.Func([], [IDL.Vec(Grant)], ['query']),
     'getTotalDonations' : IDL.Func([], [IDL.Nat64], ['query']),
     'getTotalVotingPower' : IDL.Func([], [IDL.Nat64], ['query']),
+    'getVotingPolicy' : IDL.Func([], [IDL.Nat, IDL.Nat, IDL.Nat], ['query']),
     'getVotingPower' : IDL.Func(
         [IDL.Principal],
         [IDL.Opt(VotingPower)],
@@ -123,6 +125,7 @@ export const idlFactory = ({ IDL }) => {
     'startGrantVoting' : IDL.Func([IDL.Nat], [Result], []),
     'startReview' : IDL.Func([IDL.Nat], [Result], []),
     'updateExchangeRates' : IDL.Func([Currency, IDL.Nat64], [Result], []),
+    'updateVotingPolicy' : IDL.Func([IDL.Nat, IDL.Nat, IDL.Nat], [Result], []),
     'voteOnGrant' : IDL.Func([IDL.Nat, VoteType], [Result], []),
   });
 };

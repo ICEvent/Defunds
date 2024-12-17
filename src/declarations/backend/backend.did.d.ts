@@ -61,6 +61,7 @@ export type Status = { 'review' : null } |
   { 'expired' : null } |
   { 'submitted' : null } |
   { 'voting' : null } |
+  { 'released' : null } |
   { 'approved' : null } |
   { 'rejected' : null };
 export interface Vote {
@@ -102,11 +103,13 @@ export interface _SERVICE {
   'getMyGrants' : ActorMethod<[], Array<Grant>>,
   'getTotalDonations' : ActorMethod<[], bigint>,
   'getTotalVotingPower' : ActorMethod<[], bigint>,
+  'getVotingPolicy' : ActorMethod<[], [bigint, bigint, bigint]>,
   'getVotingPower' : ActorMethod<[Principal], [] | [VotingPower]>,
   'rejectGrant' : ActorMethod<[bigint], Result>,
   'startGrantVoting' : ActorMethod<[bigint], Result>,
   'startReview' : ActorMethod<[bigint], Result>,
   'updateExchangeRates' : ActorMethod<[Currency, bigint], Result>,
+  'updateVotingPolicy' : ActorMethod<[bigint, bigint, bigint], Result>,
   'voteOnGrant' : ActorMethod<[bigint, VoteType], Result>,
 }
 export declare const idlFactory: IDL.InterfaceFactory;

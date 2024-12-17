@@ -32,6 +32,7 @@ type Status =
    cancelled;
    expired;
    rejected;
+   released;
    review;
    submitted;
    voting;
@@ -127,10 +128,12 @@ service : {
   getMyGrants: () -> (vec Grant) query;
   getTotalDonations: () -> (nat64) query;
   getTotalVotingPower: () -> (nat64) query;
+  getVotingPolicy: () -> (nat, nat, nat) query;
   getVotingPower: (principal) -> (opt VotingPower) query;
   rejectGrant: (nat) -> (Result);
   startGrantVoting: (nat) -> (Result);
   startReview: (nat) -> (Result);
   updateExchangeRates: (Currency, nat64) -> (Result);
+  updateVotingPolicy: (nat, nat, nat) -> (Result);
   voteOnGrant: (nat, VoteType) -> (Result);
 }

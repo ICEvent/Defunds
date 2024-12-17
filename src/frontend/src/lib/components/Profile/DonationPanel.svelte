@@ -1,8 +1,12 @@
 <script>
     import { onMount } from "svelte";
     import { globalStore } from "$lib/store";
-    import { ICP_TOKEN_DECIMALS } from "$lib/constants";
-    import { getCurrencyObjectByName, getDecimalsByCurrency } from "$lib/utils/currency.utils";
+    import { Principal } from "@dfinity/principal";
+    import { ICP_TOKEN_DECIMALS, DEFUND_CANISTER_ID } from "$lib/constants";
+    import {
+        getCurrencyObjectByName,
+        getDecimalsByCurrency,
+    } from "$lib/utils/currency.utils";
     import { showProgress, hideProgress } from "$lib/stores/progress";
     import { showNotification } from "$lib/stores/notification";
 
@@ -12,38 +16,83 @@
     let isAuthed = false;
     let principal;
     let backend;
+    let icpledger;
 
     onMount(async () => {
         const unsubscribe = globalStore.subscribe((store) => {
             isAuthed = store.isAuthed;
             principal = store.principal;
             backend = store.backend;
+            icpledger = store.icpledger;
         });
-        
+
         return () => {
             unsubscribe();
         };
     });
 
     async function handleDonate() {
-        if (backend && donationAmount > 0) {
+        if (backend && icpledger && donationAmount > 0) {
             showProgress();
             try {
                 showProgress();
-                const result = await backend.donate(
-                    BigInt(donationAmount * ICP_TOKEN_DECIMALS),
-                    getCurrencyObjectByName(donationCurrency),
-                    "7cd3f003cac9e17e44b28626c1a8e4dd493b9d223556dbe164f1c4da8734b941",
-                );
-                hideProgress();
-                console.log("Donation result:", result);
-                if (result.ok) {
-                    // Refresh donations list
-                    showNotification("Donation successful!", "success");
-                    loadDonations();
-                }else {
-                    showNotification("Donation failed!", "error");
+
+                let transResult = await icpledger.icrc1_transfer({
+                    from_subaccount: [],
+                    to: {
+                        owner: Principal.fromText(DEFUND_CANISTER_ID),
+                        subaccount: [],
+                    },
+                    amount: BigInt(donationAmount * ICP_TOKEN_DECIMALS),
+                    fee: [],
+                    memo: [],
+                    created_at_time: [],
+                });
+                if ("Ok" in transResult) {
+                    // Success case
+                    const blockIndex = transResult.Ok;
+                    showNotification(
+                        "Transfer successful! Block: " + blockIndex,
+                        "success",
+                    );
+
+                    // Update donation record
+                    const result = await backend.donate(
+                        BigInt(donationAmount * ICP_TOKEN_DECIMALS),
+                        getCurrencyObjectByName(donationCurrency),
+                        blockIndex,
+                    );
+
+                    if (result.ok) {
+                        // Refresh donations list
+                        showNotification("Donation successful!", "success");
+                        loadDonations();
+                    } else {
+                        showNotification("Donation failed!", "error");
+                    }
+
+                    // Refresh balances or update UI
+                    await loadBalances();
+                } else {
+                    let errorMessage = "";
+                    const error = transResult.Err;
+
+                    if ("InsufficientFunds" in error) {
+                        errorMessage = `Insufficient balance: ${error.InsufficientFunds.balance}`;
+                    } else if ("BadFee" in error) {
+                        errorMessage = `Invalid fee: ${error.BadFee.expected_fee}`;
+                    } else if ("TooOld" in error) {
+                        errorMessage = "Transaction expired";
+                    } else if ("CreatedInFuture" in error) {
+                        errorMessage = "Invalid creation time";
+                    } else {
+                        errorMessage = "Transaction failed";
+                    }
+
+                    showNotification(errorMessage, "error");
                 }
+
+                hideProgress();
             } finally {
                 hideProgress();
             }
@@ -58,7 +107,6 @@
     }
 
     onMount(() => {
-        
         loadDonations();
     });
 </script>
@@ -67,7 +115,7 @@
     <!-- Donation Form -->
     <div class="bg-white rounded-lg p-4 sm:p-6 shadow-sm mb-6">
         <h3 class="text-lg sm:text-xl font-semibold mb-4">Make a Donation</h3>
-        
+
         <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
             <input
                 type="number"
@@ -92,7 +140,6 @@
             </button>
         </div>
     </div>
-    
 
     <!-- Donation List -->
     <div class="bg-white rounded-lg p-6 shadow-sm">

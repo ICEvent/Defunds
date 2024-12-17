@@ -1,6 +1,6 @@
 import { writable } from 'svelte/store';
 import { HttpAgent } from "@dfinity/agent"
-import * as ICPLEDGER from "$declarations/icrc1_ledger_canister/index"
+import * as ICPLEDGER from "$declarations/icrc1_ledger_canister/index";
 import { createActor } from '$declarations/backend';
 import { DEFUND_CANISTER_ID, HOST_MAINNET, ICP_LEDGER_CANISTER_ID } from '$lib/constants';
 
