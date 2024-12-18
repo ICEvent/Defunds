@@ -28,6 +28,7 @@ module {
 		category : Text;
 		proofs : [Text]; 
 		votingStatus: ?VotingStatus;
+		comments: [Comment];
 	};
 	public type NewGrant = {
 		title : Text;
@@ -61,6 +62,12 @@ module {
         startTime: Int;
         endTime: Int;
     };
+public type Comment = {
+    authorId: Principal;
+    content: Text; 
+    timestamp: Int;
+};
 
    
 };
+

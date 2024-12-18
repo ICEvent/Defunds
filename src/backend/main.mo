@@ -31,8 +31,8 @@ actor {
 	type Grant = GrantTypes.Grant;
 	type NewGrant = GrantTypes.NewGrant;
 
-    let ICP_FEE : Nat64 = 10_000;
-	
+	let ICP_FEE : Nat64 = 10_000;
+
 	stable var _stable_grantId = 1; // Unique ID for each grant
 	stable var _accumulated_donations : Nat64 = 0; // Accumulated donations
 	stable var _avaliable_funds : Nat64 = 0; // Total Available donations
@@ -211,7 +211,7 @@ actor {
 
 						//TODO: verify owner
 						// if (Principal.fromBlob(transfer.from) != caller) {
-						// 	return #err("Caller does not match transaction sender");
+						//     return #err("Caller does not match transaction sender");
 						// };
 
 						let currencyText = currencyToText(tempDonation.currency);
@@ -274,36 +274,36 @@ actor {
 			};
 		};
 	};
-	
-		public query ({ caller }) func getMyDonations() : async [Donation] {
-			let allDonations = Buffer.Buffer<Donation>(0);
-	
-			// Get confirmed donations from voting power history
-			switch (votingPowers.get(caller)) {
-				case (null) { };
-				case (?power) {
-					for (powerChange in power.powerHistory.vals()) {
-						allDonations.add(powerChange.source);
-					};
+
+	public query ({ caller }) func getMyDonations() : async [Donation] {
+		let allDonations = Buffer.Buffer<Donation>(0);
+
+		// Get confirmed donations from voting power history
+		switch (votingPowers.get(caller)) {
+			case (null) {};
+			case (?power) {
+				for (powerChange in power.powerHistory.vals()) {
+					allDonations.add(powerChange.source);
 				};
 			};
-	
-			// Get pending donations
-			for ((_, donation) in donations.entries()) {
-				if (donation.donorId == caller) {
-					allDonations.add({
-						donorId = donation.donorId;
-						amount = donation.amount;
-						currency = donation.currency;
-						timestamp = donation.timestamp;
-						blockIndex = donation.blockIndex;
-						isConfirmed = donation.isConfirmed;
-					});
-				};
-			};
-	
-			return Buffer.toArray(allDonations);
 		};
+
+		// Get pending donations
+		for ((_, donation) in donations.entries()) {
+			if (donation.donorId == caller) {
+				allDonations.add({
+					donorId = donation.donorId;
+					amount = donation.amount;
+					currency = donation.currency;
+					timestamp = donation.timestamp;
+					blockIndex = donation.blockIndex;
+					isConfirmed = donation.isConfirmed;
+				});
+			};
+		};
+
+		return Buffer.toArray(allDonations);
+	};
 	//---------------------------------------
 	// Grant
 	//---------------------------------------
@@ -564,4 +564,30 @@ actor {
 			case (?grant) { grant.votingStatus };
 		};
 	};
+
+	public shared ({ caller }) func addGrantComment(grantId : Nat, content : Text) : async Result.Result<Nat, Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot comment");
+		} else {
+			let comment : GrantTypes.Comment = {
+				authorId = caller;
+				content = content;
+				timestamp = Time.now();
+			};
+
+			if (grants.addComment(grantId, comment)) {
+				#ok(1);
+			} else {
+				#err("Failed to add comment");
+			};
+		};
+	};
+
+	public query func getGrantComments(grantId : Nat) : async [GrantTypes.Comment] {
+		switch (grants.getGrant(grantId)) {
+			case null { [] };
+			case (?grant) { grant.comments };
+		};
+	};
+
 };

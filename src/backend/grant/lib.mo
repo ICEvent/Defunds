@@ -52,6 +52,7 @@ module {
 				category = grant.category;
 				proofs = grant.proofs;
 				votingStatus = null;
+				comments = [];
 			};
 
 			grants.put(nextGrantId, newGrant);
@@ -85,7 +86,7 @@ module {
 				},
 			);
 		};
-		
+
 		public func startReview(grantId : Nat) : Bool {
 			switch (grants.get(grantId)) {
 				case null { false };
@@ -266,7 +267,30 @@ module {
 					true;
 				};
 			};
-		}
+		};
+		public func addComment(grantId : Nat, comment : Types.Comment) : Bool {
+			switch (grants.get(grantId)) {
+				case null { false };
+				case (?grant) {
+					let newComments = Buffer.fromArray<Types.Comment>(grant.comments);
+					newComments.add(comment);
 
+					let updatedGrant = {
+						grant with
+						comments = Buffer.toArray(newComments);
+					};
+					grants.put(grantId, updatedGrant);
+					true;
+				};
+			};
+		};
+
+		public func getComments(grantId : Nat) : [Types.Comment] {
+			switch (grants.get(grantId)) {
+				case null { [] };
+				case (?grant) { grant.comments };
+			};
+		};
 	};
+
 };
