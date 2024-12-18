@@ -40,6 +40,7 @@
 					owner: Principal.fromText(DEFUND_CANISTER_ID),
 					subaccount: [],
 				});
+			    console.log("Balance:", balance);
 				totalDonations = Number(balance) / ICP_TOKEN_DECIMALS;
 			}
 			if(backend) {

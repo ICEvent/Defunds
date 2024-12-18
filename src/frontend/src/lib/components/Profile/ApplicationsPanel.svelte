@@ -47,21 +47,23 @@
     }
 
     async function handleSubmit() {
+        const decimals = getDecimalsByCurrency(
+            Object.keys(formData.currency)[0],
+        );
+        const amount = BigInt(
+            Math.floor(formData.amount * Math.pow(10, decimals)),
+        );
+
         let grant = {
             title: formData.title,
             description: formData.description,
             recipient: formData.recipient,
-            amount: BigInt(
-                formData.amount *
-                    10 **
-                        getDecimalsByCurrency(
-                            Object.keys(formData.currency)[0],
-                        ),
-            ),
+            amount: amount,
             currency: getCurrencyObjectByName(formData.currency),
             category: formData.category,
             proofs: formData.proofs,
         };
+        console.log(grant);
         showProgress();
         try {
             let result = await backend.applyGrant(grant);
@@ -71,7 +73,7 @@
                     "success",
                 );
                 showApplicationModal = false;
-                
+
                 loadApplications();
             } else {
                 showNotification(result.err, "error");
@@ -209,8 +211,8 @@
                                     type="number"
                                     id="amount"
                                     bind:value={formData.amount}
-                                    min="0.01"
-                                    step="0.01"
+                                    min="0.000001"
+                                    step="0.000001"
                                     required
                                 />
                                 <select
