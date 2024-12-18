@@ -11,6 +11,9 @@ import Result "mo:base/Result";
 import Nat64 "mo:base/Nat64";
 import Option "mo:base/Option";
 import Hash "mo:base/Hash";
+import Blob "mo:base/Blob";
+
+import Hex "./hex";
 
 import Principal "mo:base/Principal";
 import TrieMap "mo:base/TrieMap";
@@ -28,6 +31,8 @@ actor {
 	type Grant = GrantTypes.Grant;
 	type NewGrant = GrantTypes.NewGrant;
 
+    let ICP_FEE : Nat64 = 10_000;
+	
 	stable var _stable_grantId = 1; // Unique ID for each grant
 	stable var _accumulated_donations : Nat64 = 0; // Accumulated donations
 	stable var _avaliable_funds : Nat64 = 0; // Total Available donations
@@ -525,9 +530,9 @@ actor {
 						let transferArgs : ICPTypes.TransferArgs = {
 							memo = 0;
 							amount = { e8s = grant.amount };
-							fee = { e8s = 10_000 };
+							fee = { e8s = ICP_FEE };
 							from_subaccount = null;
-							to = Text.encodeUtf8(grant.recipient);
+							to = Blob.fromArray(Hex.decode(grant.recipient));
 							created_at_time = null;
 						};
 
