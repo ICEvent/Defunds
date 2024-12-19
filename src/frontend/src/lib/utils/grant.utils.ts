@@ -14,6 +14,7 @@ export function parseApplication(application: Grant) {
                 ...vote,
                 voteType: Object.keys(vote.voteType)[0]
             }))
-        } : null,
+        } : null
+        
     }
 }

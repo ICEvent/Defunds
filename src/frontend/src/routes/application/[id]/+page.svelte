@@ -12,6 +12,15 @@
     let application;
     let backend;
     let grantId;
+    let commentContent = "";
+    let comments = [];
+    let activeTab = application?.votingStatus ? 'voting' : 'comments';
+
+    $: {
+        if (application) {
+            activeTab = application.votingStatus ? 'voting' : 'comments';
+        }
+    }
     $: totalPower = application?.votingStatus
         ? Number(application.votingStatus.approvalVotePower) +
           Number(application.votingStatus.rejectVotePower)
@@ -45,8 +54,10 @@
         if (backend) {
             let result = await backend.getGrant(grantId);
             if (result.length > 0) {
+                console.log("applicaiton:", result[0]);
                 application = parseApplication(result[0]);
-                console.log("applicaiton:", application);
+                comments = application.comments;
+                console.log("comments:", comments);
             }
         }
     }
@@ -159,6 +170,32 @@
             }
         }
     }
+
+    async function addComment(grantId) {
+        if (backend && commentContent.trim() !== "") {
+            showProgress();
+            try {
+                const result = await backend.addGrantComment(
+                    grantId,
+                    commentContent,
+                );
+                if (result.ok) {
+                    showNotification("Comment added!", "success");
+                    commentContent = "";
+                    loadApplication(grantId);
+                } else {
+                    showNotification(result.err, "error");
+                }
+            } catch (error) {
+                showNotification(
+                    "Error adding comment: " + error.message,
+                    "error",
+                );
+            } finally {
+                hideProgress();
+            }
+        }
+    }
 </script>
 
 <div class="max-w-4xl mx-auto p-8">
@@ -235,7 +272,7 @@
                         Start Voting
                     </button>
                 {/if}
-                {#if isAuthed && (application.grantStatus === "submitted" ||application.grantStatus === "review")}
+                {#if isAuthed && (application.grantStatus === "submitted" || application.grantStatus === "review")}
                     <button
                         on:click={() => rejectGrant(application.grantId)}
                         class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 text-sm font-medium"
@@ -262,142 +299,196 @@
                 </div> -->
             </div>
         </div>
-
-        <div class="voting-section mt-8">
-            {#if isAuthed && application.grantStatus === "voting" && Number(application.votingStatus.endTime) > Date.now() * 1_000_000}
-                {#if application.votingStatus?.votes.some((vote) => vote.voterId.toString() === principal.toString())}
-                    <div
-                        class="text-yellow-700 bg-blue-50 text-blue-700 p-4 rounded-lg mb-4"
+        <div class="mt-8">
+            {#if application.votingStatus}
+                <div class="tabs">
+                    <button 
+                        class="tab-button {activeTab === 'voting' ? 'active' : ''}" 
+                        on:click={() => activeTab = 'voting'}
                     >
-                        You have already cast your vote on this application
-                    </div>
-                {:else}
-                    <div class="voting-buttons">
-                        <button
-                            on:click={() =>
-                                voteOnGrant(application.grantId, {
-                                    approve: null,
-                                })}
-                            class="vote-btn approve"
-                        >
-                            <span class="vote-text">Approve</span>
-                        </button>
-                        <button
-                            on:click={() =>
-                                voteOnGrant(application.grantId, {
-                                    reject: null,
-                                })}
-                            class="vote-btn reject"
-                        >
-                            <span class="vote-text">Reject</span>
-                        </button>
-                    </div>
-                {/if}
+                        Voting Status
+                    </button>
+                    <button 
+                        class="tab-button {activeTab === 'comments' ? 'active' : ''}" 
+                        on:click={() => activeTab = 'comments'}
+                    >
+                        Comments
+                    </button>
+                </div>
             {/if}
-            <div class="voting-progress mt-5 mb-6">
-                {#if application.votingStatus}
-                    <div class="flex justify-between items-center mb-4">
-                        <h3 class="text-xl font-semibold text-gray-800">
-                            Voting Status
-                        </h3>
-                        {#if Number(application.votingStatus.endTime) < Date.now() * 1_000_000}
-                            <div
-                                class="bg-red-50 border-l-4 border-red-400 p-4 rounded-lg mb-4"
-                            >
-                                <div class="flex">
-                                    <div class="flex-shrink-0">
-                                        <svg
-                                            class="h-5 w-5 text-red-400"
-                                            viewBox="0 0 20 20"
-                                            fill="currentColor"
-                                        >
-                                            <path
-                                                fill-rule="evenodd"
-                                                d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                                                clip-rule="evenodd"
-                                            />
-                                        </svg>
-                                    </div>
-                                    <div class="ml-3">
-                                        <p class="text-red-700 font-medium">
-                                            Voting period has ended
-                                        </p>
-                                    </div>
+
+            <div class="tab-content">
+                {#if activeTab === 'voting' && application.votingStatus}
+                    <div class="voting-section">
+                        {#if isAuthed && application.grantStatus === "voting" && Number(application.votingStatus.endTime) > Date.now() * 1_000_000}
+                            {#if application.votingStatus?.votes.some((vote) => vote.voterId.toString() === principal.toString())}
+                                <div
+                                    class="text-yellow-700 bg-blue-50 text-blue-700 p-4 rounded-lg mb-4"
+                                >
+                                    You have already cast your vote on this application
                                 </div>
-                            </div>
-                        {:else}
-                            <!-- Show remaining voting time -->
-                            {#if application.votingStatus}
-                                {@const timeLeft =
-                                    Number(application.votingStatus.endTime) /
-                                        1_000_000 -
-                                    Date.now()}
-                                {@const daysLeft = Math.floor(
-                                    timeLeft / (1000 * 60 * 60 * 24),
-                                )}
-                                {@const hoursLeft = Math.floor(
-                                    (timeLeft % (1000 * 60 * 60 * 24)) /
-                                        (1000 * 60 * 60),
-                                )}
-                                <div class="text-gray-600 font-medium">
-                                    Ends in: {daysLeft} days {hoursLeft} hours
+                            {:else}
+                                <div class="voting-buttons">
+                                    <button
+                                        on:click={() =>
+                                            voteOnGrant(application.grantId, {
+                                                approve: null,
+                                            })}
+                                        class="vote-btn approve"
+                                    >
+                                        <span class="vote-text">Approve</span>
+                                    </button>
+                                    <button
+                                        on:click={() =>
+                                            voteOnGrant(application.grantId, {
+                                                reject: null,
+                                            })}
+                                        class="vote-btn reject"
+                                    >
+                                        <span class="vote-text">Reject</span>
+                                    </button>
                                 </div>
                             {/if}
                         {/if}
+                        <div class="voting-progress mt-5 mb-6">
+                            {#if application.votingStatus}
+                                <div class="flex justify-between items-center mb-4">
+                                    <h3 class="text-xl font-semibold text-gray-800">
+                                        Voting Status
+                                    </h3>
+                                    {#if Number(application.votingStatus.endTime) < Date.now() * 1_000_000}
+                                        <div
+                                            class="bg-red-50 border-l-4 border-red-400 p-4 rounded-lg mb-4"
+                                        >
+                                            <div class="flex">
+                                                <div class="flex-shrink-0">
+                                                    <svg
+                                                        class="h-5 w-5 text-red-400"
+                                                        viewBox="0 0 20 20"
+                                                        fill="currentColor"
+                                                    >
+                                                        <path
+                                                            fill-rule="evenodd"
+                                                            d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                                                            clip-rule="evenodd"
+                                                        />
+                                                    </svg>
+                                                </div>
+                                                <div class="ml-3">
+                                                    <p class="text-red-700 font-medium">
+                                                        Voting period has ended
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    {:else}
+                                        <!-- Show remaining voting time -->
+                                        {#if application.votingStatus}
+                                            {@const timeLeft =
+                                                Number(application.votingStatus.endTime) /
+                                                    1_000_000 -
+                                                Date.now()}
+                                            {@const daysLeft = Math.floor(
+                                                timeLeft / (1000 * 60 * 60 * 24),
+                                            )}
+                                            {@const hoursLeft = Math.floor(
+                                                (timeLeft % (1000 * 60 * 60 * 24)) /
+                                                    (1000 * 60 * 60),
+                                            )}
+                                            <div class="text-gray-600 font-medium">
+                                                Ends in: {daysLeft} days {hoursLeft} hours
+                                            </div>
+                                        {/if}
+                                    {/if}
+                                </div>
+                                <div class="flex justify-between text-sm mb-2">
+                                    <span class="text-green-600 font-medium">
+                                        {Number(
+                                            application.votingStatus.approvalVotePower,
+                                        ) / VOTE_POWER_DECIMALS}
+                                    </span>
+                                    <span class="text-red-600 font-medium">
+                                        {Number(application.votingStatus.rejectVotePower) /
+                                            VOTE_POWER_DECIMALS}
+                                    </span>
+                                </div>
+                                <div class="progress-bar">
+                                    <div
+                                        class="approve-bar"
+                                        style="width: {approvePercent}%"
+                                    ></div>
+                                </div>
+                                <div class="flex justify-between text-sm mt-2">
+                                    <span class="text-green-600"
+                                        >{approvePercent.toFixed(1)}%
+                                    </span>
+                                    <span class="text-red-600"
+                                        >{(100 - approvePercent).toFixed(1)}%
+                                    </span>
+                                </div>
+                            {/if}
+                        </div>
+
+                        {#if application.votingStatus && application.votingStatus.votes.length > 0}
+                            <div class="votes-list mt-4">
+                                {#each application.votingStatus.votes.sort((a, b) => Number(b.timestamp) - Number(a.timestamp)) as vote}
+                                    <div class="vote-item">
+                                        <div class="vote-info">
+                                            <code class="text-sm text-gray-600"
+                                                >{vote.voterId.toString()}</code
+                                            >
+                                            <span class="vote-power"
+                                                >{Number(vote.votePower) /
+                                                    VOTE_POWER_DECIMALS} Power</span
+                                            >
+                                            <span class="vote-time text-xs text-gray-400">
+                                                {new Date(
+                                                    Number(vote.timestamp) / 1_000_000,
+                                                ).toLocaleString()}
+                                            </span>
+                                        </div>
+                                        <span class="vote-type {vote.voteType}">
+                                            {vote.voteType}
+                                        </span>
+                                    </div>
+                                {/each}
+                            </div>
+                        {/if}
                     </div>
-                    <div class="flex justify-between text-sm mb-2">
-                        <span class="text-green-600 font-medium">
-                            {Number(
-                                application.votingStatus.approvalVotePower,
-                            ) / VOTE_POWER_DECIMALS}
-                        </span>
-                        <span class="text-red-600 font-medium">
-                            {Number(application.votingStatus.rejectVotePower) /
-                                VOTE_POWER_DECIMALS}
-                        </span>
-                    </div>
-                    <div class="progress-bar">
-                        <div
-                            class="approve-bar"
-                            style="width: {approvePercent}%"
-                        ></div>
-                    </div>
-                    <div class="flex justify-between text-sm mt-2">
-                        <span class="text-green-600"
-                            >{approvePercent.toFixed(1)}%
-                        </span>
-                        <span class="text-red-600"
-                            >{(100 - approvePercent).toFixed(1)}%
-                        </span>
+                {:else}
+                    <div class="comments-section">
+                        
+                        <div class="comments-list">
+                            {#each comments as comment}
+                                <div class="comment">
+                                    <p class="comment-author">
+                                        <code>{comment.authorId}</code>
+                                        <span class="comment-timestamp">
+                                            {new Date(
+                                                Number(comment.timestamp) / 1_000_000,
+                                            ).toLocaleString()}
+                                        </span>
+                                    </p>
+                                    <p class="comment-content">{comment.content}</p>
+                                </div>
+                            {/each}
+                        </div>
+                        {#if isAuthed}
+                            <div class="add-comment mt-4">
+                                <textarea
+                                    bind:value={commentContent}
+                                    placeholder="Add a comment..."
+                                    class="comment-textarea"
+                                ></textarea>
+                                <button
+                                    on:click={() => addComment(grantId)}
+                                    class="comment-submit-button">Comment</button
+                                >
+                            </div>
+                        {/if}
                     </div>
                 {/if}
             </div>
-
-            {#if application.votingStatus && application.votingStatus.votes.length > 0}
-                <div class="votes-list mt-4">
-                    {#each application.votingStatus.votes.sort((a, b) => Number(b.timestamp) - Number(a.timestamp)) as vote}
-                        <div class="vote-item">
-                            <div class="vote-info">
-                                <code class="text-sm text-gray-600"
-                                    >{vote.voterId.toString()}</code
-                                >
-                                <span class="vote-power"
-                                    >{Number(vote.votePower) /
-                                        VOTE_POWER_DECIMALS} Power</span
-                                >
-                                <span class="vote-time text-xs text-gray-400">
-                                    {new Date(
-                                        Number(vote.timestamp) / 1_000_000,
-                                    ).toLocaleString()}
-                                </span>
-                            </div>
-                            <span class="vote-type {vote.voteType}">
-                                {vote.voteType}
-                            </span>
-                        </div>
-                    {/each}
-                </div>
-            {/if}
         </div>
     {:else}
         <div class="text-center py-12">
@@ -574,4 +665,98 @@
         background: #dcfce7;
         transition: width 0.3s ease;
     }
+    .comments-section {
+        margin-top: 2rem;
+        padding: 1rem;
+        background-color: #f9f9f9;
+        border-radius: 8px;
+    }
+    .comments-list {
+        margin-bottom: 1rem;
+    }
+    .comment {
+        padding: 0.5rem;
+        border-bottom: 1px solid #ddd;
+        margin-bottom: 0.5rem;
+    }
+    .comment-author code {
+        font-size: 0.875rem; /* Makes it extra small */
+        color: #666;
+        max-width: 150px; /* Reduced from previous width */
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: inline-block;
+        white-space: nowrap;
+    }
+
+    .comment-timestamp {
+        font-size: 0.875rem;
+        color: #666;
+        margin-left: 0.5rem;
+    }
+    .comment-content {
+        margin-left: 1rem;
+    }
+    .add-comment {
+        display: flex;
+        flex-direction: column;
+    }
+    .comment-textarea {
+        width: 100%;
+        height: 100px;
+        margin-bottom: 0.5rem;
+        padding: 0.5rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+    }
+    .comment-submit-button {
+        align-self: flex-end;
+        padding: 0.5rem 1rem;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    .comment-submit-button:hover {
+        background-color: #0056b3;
+    }
+    .tabs {
+    display: flex;
+    gap: 1px;
+    background: #e5e7eb;
+    padding: 2px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+.tab-button {
+    flex: 1;
+    padding: 8px 16px;
+    background: #f8fafc;
+    border: none;
+    cursor: pointer;
+    font-weight: 500;
+    color: #64748b;
+    transition: all 0.2s;
+}
+
+.tab-button:first-child {
+    border-radius: 6px 0 0 6px;
+}
+
+.tab-button:last-child {
+    border-radius: 0 6px 6px 0;
+}
+
+.tab-button.active {
+    background: #fff;
+    color: #0f172a;
+}
+
+.tab-content {
+    background: #fff;
+    border-radius: 8px;
+}
+
 </style>
