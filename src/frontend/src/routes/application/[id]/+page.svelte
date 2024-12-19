@@ -14,11 +14,11 @@
     let grantId;
     let commentContent = "";
     let comments = [];
-    let activeTab = application?.votingStatus ? 'voting' : 'comments';
+    let activeTab = application?.votingStatus ? "voting" : "comments";
 
     $: {
         if (application) {
-            activeTab = application.votingStatus ? 'voting' : 'comments';
+            activeTab = application.votingStatus ? "voting" : "comments";
         }
     }
     $: totalPower = application?.votingStatus
@@ -54,10 +54,8 @@
         if (backend) {
             let result = await backend.getGrant(grantId);
             if (result.length > 0) {
-                console.log("applicaiton:", result[0]);
                 application = parseApplication(result[0]);
                 comments = application.comments;
-                console.log("comments:", comments);
             }
         }
     }
@@ -149,20 +147,23 @@
         }
     }
 
-    async function claimGrant(grantId) {
+    async function finalizeGrant(grantId) {
         if (backend) {
             showProgress();
             try {
-                const result = await backend.claimGrant(grantId);
+                const result = await backend.finalizeGrantVoting(grantId);
                 if (result.ok) {
-                    showNotification("Grant claimed successfully!", "success");
+                    showNotification(
+                        "Grant finalized successfully!",
+                        "success",
+                    );
                     loadApplication(grantId);
                 } else {
                     showNotification(result.err, "error");
                 }
             } catch (error) {
                 showNotification(
-                    "Error claiming grant: " + error.message,
+                    "Error finalizing grant: " + error.message,
                     "error",
                 );
             } finally {
@@ -280,16 +281,15 @@
                         Reject Grant
                     </button>
                 {/if}
-                {#if application.grantStatus === "approved"}
-                    <div class="mt-6">
-                        <button
-                            class="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors"
-                            on:click={() => claimGrant(application.grantId)}
-                        >
-                            Claim
-                        </button>
-                    </div>
+                {#if isAuthed && application.grantStatus === "voting"}
+                    <button
+                        class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 text-sm font-medium"
+                        on:click={() => finalizeGrant(application.grantId)}
+                    >
+                        Finalize Grant
+                    </button>
                 {/if}
+
                 <!-- Category -->
                 <!-- <div class="bg-gray-50 p-4 rounded-lg">
                     <h3 class="text-sm font-medium text-gray-500 mb-2">
@@ -302,15 +302,19 @@
         <div class="mt-8">
             {#if application.votingStatus}
                 <div class="tabs">
-                    <button 
-                        class="tab-button {activeTab === 'voting' ? 'active' : ''}" 
-                        on:click={() => activeTab = 'voting'}
+                    <button
+                        class="tab-button {activeTab === 'voting'
+                            ? 'active'
+                            : ''}"
+                        on:click={() => (activeTab = "voting")}
                     >
                         Voting Status
                     </button>
-                    <button 
-                        class="tab-button {activeTab === 'comments' ? 'active' : ''}" 
-                        on:click={() => activeTab = 'comments'}
+                    <button
+                        class="tab-button {activeTab === 'comments'
+                            ? 'active'
+                            : ''}"
+                        on:click={() => (activeTab = "comments")}
                     >
                         Comments
                     </button>
@@ -318,14 +322,15 @@
             {/if}
 
             <div class="tab-content">
-                {#if activeTab === 'voting' && application.votingStatus}
+                {#if activeTab === "voting" && application.votingStatus}
                     <div class="voting-section">
                         {#if isAuthed && application.grantStatus === "voting" && Number(application.votingStatus.endTime) > Date.now() * 1_000_000}
                             {#if application.votingStatus?.votes.some((vote) => vote.voterId.toString() === principal.toString())}
                                 <div
                                     class="text-yellow-700 bg-blue-50 text-blue-700 p-4 rounded-lg mb-4"
                                 >
-                                    You have already cast your vote on this application
+                                    You have already cast your vote on this
+                                    application
                                 </div>
                             {:else}
                                 <div class="voting-buttons">
@@ -352,8 +357,12 @@
                         {/if}
                         <div class="voting-progress mt-5 mb-6">
                             {#if application.votingStatus}
-                                <div class="flex justify-between items-center mb-4">
-                                    <h3 class="text-xl font-semibold text-gray-800">
+                                <div
+                                    class="flex justify-between items-center mb-4"
+                                >
+                                    <h3
+                                        class="text-xl font-semibold text-gray-800"
+                                    >
                                         Voting Status
                                     </h3>
                                     {#if Number(application.votingStatus.endTime) < Date.now() * 1_000_000}
@@ -375,7 +384,9 @@
                                                     </svg>
                                                 </div>
                                                 <div class="ml-3">
-                                                    <p class="text-red-700 font-medium">
+                                                    <p
+                                                        class="text-red-700 font-medium"
+                                                    >
                                                         Voting period has ended
                                                     </p>
                                                 </div>
@@ -385,18 +396,26 @@
                                         <!-- Show remaining voting time -->
                                         {#if application.votingStatus}
                                             {@const timeLeft =
-                                                Number(application.votingStatus.endTime) /
+                                                Number(
+                                                    application.votingStatus
+                                                        .endTime,
+                                                ) /
                                                     1_000_000 -
                                                 Date.now()}
                                             {@const daysLeft = Math.floor(
-                                                timeLeft / (1000 * 60 * 60 * 24),
+                                                timeLeft /
+                                                    (1000 * 60 * 60 * 24),
                                             )}
                                             {@const hoursLeft = Math.floor(
-                                                (timeLeft % (1000 * 60 * 60 * 24)) /
+                                                (timeLeft %
+                                                    (1000 * 60 * 60 * 24)) /
                                                     (1000 * 60 * 60),
                                             )}
-                                            <div class="text-gray-600 font-medium">
-                                                Ends in: {daysLeft} days {hoursLeft} hours
+                                            <div
+                                                class="text-gray-600 font-medium"
+                                            >
+                                                Ends in: {daysLeft} days {hoursLeft}
+                                                hours
                                             </div>
                                         {/if}
                                     {/if}
@@ -404,12 +423,15 @@
                                 <div class="flex justify-between text-sm mb-2">
                                     <span class="text-green-600 font-medium">
                                         {Number(
-                                            application.votingStatus.approvalVotePower,
+                                            application.votingStatus
+                                                .approvalVotePower,
                                         ) / VOTE_POWER_DECIMALS}
                                     </span>
                                     <span class="text-red-600 font-medium">
-                                        {Number(application.votingStatus.rejectVotePower) /
-                                            VOTE_POWER_DECIMALS}
+                                        {Number(
+                                            application.votingStatus
+                                                .rejectVotePower,
+                                        ) / VOTE_POWER_DECIMALS}
                                     </span>
                                 </div>
                                 <div class="progress-bar">
@@ -441,9 +463,12 @@
                                                 >{Number(vote.votePower) /
                                                     VOTE_POWER_DECIMALS} Power</span
                                             >
-                                            <span class="vote-time text-xs text-gray-400">
+                                            <span
+                                                class="vote-time text-xs text-gray-400"
+                                            >
                                                 {new Date(
-                                                    Number(vote.timestamp) / 1_000_000,
+                                                    Number(vote.timestamp) /
+                                                        1_000_000,
                                                 ).toLocaleString()}
                                             </span>
                                         </div>
@@ -457,7 +482,6 @@
                     </div>
                 {:else}
                     <div class="comments-section">
-                        
                         <div class="comments-list">
                             {#each comments as comment}
                                 <div class="comment">
@@ -465,11 +489,14 @@
                                         <code>{comment.authorId}</code>
                                         <span class="comment-timestamp">
                                             {new Date(
-                                                Number(comment.timestamp) / 1_000_000,
+                                                Number(comment.timestamp) /
+                                                    1_000_000,
                                             ).toLocaleString()}
                                         </span>
                                     </p>
-                                    <p class="comment-content">{comment.content}</p>
+                                    <p class="comment-content">
+                                        {comment.content}
+                                    </p>
                                 </div>
                             {/each}
                         </div>
@@ -482,7 +509,8 @@
                                 ></textarea>
                                 <button
                                     on:click={() => addComment(grantId)}
-                                    class="comment-submit-button">Comment</button
+                                    class="comment-submit-button"
+                                    >Comment</button
                                 >
                             </div>
                         {/if}
@@ -722,41 +750,40 @@
         background-color: #0056b3;
     }
     .tabs {
-    display: flex;
-    gap: 1px;
-    background: #e5e7eb;
-    padding: 2px;
-    border-radius: 8px;
-    margin-bottom: 16px;
-}
+        display: flex;
+        gap: 1px;
+        background: #e5e7eb;
+        padding: 2px;
+        border-radius: 8px;
+        margin-bottom: 16px;
+    }
 
-.tab-button {
-    flex: 1;
-    padding: 8px 16px;
-    background: #f8fafc;
-    border: none;
-    cursor: pointer;
-    font-weight: 500;
-    color: #64748b;
-    transition: all 0.2s;
-}
+    .tab-button {
+        flex: 1;
+        padding: 8px 16px;
+        background: #f8fafc;
+        border: none;
+        cursor: pointer;
+        font-weight: 500;
+        color: #64748b;
+        transition: all 0.2s;
+    }
 
-.tab-button:first-child {
-    border-radius: 6px 0 0 6px;
-}
+    .tab-button:first-child {
+        border-radius: 6px 0 0 6px;
+    }
 
-.tab-button:last-child {
-    border-radius: 0 6px 6px 0;
-}
+    .tab-button:last-child {
+        border-radius: 0 6px 6px 0;
+    }
 
-.tab-button.active {
-    background: #fff;
-    color: #0f172a;
-}
+    .tab-button.active {
+        background: #fff;
+        color: #0f172a;
+    }
 
-.tab-content {
-    background: #fff;
-    border-radius: 8px;
-}
-
+    .tab-content {
+        background: #fff;
+        border-radius: 8px;
+    }
 </style>

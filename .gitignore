@@ -15,3 +15,4 @@ mops.toml
 src/declarations/frontend/
 src/frontend/src/declarations/
 src/declarations/
+.vscode/

@@ -98,6 +98,28 @@
             hideProgress();
         }
     }
+
+    async function claimGrant(grantId) {
+        if (backend) {
+            showProgress();
+            try {
+                const result = await backend.claimGrant(grantId);
+                if (result.ok) {
+                    showNotification("Grant claimed successfully!", "success");
+                    loadApplications();
+                } else {
+                    showNotification(result.err, "error");
+                }
+            } catch (error) {
+                showNotification(
+                    "Error claiming grant: " + error.message,
+                    "error",
+                );
+            } finally {
+                hideProgress();
+            }
+        }
+    }
 </script>
 
 <div class="applications-panel">
@@ -141,6 +163,16 @@
                             on:click={() => cancelGrant(application.grantId)}
                         >
                             Cancel Grant
+                        </button>
+                    </div>
+                {/if}
+                {#if application.grantStatus === "approved"}
+                    <div class="card-actions">
+                        <button
+                            class="claim-grant-btn"
+                            on:click={() => claimGrant(application.grantId)}
+                        >
+                            Claim Grant
                         </button>
                     </div>
                 {/if}
@@ -494,5 +526,19 @@
         color: #6b7280;
         margin-bottom: 12px;
         font-family: monospace;
+    }
+    .claim-grant-btn {
+        background: #22c55e;
+        color: white;
+        padding: 8px 16px;
+        border-radius: 6px;
+        border: none;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+    }
+
+    .claim-grant-btn:hover {
+        background: #16a34a;
     }
 </style>
