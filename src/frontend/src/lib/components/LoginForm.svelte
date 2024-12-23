@@ -59,7 +59,7 @@
 		});
 
 		authClient.login({
-			// derivationOrigin: DERIVATION_ORIGION,
+			derivationOrigin: DERIVATION_ORIGION,
 			identityProvider: IDENTITY_PROVIDER,
 			windowOpenerFeatures: windowFeatures,
 			onSuccess: () => {

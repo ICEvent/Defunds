@@ -147,7 +147,7 @@
                 class="w-full sm:w-auto px-4 py-2 border rounded-lg text-sm sm:text-base"
             >
                 <option selected value="ICP">ICP</option>
-                <option value="ckUSDC">ckUSDC</option>
+
             </select>
             <button
                 on:click={handleDonate}

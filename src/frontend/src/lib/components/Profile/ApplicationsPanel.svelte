@@ -253,7 +253,7 @@
                                     required
                                 >
                                     <option selected value={"ICP"}>ICP</option>
-                                    <option value="ckUSDC">ckUSDC</option>
+                         
                                 </select>
                             </div>
                         </div>

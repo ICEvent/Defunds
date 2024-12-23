@@ -48,13 +48,14 @@
 			{ actorOptions: {} }
 		);
 		let para = {
-			max_results: 100,
+			max_results: 30,
 			start: [],
 			account: { owner: Principal.fromText(DEFUND_CANISTER_ID), subaccount: [] }
 		};
 		let trans = [];
+
 		icpindex.get_account_transactions(para).then((result) => {
-			console.log(result);
+			
 			let txs = result['Ok'].transactions;
 			for (let i = 0; i < txs.length; i++) {
 				let tx = txs[i].transaction;
