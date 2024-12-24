@@ -22,6 +22,9 @@ import ICPTypes "./icptypes";
 import GrantTypes "./grant/types";
 import Grants "./grant";
 
+import GroupTypes "./group/types";
+import Groups "./group";
+
 actor {
 
 	type Donation = Types.Donation;
@@ -42,6 +45,12 @@ actor {
 	stable var upgradeExchangeRates : [(Text, Nat64)] = [];
 	stable var _stable_grants : [(Nat, Grant)] = [];
 	stable var upgradeDonations : [(Nat64, Donation)] = [];
+
+	stable var _stable_groupId = 1; // Unique ID for each grant
+	stable var _stable_proposalId = 1; // Unique ID for each proposal
+	stable var _stable_groups : [(Nat, GroupTypes.GroupFund)] = [];
+	stable var _stable_proposals : [(Nat, GroupTypes.GroupProposal)] = [];
+
 	let nat64Hash = func(n : Nat64) : Hash.Hash {
 		Text.hash(Nat64.toText(n));
 	};
@@ -55,6 +64,7 @@ actor {
 	stable var DEFAULT_PAGE_SIZE = 50;
 
 	let grants = Grants.Grants(_stable_grantId, _stable_grants);
+	let groups = Groups.Groups(_stable_groupId, _stable_groups, _stable_proposalId, _stable_proposals);
 
 	let ICPLedger : actor {
 		query_blocks : shared query ICPTypes.GetBlocksArgs -> async ICPTypes.QueryBlocksResponse;
@@ -112,6 +122,11 @@ actor {
 
 		_stable_grants := grants.toStable();
 		_stable_grantId := grants.getNextGrantId();
+		_stable_groups := groups.toStable();
+		_stable_groupId := groups.getNextGroupId();
+		_stable_proposals := groups.toStableProposals();
+		_stable_proposalId := groups.getNextProposalId();
+
 		upgradeVotingPowers := Iter.toArray(votingPowers.entries());
 		upgradeConcilMembers := Iter.toArray(Iter.map<(Principal, Bool), Principal>(concilMembers.entries(), func((p, _)) { p }));
 	};
@@ -204,7 +219,7 @@ actor {
 				});
 
 				switch (queryResult.blocks[0].transaction.operation) {
-					case (? #Transfer(transfer)) {
+					case (?#Transfer(transfer)) {
 						if (transfer.amount.e8s != tempDonation.amount) {
 							return #err("Amount mismatch");
 						};
@@ -589,5 +604,9 @@ actor {
 			case (?grant) { grant.comments };
 		};
 	};
+
+	//============================================================================================================
+	//= groups
+	//============================================================================================================
 
 };

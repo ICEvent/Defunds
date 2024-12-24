@@ -16,9 +16,11 @@ module {
     type GroupFund = Types.GroupFund;
     type GroupProposal = Types.GroupProposal;
 
-    public class Groups(stableGroupId : Nat, stableGroups : [(Nat, GroupFund)],stableProposalId : Nat,  stableProposals : [(Nat, GroupProposal)]) {
+    public class Groups(stableGroupId : Nat, stableGroups : [(Nat, GroupFund)], stableProposalId : Nat, stableProposals : [(Nat, GroupProposal)]) {
+       
         private var nextGroupId = stableGroupId;
         private var nextProposalId = stableProposalId;
+
         private func natHash(n : Nat) : Hash.Hash {
             Text.hash(Nat.toText(n));
         };
@@ -29,8 +31,23 @@ module {
         var groupProposals = TrieMap.TrieMap<Nat, GroupProposal>(Nat.equal, natHash);
         groupProposals := TrieMap.fromEntries<Nat, GroupProposal>(Iter.fromArray(stableProposals), Nat.equal, natHash);
 
-        public shared (msg) func createGroupFund(name : Text, description : Text, isPublic : Bool) : async Result.Result<GroupFund, Text> {
-            let caller = msg.caller;
+        public func toStable() : [(Nat, GroupFund)] {
+            Iter.toArray(groupFunds.entries());
+        };
+
+        public func getNextGroupId() : Nat {
+            nextGroupId;
+        };
+
+        public func toStableProposals() : [(Nat, GroupProposal)] {
+            Iter.toArray(groupProposals.entries());
+        };
+
+        public func getNextProposalId() : Nat {
+            nextProposalId;
+        };
+        public  func createGroupFund(caller: Principal, name : Text, account : Text, description : Text, isPublic : Bool) : async Result.Result<GroupFund, Text> {
+
             let groupId = nextGroupId;
 
             let newGroup : GroupFund = {
@@ -40,7 +57,7 @@ module {
                 creator = caller;
                 isPublic = isPublic;
                 members = [caller];
-                account = ""; // Initialize with an empty account
+                account = account;
                 balance = 0;
                 proposals = [];
                 createdAt = Time.now();
@@ -56,14 +73,14 @@ module {
             };
             false;
         };
-        public shared (msg) func joinGroupFund(groupId : Nat) : async Result.Result<(), Text> {
+        public  func joinGroupFund(caller: Principal, groupId : Nat) : async Result.Result<(), Text> {
             switch (groupFunds.get(groupId)) {
                 case null { #err("Group not found") };
                 case (?group) {
                     if (not group.isPublic) {
                         #err("Group is private");
                     } else {
-                        let updatedMembers = Array.append(group.members, [msg.caller]);
+                        let updatedMembers = Array.append(group.members, [caller]);
                         let updatedGroup = {
                             group with members = updatedMembers
                         };
@@ -74,11 +91,11 @@ module {
             };
         };
 
-        public shared (msg) func createGroupProposal(groupId : Nat, title : Text, description : Text, recipient : Principal, amount : Nat) : async Result.Result<GroupProposal, Text> {
+        public  func createGroupProposal(caller: Principal, groupId : Nat, title : Text, description : Text, recipient : Principal, amount : Nat) : async Result.Result<GroupProposal, Text> {
             switch (groupFunds.get(groupId)) {
                 case null { #err("Group not found") };
                 case (?group) {
-                    if (not isMember(group.members, msg.caller)) {
+                    if (not isMember(group.members, caller)) {
                         #err("Not a group member");
                     } else {
                         let proposalId = nextProposalId;
@@ -103,24 +120,24 @@ module {
             };
         };
 
-        public shared (msg) func vote(groupId : Nat, proposalId : Nat, voteYes : Bool) : async Result.Result<(), Text> {
+        public func vote(caller: Principal, groupId : Nat, proposalId : Nat, voteYes : Bool) : async Result.Result<(), Text> {
             switch (groupProposals.get(proposalId)) {
                 case null { #err("Proposal not found") };
                 case (?proposal) {
                     switch (groupFunds.get(groupId)) {
                         case null { #err("Group not found") };
                         case (?group) {
-                            let isMember = Array.find<Principal>(group.members, func(p) { p == msg.caller });
+                            let isMember = Array.find<Principal>(group.members, func(p) { p == caller });
                             switch (isMember) {
                                 case null { #err("Not a group member") };
                                 case (?_) {
                                     let updatedProposal = if (voteYes) {
                                         {
-                                            proposal with yesVotes = Array.append(proposal.yesVotes, [msg.caller])
+                                            proposal with yesVotes = Array.append(proposal.yesVotes, [caller])
                                         };
                                     } else {
                                         {
-                                            proposal with noVotes = Array.append(proposal.noVotes, [msg.caller])
+                                            proposal with noVotes = Array.append(proposal.noVotes, [caller])
                                         };
                                     };
 
@@ -131,7 +148,7 @@ module {
                                     if (yesVotes * 2 > totalVotes) {
                                         // Execute proposal
                                         let finalProposal = {
-                                            updatedProposal with status = #executed
+                                            updatedProposal with status = #accepted
                                         };
                                         groupProposals.put(proposalId, finalProposal);
                                         // Transfer funds logic here
