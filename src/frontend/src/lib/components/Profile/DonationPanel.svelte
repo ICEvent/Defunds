@@ -119,6 +119,7 @@
     async function loadDonations() {
         if (backend) {
             donations = await backend.getMyDonations();
+            donations.sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
             console.log("Donations:", donations);
         }
     }
@@ -178,7 +179,7 @@
                                 on:click={() => handleConfirm(donation.blockIndex)}
                                 class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm"
                             >
-                                Confirm
+                                Claim
                             </button>
                         {/if}
                     </div>
