@@ -1,11 +1,17 @@
 module {
+    public type Member = {
+        name : Text;
+        principal : Principal;
+        votingPower : Nat;
+    };
+
     public type GroupFund = {
         id : Nat;
         name : Text;
         description : Text;
         creator : Principal;
         isPublic : Bool;
-        members : [Principal];
+        members : [Member];
         account : Text;
         balance : Nat;
         proposals : [Nat];

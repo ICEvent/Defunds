@@ -36,11 +36,15 @@
                     isPublic = false;
                     loadGroups();
                 } else {
-                    showNotification(result.err, "error");
+                    showNotification(result.err || "Failed to create group.", "error");
                 }
+            } catch (error) {
+                showNotification(error.message || "Failed to create group.", "error");
             } finally {
                 hideProgress();
             }
+        }else {
+            showNotification("Backend or group name is not available.", "error");
         }
     }
 </script>

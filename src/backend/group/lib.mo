@@ -15,6 +15,7 @@ module {
 
     type GroupFund = Types.GroupFund;
     type GroupProposal = Types.GroupProposal;
+    type Member = Types.Member;
 
     public class Groups(stableGroupId : Nat, stableGroups : [(Nat, GroupFund)], stableProposalId : Nat, stableProposals : [(Nat, GroupProposal)]) {
        
@@ -46,41 +47,48 @@ module {
         public func getNextProposalId() : Nat {
             nextProposalId;
         };
-        public  func createGroupFund(caller: Principal, name : Text, description : Text, account : Text, isPublic : Bool ) :  GroupFund {
-
+        public func createGroupFund(caller: Principal, name : Text, description : Text, account : Text, isPublic : Bool ) : GroupFund {
             let groupId = nextGroupId;
-
+            let member : Member = {
+                name = "Owner";
+                principal = caller;
+                votingPower = 1;
+            };
             let newGroup : GroupFund = {
                 id = groupId;
                 name = name;
                 description = description;
                 creator = caller;
                 isPublic = isPublic;
-                members = [caller];
+                members = [member];
                 account = account;
                 balance = 0;
                 proposals = [];
                 createdAt = Time.now();
             };
-
             groupFunds.put(groupId, newGroup);
             nextGroupId += 1;
             newGroup;
         };
-        private func isMember(members : [Principal], caller : Principal) : Bool {
+        private func isMember(members : [Member], caller : Principal) : Bool {
             for (member in members.vals()) {
-                if (member == caller) return true;
+                if (member.principal == caller) return true;
             };
             false;
         };
-        public  func joinGroupFund(caller: Principal, groupId : Nat) :  Result.Result<(), Text> {
+        public func joinGroupFund(caller: Principal, groupId : Nat) : Result.Result<(), Text> {
             switch (groupFunds.get(groupId)) {
                 case null { #err("Group not found") };
                 case (?group) {
                     if (not group.isPublic) {
                         #err("Group is private");
                     } else {
-                        let updatedMembers = Array.append(group.members, [caller]);
+                        let member : Member = {
+                            name = "";
+                            principal = caller;
+                            votingPower = 1;
+                        };
+                        let updatedMembers = Array.append(group.members, [member]);
                         let updatedGroup = {
                             group with members = updatedMembers
                         };
@@ -91,7 +99,7 @@ module {
             };
         };
 
-        public  func createGroupProposal(caller: Principal, groupId : Nat, title : Text, description : Text, recipient : Principal, amount : Nat) :  Result.Result<GroupProposal, Text> {
+        public func createGroupProposal(caller: Principal, groupId : Nat, title : Text, description : Text, recipient : Principal, amount : Nat) : Result.Result<GroupProposal, Text> {
             switch (groupFunds.get(groupId)) {
                 case null { #err("Group not found") };
                 case (?group) {
@@ -127,7 +135,7 @@ module {
                     switch (groupFunds.get(groupId)) {
                         case null { #err("Group not found") };
                         case (?group) {
-                            let isMember = Array.find<Principal>(group.members, func(p) { p == caller });
+                            let isMember = Array.find<Member>(group.members, func(m) { m.principal == caller });
                             switch (isMember) {
                                 case null { #err("Not a group member") };
                                 case (?_) {
