@@ -17,5 +17,8 @@
   ],
   "devDependencies": {
     "sass": "^1.68.0"
+  },
+  "dependencies": {
+    "svelte-icons": "^2.1.0"
   }
 }

@@ -17,6 +17,7 @@ import Hex "./hex";
 
 import Principal "mo:base/Principal";
 import TrieMap "mo:base/TrieMap";
+import Bool "mo:base/Bool";
 
 import ICPTypes "./icptypes";
 import GrantTypes "./grant/types";
@@ -606,7 +607,28 @@ actor {
 	};
 
 	//============================================================================================================
-	//= groups
+	// Group Management
 	//============================================================================================================
+	public shared ({ caller }) func createGroup(name : Text, description : Text, isPublic : Bool) : async Result.Result<GroupTypes.GroupFund, Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot create groups");
 
+		} else {
+			switch (votingPowers.get(caller)) {
+				case (null) {
+					#err("User must have voting power to create groups");
+				};
+				case (?power) {
+					if (power.totalPower == 0) {
+						#err("Insufficient voting power to create groups");
+					} else {
+						let account = Principal.toText(caller);
+						let r = groups.createGroupFund(caller, name, description, account, isPublic);
+						#ok(r);
+					};
+				};
+			};
+		}
+
+	};
 };

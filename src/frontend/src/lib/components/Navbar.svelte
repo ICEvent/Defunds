@@ -73,47 +73,48 @@
 </script>
 
 <nav class="bg-gray-700 py-4">
-	<div class="container mx-auto px-4 flex justify-between items-center">
-		<a
-			href="/"
-			class="text-yellow-500 font-bold flex items-center text-2xl"
-		>
-			<img
-				src="/defund_logo.jpg"
-				alt="Defund Logo"
-				class="h-8 mr-2"
-				style="color: #FFD700;"
-			/>
-			Defund
-		</a>
-		{#if isAuthed}
-			<div class="flex items-center space-x-4">
-				<button
-					class="text-white hover:text-gray-300 focus:outline-none"
-					on:click={navigateToProfile}
-				>
-					Profile
-				</button>
-				<button
-					class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-					on:click={handleLogout}
-				>
-					Logout
-				</button>
-			</div>
-		{:else}
-			<button
-				class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-				on:click={() => (showLoginDialog = true)}
-			>
-				Login
-			</button>
-		{/if}
-		<Dialog
-			isOpen={showLoginDialog}
-			on:close={() => (showLoginDialog = false)}
-		>
-			<LoginForm closeLoginForm={() => (showLoginDialog = false)} />
-		</Dialog>
-	</div>
+   <div class="container mx-auto px-4 flex justify-between items-center">
+	   <a
+		   href="/"
+		   class="text-yellow-500 font-bold flex items-center text-2xl"
+	   >
+		   <img
+			   src="/defund_logo.jpg"
+			   alt="Defund Logo"
+			   class="h-8 mr-2"
+			   style="color: #FFD700;"
+		   />
+		   Defunds
+	   </a>
+	   <div class="flex items-center space-x-4">
+		   <a href="/funds" class="text-white hover:text-yellow-400 font-semibold">Funds</a>
+		   {#if isAuthed}
+			   <button
+				   class="text-white hover:text-gray-300 focus:outline-none"
+				   on:click={navigateToProfile}
+			   >
+				   Profile
+			   </button>
+			   <button
+				   class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+				   on:click={handleLogout}
+			   >
+				   Logout
+			   </button>
+		   {:else}
+			   <button
+				   class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+				   on:click={() => (showLoginDialog = true)}
+			   >
+				   Login
+			   </button>
+		   {/if}
+	   </div>
+	   <Dialog
+		   isOpen={showLoginDialog}
+		   on:close={() => (showLoginDialog = false)}
+	   >
+		   <LoginForm closeLoginForm={() => (showLoginDialog = false)} />
+	   </Dialog>
+   </div>
 </nav>

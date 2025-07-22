@@ -46,7 +46,7 @@ module {
         public func getNextProposalId() : Nat {
             nextProposalId;
         };
-        public  func createGroupFund(caller: Principal, name : Text, account : Text, description : Text, isPublic : Bool) : async Result.Result<GroupFund, Text> {
+        public  func createGroupFund(caller: Principal, name : Text, description : Text, account : Text, isPublic : Bool ) :  GroupFund {
 
             let groupId = nextGroupId;
 
@@ -65,7 +65,7 @@ module {
 
             groupFunds.put(groupId, newGroup);
             nextGroupId += 1;
-            #ok(newGroup);
+            newGroup;
         };
         private func isMember(members : [Principal], caller : Principal) : Bool {
             for (member in members.vals()) {
@@ -73,7 +73,7 @@ module {
             };
             false;
         };
-        public  func joinGroupFund(caller: Principal, groupId : Nat) : async Result.Result<(), Text> {
+        public  func joinGroupFund(caller: Principal, groupId : Nat) :  Result.Result<(), Text> {
             switch (groupFunds.get(groupId)) {
                 case null { #err("Group not found") };
                 case (?group) {
@@ -91,7 +91,7 @@ module {
             };
         };
 
-        public  func createGroupProposal(caller: Principal, groupId : Nat, title : Text, description : Text, recipient : Principal, amount : Nat) : async Result.Result<GroupProposal, Text> {
+        public  func createGroupProposal(caller: Principal, groupId : Nat, title : Text, description : Text, recipient : Principal, amount : Nat) :  Result.Result<GroupProposal, Text> {
             switch (groupFunds.get(groupId)) {
                 case null { #err("Group not found") };
                 case (?group) {
