@@ -1,4 +1,4 @@
-import HashMap "mo:base/HashMap";
+// import HashMap "mo:base/HashMap"; // removed unused import
 import Text "mo:base/Text";
 import Nat "mo:base/Nat";
 import Principal "mo:base/Principal";
@@ -18,18 +18,18 @@ module {
     type Member = Types.Member;
 
     public class Groups(stableGroupId : Nat, stableGroups : [(Nat, GroupFund)], stableProposalId : Nat, stableProposals : [(Nat, GroupProposal)]) {
-       
-        private var nextGroupId = stableGroupId;
-        private var nextProposalId = stableProposalId;
+        
+        private var nextGroupId : Nat = stableGroupId;
+        private var nextProposalId : Nat = stableProposalId;
 
         private func natHash(n : Nat) : Hash.Hash {
             Text.hash(Nat.toText(n));
         };
 
-        var groupFunds = TrieMap.TrieMap<Nat, GroupFund>(Nat.equal, natHash);
+        var groupFunds : TrieMap.TrieMap<Nat, GroupFund> = TrieMap.TrieMap<Nat, GroupFund>(Nat.equal, natHash);
         groupFunds := TrieMap.fromEntries<Nat, GroupFund>(Iter.fromArray(stableGroups), Nat.equal, natHash);
 
-        var groupProposals = TrieMap.TrieMap<Nat, GroupProposal>(Nat.equal, natHash);
+        var groupProposals : TrieMap.TrieMap<Nat, GroupProposal> = TrieMap.TrieMap<Nat, GroupProposal>(Nat.equal, natHash);
         groupProposals := TrieMap.fromEntries<Nat, GroupProposal>(Iter.fromArray(stableProposals), Nat.equal, natHash);
 
         public func toStable() : [(Nat, GroupFund)] {
@@ -170,5 +170,83 @@ module {
                 };
             };
         };
+
+        // Member management methods
+        public func addMember(groupId : Nat, member : Member) : Result.Result<(), Text> {
+            switch (groupFunds.get(groupId)) {
+                case null { #err("Group not found") };
+                case (?group) {
+                    if (Array.find<Member>(group.members, func(m) { m.principal == member.principal }) != null) {
+                        #err("Member already exists");
+                    } else {
+                        let updatedMembers = Array.append(group.members, [member]);
+                        let updatedGroup = { group with members = updatedMembers };
+                        groupFunds.put(groupId, updatedGroup);
+                        #ok();
+                    }
+                }
+            }
+        };
+
+        public func removeMember(groupId : Nat, principal : Principal) : Result.Result<(), Text> {
+            switch (groupFunds.get(groupId)) {
+                case null { #err("Group not found") };
+                case (?group) {
+                    let updatedMembers = Array.filter<Member>(group.members, func(m) { m.principal != principal });
+                    if (Array.size(updatedMembers) == Array.size(group.members)) {
+                        #err("Member not found");
+                    } else {
+                        let updatedGroup = { group with members = updatedMembers };
+                        groupFunds.put(groupId, updatedGroup);
+                        #ok();
+                    }
+                }
+            }
+        };
+
+        public func updateMemberVotingPower(groupId : Nat, principal : Principal, votingPower : Nat) : Result.Result<(), Text> {
+            switch (groupFunds.get(groupId)) {
+                case null { #err("Group not found") };
+                case (?group) {
+                    var found = false;
+                    let updatedMembers = Array.map<Member, Member>(group.members, func(m) {
+                        if (m.principal == principal) {
+                            found := true;
+                            { m with votingPower = votingPower }
+                        } else m
+                    });
+                    if (not found) {
+                        #err("Member not found");
+                    } else {
+                        let updatedGroup = { group with members = updatedMembers };
+                        groupFunds.put(groupId, updatedGroup);
+                        #ok();
+                    }
+                }
+            }
+        };
+
+        public func updateMemberName(groupId : Nat, principal : Principal, name : Text) : Result.Result<(), Text> {
+            switch (groupFunds.get(groupId)) {
+                case null { #err("Group not found") };
+                case (?group) {
+                    var found = false;
+                    let updatedMembers = Array.map<Member, Member>(group.members, func(m) {
+                        if (m.principal == principal) {
+                            found := true;
+                            { m with name = name }
+                        } else m
+                    });
+                    if (not found) {
+                        #err("Member not found");
+                    } else {
+                        let updatedGroup = { group with members = updatedMembers };
+                        groupFunds.put(groupId, updatedGroup);
+                        #ok();
+                    }
+                }
+            }
+        };
+
     };
 };

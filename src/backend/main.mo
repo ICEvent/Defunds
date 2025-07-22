@@ -612,7 +612,6 @@ actor {
 	public shared ({ caller }) func createGroup(name : Text, description : Text, isPublic : Bool) : async Result.Result<GroupTypes.GroupFund, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot create groups");
-
 		} else {
 			switch (votingPowers.get(caller)) {
 				case (null) {
@@ -628,7 +627,43 @@ actor {
 					};
 				};
 			};
-		}
+		};
+	};
 
+	public shared ({ caller }) func addGroupMember(groupId : Nat, memberName : Text, memberPrincipal : Principal, votingPower : Nat) : async Result.Result<(), Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot manage members");
+		} else {
+			let member : GroupTypes.Member = {
+				name = memberName;
+				principal = memberPrincipal;
+				votingPower = votingPower;
+			};
+			groups.addMember(groupId, member);
+		};
+	};
+
+	public shared ({ caller }) func removeGroupMember(groupId : Nat, memberPrincipal : Principal) : async Result.Result<(), Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot manage members");
+		} else {
+			groups.removeMember(groupId, memberPrincipal);
+		};
+	};
+
+	public shared ({ caller }) func updateGroupMemberVotingPower(groupId : Nat, memberPrincipal : Principal, votingPower : Nat) : async Result.Result<(), Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot manage members");
+		} else {
+			groups.updateMemberVotingPower(groupId, memberPrincipal, votingPower);
+		};
+	};
+
+	public shared ({ caller }) func updateGroupMemberName(groupId : Nat, memberPrincipal : Principal, memberName : Text) : async Result.Result<(), Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot manage members");
+		} else {
+			groups.updateMemberName(groupId, memberPrincipal, memberName);
+		};
 	};
 };
