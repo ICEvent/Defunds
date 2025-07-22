@@ -3,12 +3,16 @@
     import { globalStore } from "$lib/store";
     import { showProgress, hideProgress } from "$lib/stores/progress";
     import { showNotification } from "$lib/stores/notification";
+    import GroupManagement from "$lib/components/Group/Group.svelte";
 
-    let groups = [];
-    let groupName = "";
-    let groupDescription = "";
-    let isPublic = false;
-    let backend;
+let groups = [];
+let groupName = "";
+let groupDescription = "";
+let isPublic = false;
+let backend;
+
+let showGroupModal = false;
+let selectedGroupId = null;
 
     onMount(async () => {
         const unsubscribe = globalStore.subscribe((store) => {
@@ -96,6 +100,7 @@
                         </span>
                         <button
                             class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                            on:click={() => { selectedGroupId = group.id; showGroupModal = true; }}
                         >
                             Manage
                         </button>
@@ -104,4 +109,12 @@
             {/each}
         </div>
     </div>
+    {#if showGroupModal}
+        <div class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+            <div class="bg-white rounded-lg shadow-lg p-6 max-w-2xl w-full relative">
+                <button class="absolute top-2 right-2 text-gray-500 hover:text-gray-700" on:click={() => { showGroupModal = false; selectedGroupId = null; }}>&times;</button>
+                <GroupManagement groupId={selectedGroupId} />
+            </div>
+        </div>
+    {/if}
 </div>
