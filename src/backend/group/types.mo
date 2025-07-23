@@ -15,6 +15,7 @@ module {
         balance : Nat;
         proposals : [Nat];
         createdAt : Int;
+        account : [Nat8]; // <-- Added for group subaccount
     };
 
     public type GroupProposal = {

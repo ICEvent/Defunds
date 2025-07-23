@@ -65,7 +65,7 @@ actor {
 	stable var DEFAULT_PAGE_SIZE = 50;
 
 	let grants = Grants.Grants(_stable_grantId, _stable_grants);
-	let groups = Groups.Groups(_stable_groupId, _stable_groups, _stable_proposalId, _stable_proposals);
+	let groups = Groups.Groups(_stable_groupId, _stable_groups, _stable_proposalId, _stable_proposals, Principal.fromActor(this));
 
 	let ICPLedger : actor {
 		query_blocks : shared query ICPTypes.GetBlocksArgs -> async ICPTypes.QueryBlocksResponse;

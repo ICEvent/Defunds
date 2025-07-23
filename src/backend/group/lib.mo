@@ -1,4 +1,3 @@
-// import HashMap "mo:base/HashMap"; // removed unused import
 import Text "mo:base/Text";
 import Nat "mo:base/Nat";
 import Principal "mo:base/Principal";
@@ -8,6 +7,7 @@ import Iter "mo:base/Iter";
 import Time "mo:base/Time";
 import TrieMap "mo:base/TrieMap";
 import Hash "mo:base/Hash";
+import Blob "mo:base/Blob";
 
 import Types "types";
 
@@ -17,7 +17,7 @@ module {
     type GroupProposal = Types.GroupProposal;
     type Member = Types.Member;
 
-    public class Groups(stableGroupId : Nat, stableGroups : [(Nat, GroupFund)], stableProposalId : Nat, stableProposals : [(Nat, GroupProposal)]) {
+    public class Groups(stableGroupId : Nat, stableGroups : [(Nat, GroupFund)], stableProposalId : Nat, stableProposals : [(Nat, GroupProposal)], mainActorPrincipal : Principal) {
         
         private var nextGroupId : Nat = stableGroupId;
         private var nextProposalId : Nat = stableProposalId;
@@ -47,6 +47,23 @@ module {
         public func getNextProposalId() : Nat {
             nextProposalId;
         };
+        // Helper to generate subaccount for group
+        public func mainActorGroupSubaccount(groupId : Nat) : [Nat8] {
+            let subaccount = Array.init<Nat8>(32, 0);
+            subaccount[0] := 1; // 0x01 for principal-based subaccount
+            let principalBytes = Blob.toArray(Principal.toBlob(mainActorPrincipal));
+            let groupIdBytes = Text.encodeUtf8(Nat.toText(groupId));
+            let pLen = if (principalBytes.size() > 15) 15 else principalBytes.size();
+            let gLen = if (groupIdBytes.size() > 16) 16 else groupIdBytes.size();
+            for (i in Iter.range(0, pLen - 1)) {
+                subaccount[i + 1] := principalBytes[i];
+            };
+            for (j in Iter.range(0, gLen - 1)) {
+                subaccount[1 + pLen + j] := groupIdBytes[j];
+            };
+            Array.freeze(subaccount)
+        }
+
         public func createGroupFund(caller: Principal, name : Text, description : Text,  isPublic : Bool ) : GroupFund {
             let groupId = nextGroupId;
             let member : Member = {
@@ -54,6 +71,7 @@ module {
                 principal = caller;
                 votingPower = 1;
             };
+            let account = mainActorGroupSubaccount(groupId);
             let newGroup : GroupFund = {
                 id = groupId;
                 name = name;
@@ -64,17 +82,20 @@ module {
                 balance = 0;
                 proposals = [];
                 createdAt = Time.now();
+                account = account;
             };
             groupFunds.put(groupId, newGroup);
             nextGroupId += 1;
             newGroup;
-        };
-        private func isMember(members : [Member], caller : Principal) : Bool {
+        }
+        // Helper to check if caller is a member
+        public func isMember(members : [Member], caller : Principal) : Bool {
             for (member in members.vals()) {
                 if (member.principal == caller) return true;
             };
             false;
-        };
+        }
+
         public func joinGroupFund(caller: Principal, groupId : Nat) : Result.Result<(), Text> {
             switch (groupFunds.get(groupId)) {
                 case null { #err("Group not found") };
