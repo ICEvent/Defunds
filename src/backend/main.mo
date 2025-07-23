@@ -621,8 +621,7 @@ actor {
 					if (power.totalPower == 0) {
 						#err("Insufficient voting power to create groups");
 					} else {
-						let account = Principal.toText(caller);
-						let r = groups.createGroupFund(caller, name, description, account, isPublic);
+						let r = groups.createGroupFund(caller, name, description,  isPublic);
 						#ok(r);
 					};
 				};
@@ -666,4 +665,6 @@ actor {
 			groups.updateMemberName(groupId, memberPrincipal, memberName);
 		};
 	};
+
+	
 };

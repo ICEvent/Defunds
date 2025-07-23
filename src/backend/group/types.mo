@@ -12,7 +12,6 @@ module {
         creator : Principal;
         isPublic : Bool;
         members : [Member];
-        account : Text;
         balance : Nat;
         proposals : [Nat];
         createdAt : Int;

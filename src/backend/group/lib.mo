@@ -47,7 +47,7 @@ module {
         public func getNextProposalId() : Nat {
             nextProposalId;
         };
-        public func createGroupFund(caller: Principal, name : Text, description : Text, account : Text, isPublic : Bool ) : GroupFund {
+        public func createGroupFund(caller: Principal, name : Text, description : Text,  isPublic : Bool ) : GroupFund {
             let groupId = nextGroupId;
             let member : Member = {
                 name = "Owner";
@@ -61,7 +61,6 @@ module {
                 creator = caller;
                 isPublic = isPublic;
                 members = [member];
-                account = account;
                 balance = 0;
                 proposals = [];
                 createdAt = Time.now();
