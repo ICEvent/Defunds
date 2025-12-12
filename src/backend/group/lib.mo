@@ -268,5 +268,37 @@ module {
             }
         };
 
+        // Query methods
+        public func getGroup(groupId : Nat) : ?GroupFund {
+            groupFunds.get(groupId)
+        };
+
+        public func getAllGroups() : [GroupFund] {
+            Iter.toArray(Iter.map(groupFunds.vals(), func(g : GroupFund) : GroupFund { g }))
+        };
+
+        public func getPublicGroups() : [GroupFund] {
+            let groups = Iter.toArray(groupFunds.vals());
+            Array.filter<GroupFund>(groups, func(g) { g.isPublic })
+        };
+
+        public func getUserGroups(user : Principal) : [GroupFund] {
+            let groups = Iter.toArray(groupFunds.vals());
+            Array.filter<GroupFund>(groups, func(g) { isMember(g.members, user) })
+        };
+
+        public func getProposal(proposalId : Nat) : ?GroupProposal {
+            groupProposals.get(proposalId)
+        };
+
+        public func getGroupProposals(groupId : Nat) : [GroupProposal] {
+            let proposals = Iter.toArray(groupProposals.vals());
+            Array.filter<GroupProposal>(proposals, func(p) { p.groupId == groupId })
+        };
+
+        public func getAllProposals() : [GroupProposal] {
+            Iter.toArray(groupProposals.vals())
+        };
+
     };
 };

@@ -664,5 +664,77 @@ persistent actor Defunds{
 		};
 	};
 
+	// Group query methods
+	public query func getGroup(groupId : Nat) : async ?GroupTypes.GroupFund {
+		groups.getGroup(groupId);
+	};
+
+	public query func getAllGroups() : async [GroupTypes.GroupFund] {
+		groups.getAllGroups();
+	};
+
+	public query func getPublicGroups() : async [GroupTypes.GroupFund] {
+		groups.getPublicGroups();
+	};
+
+	public query ({ caller }) func getMyGroups() : async [GroupTypes.GroupFund] {
+		if (Principal.isAnonymous(caller)) {
+			[];
+		} else {
+			groups.getUserGroups(caller);
+		};
+	};
+
+	// Proposal methods
+	public shared ({ caller }) func createGroupProposal(groupId : Nat, title : Text, description : Text, recipient : Principal, amount : Nat) : async Result.Result<GroupTypes.GroupProposal, Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot create proposals");
+		} else {
+			groups.createGroupProposal(caller, groupId, title, description, recipient, amount);
+		};
+	};
+
+	public shared ({ caller }) func voteOnProposal(groupId : Nat, proposalId : Nat, voteYes : Bool) : async Result.Result<(), Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot vote");
+		} else {
+			await groups.vote(caller, groupId, proposalId, voteYes);
+		};
+	};
+
+	public query func getProposal(proposalId : Nat) : async ?GroupTypes.GroupProposal {
+		groups.getProposal(proposalId);
+	};
+
+	public query func getGroupProposals(groupId : Nat) : async [GroupTypes.GroupProposal] {
+		groups.getGroupProposals(groupId);
+	};
+
+	public query func getAllProposals() : async [GroupTypes.GroupProposal] {
+		groups.getAllProposals();
+	};
+
+	public shared ({ caller }) func joinGroup(groupId : Nat) : async Result.Result<(), Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot join groups");
+		} else {
+			groups.joinGroupFund(caller, groupId);
+		};
+	};
+
+	// Admin restoration methods for data recovery
+	public shared ({ caller }) func adminRestoreTotals(donations : Nat64, votingPower : Nat64, availableFunds : Nat64) : async Result.Result<(), Text> {
+		// Only allow controllers to restore data
+		_accumulated_donations := donations;
+		_accumulated_voting_power := votingPower;
+		_avaliable_funds := availableFunds;
+		#ok();
+	};
+
+	public shared ({ caller }) func adminAddConcilMember(member : Principal) : async Result.Result<(), Text> {
+		concilMembers.put(member, true);
+		#ok();
+	};
+
 	
 };

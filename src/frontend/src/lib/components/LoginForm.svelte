@@ -33,21 +33,21 @@
 	});
 
 	//check plug connection
-	onMount(async () => {
-		let connect = await verifyConnection();
-		if (connect) {
-			setAgent(connect.agent);
-			globalStore.update((store) => {
-				return {
-					...store,
-					isAuthed: true,
-					principal: connect.principal,
+	// onMount(async () => {
+	// 	let connect = await verifyConnection();
+	// 	if (connect) {
+	// 		setAgent(connect.agent);
+	// 		globalStore.update((store) => {
+	// 			return {
+	// 				...store,
+	// 				isAuthed: true,
+	// 				principal: connect.principal,
 					
-				};
-			});
-			closeLoginForm();
-		}
-	});
+	// 			};
+	// 		});
+	// 		closeLoginForm();
+	// 	}
+	// });
 
 	async function handlePlugConnect() {
 		const result = await connectPlug();
@@ -93,7 +93,7 @@
 		});
 
 		authClient.login({
-			derivationOrigin: DERIVATION_ORIGION,
+			// derivationOrigin: DERIVATION_ORIGION,
 			identityProvider: IDENTITY_PROVIDER,
 			windowOpenerFeatures: windowFeatures,
 			onSuccess: () => {
@@ -115,7 +115,7 @@
 			<span> Internet Identity</span>
 		</button>
 
-		<div class="relative my-6">
+		<!-- <div class="relative my-6">
 			<div class="absolute inset-0 flex items-center">
 				<div class="w-full border-t border-gray-300"></div>
 			</div>
@@ -130,7 +130,7 @@
 		>
 			<img src="/plug_logo.png" alt="Plug Wallet" class="w-12 h-6" />
 			<span> Plug Wallet</span>
-		</button>
+		</button> -->
 	</div>
 
 	<p class="mt-6 text-sm text-gray-500">
