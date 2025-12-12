@@ -8,7 +8,6 @@ import Iter     "mo:base/Iter";
 import Nat      "mo:base/Nat";
 import Nat8     "mo:base/Nat8";
 import Nat32    "mo:base/Nat32";
-import Option   "mo:base/Option";
 import Text     "mo:base/Text";
 
 module {
@@ -32,7 +31,10 @@ module {
 
     /* credit https://github.com/dfinance-tech/motoko-token/blob/ledger/src/Utils.mo */
     public func decode(t : Text) : [Nat8] {
-        var map = HashMap.HashMap<Nat, Nat8>(1, Nat.equal, Hash.hash);
+        func natHash(n : Nat) : Hash.Hash {
+            Text.hash(Nat.toText(n))
+        };
+        var map = HashMap.HashMap<Nat, Nat8>(1, Nat.equal, natHash);
         // '0': 48 -> 0; '9': 57 -> 9
         for (num in Iter.range(48, 57)) {
             map.put(num, Nat8.fromNat(num-48));
@@ -48,8 +50,14 @@ module {
         let p = Iter.toArray(Iter.map(Text.toIter(t), func (x: Char) : Nat { Nat32.toNat(Char.toNat32(x)) }));
         var res : [var Nat8] = [var];       
         for (i in Iter.range(0, 31)) {            
-            let a = Option.unwrap(map.get(p[i*2]));
-            let b = Option.unwrap(map.get(p[i*2 + 1]));
+            let a = switch (map.get(p[i*2])) {
+                case (?val) val;
+                case null 0 : Nat8; // default value if not found
+            };
+            let b = switch (map.get(p[i*2 + 1])) {
+                case (?val) val;
+                case null 0 : Nat8; // default value if not found
+            };
             let c = 16*a + b;
             res := Array.thaw(Array.append(Array.freeze(res), Array.make(c)));
         };

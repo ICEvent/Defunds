@@ -62,7 +62,7 @@ module {
                 subaccount[1 + pLen + j] := groupIdBytes[j];
             };
             Array.freeze(subaccount)
-        }
+        };
 
         public func createGroupFund(caller: Principal, name : Text, description : Text,  isPublic : Bool ) : GroupFund {
             let groupId = nextGroupId;
@@ -87,14 +87,14 @@ module {
             groupFunds.put(groupId, newGroup);
             nextGroupId += 1;
             newGroup;
-        }
+        };
         // Helper to check if caller is a member
         public func isMember(members : [Member], caller : Principal) : Bool {
             for (member in members.vals()) {
                 if (member.principal == caller) return true;
             };
             false;
-        }
+        };
 
         public func joinGroupFund(caller: Principal, groupId : Nat) : Result.Result<(), Text> {
             switch (groupFunds.get(groupId)) {

@@ -1,11 +1,9 @@
 import Types "types";
 import Nat "mo:base/Nat";
-import Int "mo:base/Int";
 import Array "mo:base/Array";
 import Text "mo:base/Text";
 import Iter "mo:base/Iter";
 import Time "mo:base/Time";
-import Order "mo:base/Order";
 import Buffer "mo:base/Buffer";
 import Result "mo:base/Result";
 import Nat64 "mo:base/Nat64";
@@ -26,7 +24,7 @@ import Grants "./grant";
 import GroupTypes "./group/types";
 import Groups "./group";
 
-actor {
+persistent actor Defunds{
 
 	type Donation = Types.Donation;
 	type VotingPower = Types.VotingPower;
@@ -35,53 +33,53 @@ actor {
 	type Grant = GrantTypes.Grant;
 	type NewGrant = GrantTypes.NewGrant;
 
-	let ICP_FEE : Nat64 = 10_000;
+	transient let ICP_FEE : Nat64 = 10_000;
 
-	stable var _stable_grantId = 1; // Unique ID for each grant
-	stable var _accumulated_donations : Nat64 = 0; // Accumulated donations
-	stable var _avaliable_funds : Nat64 = 0; // Total Available donations
-	stable var _accumulated_voting_power : Nat64 = 0; // Accumulated voting power
+	var _stable_grantId = 1; // Unique ID for each grant
+	var _accumulated_donations : Nat64 = 0; // Accumulated donations
+	var _avaliable_funds : Nat64 = 0; // Total Available donations
+	var _accumulated_voting_power : Nat64 = 0; // Accumulated voting power
 
-	stable var upgradeCredits : [(Principal, Nat)] = [];
-	stable var upgradeExchangeRates : [(Text, Nat64)] = [];
-	stable var _stable_grants : [(Nat, Grant)] = [];
-	stable var upgradeDonations : [(Nat64, Donation)] = [];
+	var upgradeCredits : [(Principal, Nat)] = [];
+	var upgradeExchangeRates : [(Text, Nat64)] = [];
+	var _stable_grants : [(Nat, Grant)] = [];
+	var upgradeDonations : [(Nat64, Donation)] = [];
 
-	stable var _stable_groupId = 1; // Unique ID for each grant
-	stable var _stable_proposalId = 1; // Unique ID for each proposal
-	stable var _stable_groups : [(Nat, GroupTypes.GroupFund)] = [];
-	stable var _stable_proposals : [(Nat, GroupTypes.GroupProposal)] = [];
+	var _stable_groupId = 1; // Unique ID for each grant
+	var _stable_proposalId = 1; // Unique ID for each proposal
+	var _stable_groups : [(Nat, GroupTypes.GroupFund)] = [];
+	var _stable_proposals : [(Nat, GroupTypes.GroupProposal)] = [];
 
-	let nat64Hash = func(n : Nat64) : Hash.Hash {
+	transient let nat64Hash = func(n : Nat64) : Hash.Hash {
 		Text.hash(Nat64.toText(n));
 	};
 
-	var donations = TrieMap.TrieMap<Nat64, Donation>(Nat64.equal, nat64Hash);
+	transient var donations = TrieMap.TrieMap<Nat64, Donation>(Nat64.equal, nat64Hash);
 
-	stable var upgradeConcilMembers : [Principal] = [];
-	var concilMembers = TrieMap.TrieMap<Principal, Bool>(Principal.equal, Principal.hash);
+	var upgradeConcilMembers : [Principal] = [];
+	transient var concilMembers = TrieMap.TrieMap<Principal, Bool>(Principal.equal, Principal.hash);
 	concilMembers := TrieMap.fromEntries<Principal, Bool>(Iter.map<Principal, (Principal, Bool)>(Iter.fromArray(upgradeConcilMembers), func(p) { (p, true) }), Principal.equal, Principal.hash);
 
-	stable var DEFAULT_PAGE_SIZE = 50;
+	var DEFAULT_PAGE_SIZE = 50;
 
-	let grants = Grants.Grants(_stable_grantId, _stable_grants);
-	let groups = Groups.Groups(_stable_groupId, _stable_groups, _stable_proposalId, _stable_proposals, Principal.fromActor(this));
+	transient let grants = Grants.Grants(_stable_grantId, _stable_grants);
+	transient let groups = Groups.Groups(_stable_groupId, _stable_groups, _stable_proposalId, _stable_proposals, Principal.fromActor(Defunds));
 
-	let ICPLedger : actor {
+	transient let ICPLedger : actor {
 		query_blocks : shared query ICPTypes.GetBlocksArgs -> async ICPTypes.QueryBlocksResponse;
 		transfer : shared ICPTypes.TransferArgs -> async ICPTypes.Result_6;
 		account_balance : shared query ICPTypes.BinaryAccountBalanceArgs -> async ICPTypes.Tokens;
 
 	} = actor "ryjl3-tyaaa-aaaaa-aaaba-cai";
 
-	var donorCredits = TrieMap.TrieMap<Principal, Nat>(Principal.equal, Principal.hash);
+	transient var donorCredits = TrieMap.TrieMap<Principal, Nat>(Principal.equal, Principal.hash);
 	donorCredits := TrieMap.fromEntries<Principal, Nat>(Iter.fromArray(upgradeCredits), Principal.equal, Principal.hash);
-	var donorExchangeRates = TrieMap.TrieMap<Text, Nat64>(Text.equal, Text.hash);
+	transient var donorExchangeRates = TrieMap.TrieMap<Text, Nat64>(Text.equal, Text.hash);
 	donorExchangeRates := TrieMap.fromEntries<Text, Nat64>(Iter.fromArray(upgradeExchangeRates), Text.equal, Text.hash);
 
 	// Add these state variables
-	stable var upgradeVotingPowers : [(Principal, VotingPower)] = [];
-	var votingPowers = TrieMap.TrieMap<Principal, VotingPower>(Principal.equal, Principal.hash);
+	var upgradeVotingPowers : [(Principal, VotingPower)] = [];
+	transient var votingPowers = TrieMap.TrieMap<Principal, VotingPower>(Principal.equal, Principal.hash);
 	votingPowers := TrieMap.fromEntries<Principal, VotingPower>(Iter.fromArray(upgradeVotingPowers), Principal.equal, Principal.hash);
 
 	private func currencyToText(currency : Types.Currency) : Text {
@@ -92,9 +90,9 @@ actor {
 			case (#ckUSDC) { "ckUSDC" };
 		};
 	};
-	stable var minVotePercentage : Nat = 50; // 50% of total donors must vote
-	stable var minPowerPercentage : Nat = 50; // 50% of total voting power required
-	stable var maxAmountPercentage : Nat = 5; // 5% of total funds maximum
+	var minVotePercentage : Nat = 50; // 50% of total donors must vote
+	var minPowerPercentage : Nat = 50; // 50% of total voting power required
+	var maxAmountPercentage : Nat = 5; // 5% of total funds maximum
 	public shared ({ caller }) func updateVotingPolicy(
 		newMinVote : Nat,
 		newMinPower : Nat,
@@ -186,7 +184,7 @@ actor {
 			#err("no permission for anonymous caller to donate");
 		} else {
 			switch (donations.get(blockIndex)) {
-				case (?donation) {
+				case (?_) {
 					return #err("This block index has already been processed");
 				};
 				case null {
@@ -206,7 +204,7 @@ actor {
 		};
 	};
 
-	public shared ({ caller }) func confirmDonation(blockIndex : Nat64) : async Result.Result<Nat, Text> {
+	public shared func confirmDonation(blockIndex : Nat64) : async Result.Result<Nat, Text> {
 		switch (donations.get(blockIndex)) {
 			case null { return #err("Donation not found") };
 			case (?tempDonation) {
@@ -560,11 +558,11 @@ actor {
 									_avaliable_funds -= grant.amount;
 									#ok(blockIndex);
 								};
-								case (#Err(error)) {
+								case (#Err(_)) {
 									#err("Transfer failed");
 								};
 							};
-						} catch (error) {
+						} catch (_) {
 							#err("Transfer error");
 						};
 					};
