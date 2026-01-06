@@ -17,7 +17,7 @@ module {
         lower: Price;
         upper: Price;
         amount: Funds;
-        depositedPrice: Price; // 部署时的价格，用于收益计算
+        depositedPrice: Price; // Price at deployment time, used for profit calculation
     };
 
     public type TradeHistory = {
@@ -77,19 +77,19 @@ module {
     };
 
     // -----------------------------
-    // Layer C: 补仓 / 止盈逻辑
+    // Layer C: Rebalancing / Take-profit Logic
     // -----------------------------
     public func layerCAdjust(state: StrategyState, currentPrice: Price) : (StrategyState, [LPOrder]) {
         var adjustedOrders : [LPOrder] = [];
 
         for (order in state.activeOrders.vals()) {
-            // 简化：如果价格涨跌超过 ±5% 则触发止盈或补仓
+            // Simplified: trigger take-profit or rebalancing if price changes by ±5%
             let priceChange = (currentPrice - order.depositedPrice)/order.depositedPrice;
             if (priceChange >= 0.05) {
-                // 止盈：卖出
+                // Take profit: sell
                 Debug.print("Trigger Take Profit for order at " # debug_show(order.depositedPrice));
             } else if (priceChange <= -0.05) {
-                // 补仓：增加同等资金
+                // Rebalancing: add additional funds
                 let additionalAmount = order.amount * 0.5;
                 Debug.print("Trigger Rebalance / Add Funds: " # debug_show(additionalAmount));
                 adjustedOrders := Array.append([deployLP(additionalAmount, order.lower, order.upper, currentPrice)], adjustedOrders);
@@ -99,7 +99,7 @@ module {
     };
 
     // -----------------------------
-    // 收益统计
+    // Profit Tracking
     // -----------------------------
     public func recordProfit(state: StrategyState, currentPrice: Price, timestamp: Nat64) : StrategyState {
         var history : [TradeHistory] = state.tradeHistory;
@@ -107,7 +107,7 @@ module {
         // Only record profit once per execution by creating a single aggregate entry
         var totalProfit : Float = 0.0;
         for (order in state.activeOrders.vals()) {
-            // 简化：profit = 当前价格相对部署价格的变化 * amount
+            // Simplified: profit = (current price relative to deployment price change) * amount
             let profit = (currentPrice - order.depositedPrice)/order.depositedPrice * order.amount;
             totalProfit += profit;
         };
@@ -133,18 +133,18 @@ module {
     };
 
     // -----------------------------
-    // 执行策略
+    // Execute Strategy
     // -----------------------------
     public func executeStrategy(state: StrategyState, currentPrice: Price) : StrategyState {
-        // 1. 计算 LP 区间
+        // 1. Calculate LP range
         let (buyLower, buyUpper) = calculateLPRange(state.bBuyTarget, state.volatility, state.riskFactor);
         let (sellLower, sellUpper) = calculateLPRange(state.bSellTarget, state.volatility, state.riskFactor);
 
-        // 2. 计算权重
+        // 2. Calculate weights
         let buyWeight = liquidityWeight(currentPrice, buyLower, buyUpper);
         let sellWeight = liquidityWeight(currentPrice, sellLower, sellUpper);
 
-        // 3. 部署 LP - keep existing orders and add new ones
+        // 3. Deploy LP - keep existing orders and add new ones
         var newOrders : [LPOrder] = state.activeOrders;
         let buyAmount = state.bBuyFunds * buyWeight;
         let sellAmount = state.bSellFunds * sellWeight;
@@ -167,7 +167,7 @@ module {
             tradeHistory = state.tradeHistory;
         };
 
-        // 4. Layer C 调整
+        // 4. Layer C adjustment
         let (updatedState, additionalOrders) = layerCAdjust(newState, currentPrice);
         newState := {
             bBuyTarget = updatedState.bBuyTarget;
@@ -180,7 +180,7 @@ module {
             tradeHistory = updatedState.tradeHistory;
         };
 
-        // 5. 更新收益历史
+        // 5. Update profit history
         let timestamp = Nat64.fromNat(Int.abs(Time.now()));
         newState := recordProfit(newState, currentPrice, timestamp);
 

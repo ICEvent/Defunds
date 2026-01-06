@@ -213,7 +213,7 @@ Example integration:
 ```motoko
 // In main.mo, add LP strategy management
 public shared func deployLiquidity(amount: Nat64, currentPrice: Float) : async Result.Result<(), Text> {
-  if (_avaliable_funds >= amount) {
+  if (_available_funds >= amount) {
     // Deploy to LP strategy
     ignore await LPStrategyBot.run(currentPrice);
     #ok()
