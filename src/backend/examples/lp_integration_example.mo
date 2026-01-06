@@ -46,7 +46,7 @@ actor class DefundsWithLPIntegration() {
     };
     
     // Example: Query LP strategy state
-    public shared query func getLPStrategyState() : async Result.Result<LPStrategy.StrategyState, Text> {
+    public shared func getLPStrategyState() : async Result.Result<LPStrategy.StrategyState, Text> {
         try {
             let state = await lpStrategyBot.getState();
             #ok(state)
@@ -79,7 +79,7 @@ actor class DefundsWithLPIntegration() {
     };
     
     // Example: Get LP performance metrics
-    public shared query func getLPPerformance() : async Result.Result<{
+    public shared func getLPPerformance() : async Result.Result<{
         totalOrders: Nat;
         totalTrades: Nat;
         allocatedFunds: Nat64;

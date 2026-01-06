@@ -53,8 +53,13 @@ module {
             return 0.0;
         };
         let mid = (lower + upper) / 2.0;
+        let range = mid - lower;
+        // Protect against division by zero when lower equals upper
+        if (range <= 0.0) {
+            return 0.0;
+        };
         let maxWeight = 1.0;
-        return maxWeight * (1.0 - abs(current - mid)/(mid - lower));
+        return maxWeight * (1.0 - abs(current - mid)/range);
     };
 
     // -----------------------------
@@ -96,17 +101,25 @@ module {
     // -----------------------------
     // 收益统计
     // -----------------------------
-    public func recordProfit(state: StrategyState, currentPrice: Price) : StrategyState {
+    public func recordProfit(state: StrategyState, currentPrice: Price, timestamp: Nat64) : StrategyState {
         var history : [TradeHistory] = state.tradeHistory;
 
+        // Only record profit once per execution by creating a single aggregate entry
+        var totalProfit : Float = 0.0;
         for (order in state.activeOrders.vals()) {
             // 简化：profit = 当前价格相对部署价格的变化 * amount
             let profit = (currentPrice - order.depositedPrice)/order.depositedPrice * order.amount;
+            totalProfit += profit;
+        };
+        
+        // Add a single aggregated profit entry
+        if (state.activeOrders.size() > 0) {
             history := Array.append([{ 
-                timestamp = Nat64.fromNat(Int.abs(Time.now())); 
-                profit = profit 
+                timestamp = timestamp; 
+                profit = totalProfit 
             }], history);
         };
+        
         return {
             bBuyTarget = state.bBuyTarget;
             bSellTarget = state.bSellTarget;
@@ -131,16 +144,16 @@ module {
         let buyWeight = liquidityWeight(currentPrice, buyLower, buyUpper);
         let sellWeight = liquidityWeight(currentPrice, sellLower, sellUpper);
 
-        // 3. 部署 LP
-        var newOrders : [LPOrder] = [];
+        // 3. 部署 LP - keep existing orders and add new ones
+        var newOrders : [LPOrder] = state.activeOrders;
         let buyAmount = state.bBuyFunds * buyWeight;
         let sellAmount = state.bSellFunds * sellWeight;
 
         if (buyAmount > 0.0) {
-            newOrders := Array.append([deployLP(buyAmount, buyLower, buyUpper, currentPrice)], newOrders);
+            newOrders := Array.append(newOrders, [deployLP(buyAmount, buyLower, buyUpper, currentPrice)]);
         };
         if (sellAmount > 0.0) {
-            newOrders := Array.append([deployLP(sellAmount, sellLower, sellUpper, currentPrice)], newOrders);
+            newOrders := Array.append(newOrders, [deployLP(sellAmount, sellLower, sellUpper, currentPrice)]);
         };
 
         var newState = {
@@ -168,7 +181,8 @@ module {
         };
 
         // 5. 更新收益历史
-        newState := recordProfit(newState, currentPrice);
+        let timestamp = Nat64.fromNat(Int.abs(Time.now()));
+        newState := recordProfit(newState, currentPrice, timestamp);
 
         return newState;
     };
