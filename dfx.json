@@ -16,6 +16,13 @@
       "type": "motoko",
       "args": "--enhanced-orthogonal-persistence"
     },
+    "lpstrategybot": {
+      "declarations": {
+        "node_compatibility": true
+      },
+      "main": "src/backend/lpstrategybot.mo",
+      "type": "motoko"
+    },
     "frontend": {
       "dependencies": [
         "backend",
