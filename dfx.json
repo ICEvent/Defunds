@@ -1,5 +1,13 @@
 {
   "canisters": {
+    "governance": {
+      "dependencies": [
+        
+      ],
+      "main": "src/governance/main.mo",
+      "type": "motoko",
+      "args": "--enhanced-orthogonal-persistence"
+    },
     "backend": {
       "declarations": {
         "node_compatibility": true
@@ -10,7 +18,8 @@
     },
     "frontend": {
       "dependencies": [
-        "backend"
+        "backend",
+        "governance"
       ],
       "source": [
         "src/frontend/dist"

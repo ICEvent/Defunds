@@ -722,19 +722,6 @@ persistent actor Defunds{
 		};
 	};
 
-	// Admin restoration methods for data recovery
-	public shared ({ caller }) func adminRestoreTotals(donations : Nat64, votingPower : Nat64, availableFunds : Nat64) : async Result.Result<(), Text> {
-		// Only allow controllers to restore data
-		_accumulated_donations := donations;
-		_accumulated_voting_power := votingPower;
-		_avaliable_funds := availableFunds;
-		#ok();
-	};
-
-	public shared ({ caller }) func adminAddConcilMember(member : Principal) : async Result.Result<(), Text> {
-		concilMembers.put(member, true);
-		#ok();
-	};
 
 	
 };
