@@ -88,6 +88,7 @@
 	   </a>
 	   <div class="flex items-center space-x-4">
 		   <a href="/funds" class="text-white hover:text-yellow-400 font-semibold">Funds</a>
+		   <a href="/governance" class="text-white hover:text-yellow-400 font-semibold">Governance</a>
 		   {#if isAuthed}
 			   <button
 				   class="text-white hover:text-gray-300 focus:outline-none"
