@@ -3,23 +3,23 @@
   import { showNotification } from "$lib/stores/notification";
   import { hideProgress, showProgress } from "$lib/stores/progress";
   import { goto } from "$app/navigation";
+  import UnifiedGroupManager from "$lib/components/UnifiedGroupManager.svelte";
 
   let publicGroups = [];
   let myGroups = [];
   let backend;
+  let governanceActor;
   let isAuthed = false;
   let principal;
 
-  // Create group form
-  let showCreateForm = false;
-  let groupName = "";
-  let groupDescription = "";
-  let isPublic = true;
+  // For unified group creation
+  let showUnifiedCreate = false;
 
   onMount(async () => {
     const { globalStore } = await import('$lib/store');
     globalStore.subscribe(store => {
       backend = store.backend;
+      governanceActor = store.governance;
       principal = store.principal;
       isAuthed = store.isAuthed;
     });
@@ -45,29 +45,9 @@
     }
   }
 
-  async function createGroup() {
-    if (!groupName || !groupDescription) {
-      showNotification("Please fill in all fields", "error");
-      return;
-    }
-    
-    showProgress();
-    try {
-      const result = await backend.createGroup(groupName, groupDescription, isPublic);
-      if (result.ok) {
-        showNotification("Group created successfully!", "success");
-        groupName = "";
-        groupDescription = "";
-        showCreateForm = false;
-        await loadGroups();
-      } else {
-        showNotification(result.err, "error");
-      }
-    } catch (e) {
-      showNotification("Error creating group: " + e.message, "error");
-    } finally {
-      hideProgress();
-    }
+  async function handleGroupCreated() {
+    await loadGroups();
+    showUnifiedCreate = false;
   }
 
   async function joinGroup(groupId) {
@@ -104,35 +84,25 @@
 
 <div class="max-w-6xl mx-auto p-8">
   <div class="flex justify-between items-center mb-6">
-    <h1 class="text-3xl font-bold">Group Funds</h1>
+    <div>
+      <h1 class="text-3xl font-bold">Group Funds</h1>
+      <p class="text-sm text-gray-600 mt-1">Manage native ICP/ICRC funds and group governance</p>
+    </div>
     {#if isAuthed}
-      <button on:click={() => showCreateForm = !showCreateForm} class="btn btn-primary">
-        {showCreateForm ? "Cancel" : "Create Group"}
+      <button on:click={() => showUnifiedCreate = !showUnifiedCreate} class="btn btn-primary">
+        {showUnifiedCreate ? "Hide Manager" : "Create/Manage Groups"}
       </button>
     {/if}
   </div>
 
-  {#if showCreateForm}
-    <div class="create-form bg-white rounded-lg shadow-md p-6 mb-6">
-      <h2 class="text-xl font-semibold mb-4">Create New Group</h2>
-      <div class="mb-4">
-        <label class="block mb-2 font-medium">Group Name</label>
-        <input type="text" bind:value={groupName} class="input" placeholder="Enter group name" />
-      </div>
-      <div class="mb-4">
-        <label class="block mb-2 font-medium">Description</label>
-        <textarea bind:value={groupDescription} class="input" rows="3" placeholder="Describe your group's purpose"></textarea>
-      </div>
-      <div class="mb-4">
-        <label class="flex items-center">
-          <input type="checkbox" bind:checked={isPublic} class="mr-2" />
-          <span>Public (anyone can join)</span>
-        </label>
-      </div>
-      <div class="flex gap-2">
-        <button on:click={createGroup} class="btn btn-primary">Create</button>
-        <button on:click={() => showCreateForm = false} class="btn btn-secondary">Cancel</button>
-      </div>
+  {#if showUnifiedCreate}
+    <div class="mb-6">
+      <UnifiedGroupManager
+        {backend}
+        backendActor={backend}
+        {governanceActor}
+        on:groupCreated={handleGroupCreated}
+      />
     </div>
   {/if}
 
@@ -143,7 +113,10 @@
         {#each myGroups as group}
           <div class="group-card bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow cursor-pointer" on:click={() => viewGroup(group.id)}>
             <div class="flex items-start justify-between mb-2">
-              <h3 class="text-lg font-semibold">{group.name}</h3>
+              <div class="flex items-center gap-2">
+                <span class="text-lg">💰</span>
+                <h3 class="text-lg font-semibold">{group.name}</h3>
+              </div>
               <span class="text-xs px-2 py-1 rounded {group.isPublic ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
                 {group.isPublic ? 'Public' : 'Private'}
               </span>
@@ -170,7 +143,10 @@
         {#each publicGroups as group}
           <div class="group-card bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
             <div class="flex items-start justify-between mb-2">
-              <h3 class="text-lg font-semibold">{group.name}</h3>
+              <div class="flex items-center gap-2">
+                <span class="text-lg">💰</span>
+                <h3 class="text-lg font-semibold">{group.name}</h3>
+              </div>
               <span class="text-xs px-2 py-1 rounded bg-green-100 text-green-800">Public</span>
             </div>
             <p class="text-sm text-gray-600 mb-3">{group.description}</p>

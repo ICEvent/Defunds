@@ -5,15 +5,21 @@
   import { hideProgress, showProgress } from "$lib/stores/progress";
   import { goto } from "$app/navigation";
   import { Principal } from "@dfinity/principal";
+  import * as governanceAPI from '$lib/api/governance';
 
   let groupId;
   let group = null;
   let proposals = [];
   let backend;
+  let governanceActor;
   let isAuthed = false;
   let principal;
   let isMember = false;
   let isCreator = false;
+
+  // Check if this group has governance
+  let linkedGovernanceGroup = null;
+  let hasGovernance = false;
 
   // Member management
   let showAddMember = false;
@@ -33,6 +39,7 @@
     const { globalStore } = await import('$lib/store');
     globalStore.subscribe(store => {
       backend = store.backend;
+      governanceActor = store.governance;
       principal = store.principal;
       isAuthed = store.isAuthed;
     });
@@ -49,6 +56,11 @@
         group = groupResult;
         isMember = group.members.some(m => m.principal.toText() === principal?.toText());
         isCreator = group.creator.toText() === principal?.toText();
+
+        // Check if this group is linked to governance
+        if (governanceActor) {
+          await checkGovernanceLink();
+        }
       } else {
         showNotification("Group not found", "error");
         goto("/funds");
@@ -60,6 +72,24 @@
       showNotification("Error loading group: " + e.message, "error");
     } finally {
       hideProgress();
+    }
+  }
+
+  async function checkGovernanceLink() {
+    try {
+      const govGroups = await governanceAPI.listGroups(governanceActor);
+      linkedGovernanceGroup = govGroups.find(
+        g => g.backendGroupId && g.backendGroupId.length > 0 && g.backendGroupId[0] === groupId
+      );
+      hasGovernance = !!linkedGovernanceGroup;
+    } catch (e) {
+      console.log("No governance link found:", e);
+    }
+  }
+
+  function viewGovernance() {
+    if (linkedGovernanceGroup) {
+      goto("/governance");
     }
   }
 
@@ -195,13 +225,28 @@
     <!-- Group Header -->
     <div class="bg-white rounded-lg shadow-md p-6 mb-6">
       <div class="flex justify-between items-start mb-4">
-        <div>
-          <h1 class="text-3xl font-bold mb-2">{group.name}</h1>
+        <div class="flex-1">
+          <div class="flex items-center gap-3 mb-2">
+            <span class="text-2xl">💰</span>
+            <h1 class="text-3xl font-bold">{group.name}</h1>
+          </div>
           <p class="text-gray-600">{group.description}</p>
+          <div class="flex gap-2 mt-3">
+            <span class="text-xs px-3 py-1 rounded {group.isPublic ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
+              {group.isPublic ? 'Public' : 'Private'}
+            </span>
+            {#if hasGovernance}
+              <span class="text-xs px-3 py-1 rounded bg-blue-100 text-blue-800 font-semibold">
+                ⚖️ Governance Enabled
+              </span>
+            {/if}
+          </div>
         </div>
-        <span class="text-xs px-3 py-1 rounded {group.isPublic ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
-          {group.isPublic ? 'Public' : 'Private'}
-        </span>
+        {#if hasGovernance}
+          <button on:click={viewGovernance} class="btn btn-secondary">
+            View Governance →
+          </button>
+        {/if}
       </div>
       
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">

@@ -145,7 +145,7 @@
 </script>
 
 <div class="group-management-section p-6 bg-white rounded shadow">
-  <h2 class="text-xl font-bold mb-4">Group Management</h2>
+  <h2 class="text-xl font-bold mb-4">💰 Fund Group Management</h2>
   <div class="mb-6">
     <label class="block mb-2 font-semibold">Group Name</label>
     <input type="text" bind:value={groupName} class="input mb-2" />

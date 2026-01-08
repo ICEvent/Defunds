@@ -17,7 +17,7 @@
 
 <div class="group-fund-card">
   <div class="card-header">
-    <h3 class="group-name">{group.name}</h3>
+    <h3 class="group-name">💰 {group.name}</h3>
     <span class="badge {group.isPublic ? 'badge-public' : 'badge-private'}">
       {group.isPublic ? 'Public' : 'Private'}
     </span>

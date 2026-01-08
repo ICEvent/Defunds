@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { globalStore } from '$lib/store';
 	import * as governanceAPI from '$lib/api/governance';
+	import GroupManager from '$lib/components/GroupManager.svelte';
 
 	let isAuthed = false;
 	let principal = '';
@@ -9,8 +10,14 @@
 	let loading = false;
 	let error = null;
 
+	// Selected group
+	let selectedGroup = null;
+	let selectedGroupId = null;
+	let groupInfo = null;
+
 	// System info
 	let systemInfo = {
+		totalGroups: 0,
 		totalMembers: 0,
 		totalAssets: 0,
 		totalProposals: 0,
@@ -21,6 +28,10 @@
 	let proposals = [];
 	let currentPage = 1;
 	let pageSize = 10;
+
+	// Assets and Rules for the selected group
+	let assets = [];
+	let rules = [];
 
 	// Create proposal form
 	let showCreateProposal = false;
@@ -44,35 +55,66 @@
 			governanceActor = value.governance;
 
 			if (governanceActor) {
-				await loadData();
+				await loadSystemInfo();
 			}
 		});
 	});
 
-	async function loadData() {
+	async function handleGroupSelected(event) {
+		selectedGroup = event.detail.group;
+		selectedGroupId = event.detail.groupId;
+		
+		if (selectedGroupId) {
+			await loadGroupData();
+		}
+	}
+
+	async function loadSystemInfo() {
+		try {
+			systemInfo = await governanceAPI.auditSystemInfo(governanceActor);
+		} catch (e) {
+			console.error('Error loading system info:', e);
+		}
+	}
+
+	async function loadGroupData() {
+		if (!governanceActor || !selectedGroupId) return;
+		
 		loading = true;
 		error = null;
 		try {
-			// Load system info
-			systemInfo = await governanceAPI.auditSystemInfo(governanceActor);
+			// Load group info
+			groupInfo = await governanceAPI.auditGroupInfo(governanceActor, selectedGroupId);
 
-			// Load proposals
-			proposals = await governanceAPI.listProposalsAudit(governanceActor, currentPage, pageSize);
+			// Load group assets
+			assets = await governanceAPI.getGroupAssets(governanceActor, selectedGroupId);
+
+			// Load group rules
+			rules = await governanceAPI.getGroupRules(governanceActor, selectedGroupId);
+
+			// Load proposals for this group
+			proposals = await governanceAPI.listGroupProposalsAudit(
+				governanceActor,
+				selectedGroupId,
+				currentPage,
+				pageSize
+			);
 		} catch (e) {
 			error = e.message;
-			console.error('Error loading governance data:', e);
+			console.error('Error loading group data:', e);
 		} finally {
 			loading = false;
 		}
 	}
 
 	async function handleCreateProposal() {
-		if (!governanceActor) return;
+		if (!governanceActor || !selectedGroupId) return;
 
 		loading = true;
 		try {
 			const result = await governanceAPI.createProposal(
 				governanceActor,
+				selectedGroupId,
 				Number(proposalForm.assetId),
 				Number(proposalForm.amount),
 				proposalForm.purpose,
@@ -84,15 +126,15 @@
 			if ('ok' in result) {
 				alert(`Proposal created with ID: ${result.ok}`);
 				showCreateProposal = false;
-				await loadData();
+				await loadGroupData();
 				// Reset form
 				proposalForm = {
-					assetId: 1,
+					assetId: assets[0]?.assetId || 1,
 					amount: 0,
 					purpose: '',
 					payee: '',
 					evidenceHash: '',
-					ruleId: 1,
+					ruleId: rules[0]?.ruleId || 1,
 				};
 			} else {
 				alert(`Error: ${result.err}`);
@@ -123,7 +165,7 @@
 			if ('ok' in result) {
 				alert(`Vote ${approve ? 'approved' : 'rejected'} successfully!`);
 				showVoteModal = false;
-				await loadData();
+				await loadGroupData();
 			} else {
 				alert(`Error: ${result.err}`);
 			}
@@ -157,7 +199,7 @@
 </script>
 
 <main class="container mx-auto px-4 py-8 bg-gray-50 min-h-screen">
-	<h1 class="text-4xl font-bold mb-8 text-center text-blue-600">Governance System</h1>
+	<h1 class="text-4xl font-bold mb-8 text-center text-blue-600">Unified Group Governance</h1>
 
 	{#if !isAuthed}
 		<div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-6" role="alert">
@@ -168,7 +210,11 @@
 		<!-- System Overview -->
 		<section class="bg-white shadow-lg rounded-lg p-6 mb-8">
 			<h2 class="text-2xl font-semibold mb-4 text-blue-800 border-b pb-2">System Overview</h2>
-			<div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+			<div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+				<div class="bg-indigo-100 p-4 rounded-lg text-center">
+					<div class="text-3xl font-bold text-indigo-600">{systemInfo.totalGroups}</div>
+					<div class="text-sm text-gray-600">Total Groups</div>
+				</div>
 				<div class="bg-blue-100 p-4 rounded-lg text-center">
 					<div class="text-3xl font-bold text-blue-600">{systemInfo.totalMembers}</div>
 					<div class="text-sm text-gray-600">Total Members</div>
@@ -188,6 +234,57 @@
 			</div>
 		</section>
 
+		<!-- Group Manager -->
+		<GroupManager
+			{governanceActor}
+			on:groupSelected={handleGroupSelected}
+		/>
+
+		{#if selectedGroup && selectedGroupId}
+			<!-- Group Info -->
+			<section class="bg-white shadow-lg rounded-lg p-6 mb-8">
+				<div class="flex justify-between items-start mb-4">
+					<div>
+						<h2 class="text-2xl font-semibold text-blue-800 border-b pb-2">
+							{selectedGroup.name} Overview
+						</h2>
+						<p class="text-gray-600 mt-2">{selectedGroup.description}</p>
+						<div class="flex gap-2 mt-3">
+							{#if selectedGroup.hasNativeFunds}
+								<span class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded font-semibold">
+									💰 Native Funds Management
+								</span>
+							{/if}
+							{#if selectedGroup.hasGovernance}
+								<span class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-semibold">
+									⚖️ Governance & External Assets
+								</span>
+							{/if}
+						</div>
+					</div>
+				</div>
+				{#if groupInfo && groupInfo[0]}
+					<div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+						<div class="bg-blue-100 p-3 rounded-lg text-center">
+							<div class="text-2xl font-bold text-blue-600">{groupInfo[0]?.totalMembers || 0}</div>
+							<div class="text-xs text-gray-600">Members</div>
+						</div>
+						<div class="bg-green-100 p-3 rounded-lg text-center">
+							<div class="text-2xl font-bold text-green-600">{groupInfo[0]?.totalAssets || 0}</div>
+							<div class="text-xs text-gray-600">Assets</div>
+						</div>
+						<div class="bg-purple-100 p-3 rounded-lg text-center">
+							<div class="text-2xl font-bold text-purple-600">{groupInfo[0]?.totalProposals || 0}</div>
+							<div class="text-xs text-gray-600">Proposals</div>
+						</div>
+						<div class="bg-yellow-100 p-3 rounded-lg text-center">
+							<div class="text-2xl font-bold text-yellow-600">{groupInfo[0]?.totalRules || 0}</div>
+							<div class="text-xs text-gray-600">Rules</div>
+						</div>
+					</div>
+				{/if}
+			</section>
+
 		<!-- Create Proposal Section -->
 		<section class="bg-white shadow-lg rounded-lg p-6 mb-8">
 			<div class="flex justify-between items-center mb-4">
@@ -195,10 +292,20 @@
 				<button
 					class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
 					on:click={() => (showCreateProposal = !showCreateProposal)}
+					disabled={assets.length === 0 || rules.length === 0}
 				>
 					{showCreateProposal ? 'Cancel' : 'Create Proposal'}
 				</button>
 			</div>
+
+			{#if assets.length === 0 || rules.length === 0}
+				<div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-3 mb-4 text-sm">
+					<p class="font-bold">Setup Required</p>
+					<p>
+						This group needs at least one asset and one rule before proposals can be created.
+					</p>
+				</div>
+			{/if}
 
 			{#if showCreateProposal}
 				<div class="bg-gray-100 p-6 rounded-lg mb-6">
@@ -207,15 +314,20 @@
 						<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
 							<div>
 								<label class="block text-gray-700 text-sm font-bold mb-2" for="assetId">
-									Asset ID
+									Asset
 								</label>
-								<input
+								<select
 									id="assetId"
-									type="number"
 									bind:value={proposalForm.assetId}
 									class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
 									required
-								/>
+								>
+									{#each assets as asset}
+										<option value={asset.assetId}>
+											#{asset.assetId} - {asset.description}
+										</option>
+									{/each}
+								</select>
 							</div>
 							<div>
 								<label class="block text-gray-700 text-sm font-bold mb-2" for="amount">
@@ -243,15 +355,20 @@
 							</div>
 							<div>
 								<label class="block text-gray-700 text-sm font-bold mb-2" for="ruleId">
-									Rule ID
+									Rule
 								</label>
-								<input
+								<select
 									id="ruleId"
-									type="number"
 									bind:value={proposalForm.ruleId}
 									class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
 									required
-								/>
+								>
+									{#each rules as rule}
+										<option value={rule.ruleId}>
+											#{rule.ruleId} - Threshold: {rule.threshold}, Quorum: {rule.quorum}
+										</option>
+									{/each}
+								</select>
 							</div>
 						</div>
 						<div class="mb-4">
@@ -326,8 +443,7 @@
 							</div>
 							<p class="text-gray-700 mb-2">{proposalAudit.proposal.purpose}</p>
 							<div class="text-sm text-gray-600 mb-3">
-								<p>Payee: {proposalAudit.proposal.payee}</p>
-								<p>Created: {formatDate(proposalAudit.proposal.createdAt)}</p>
+								<p>Payee: {proposalAudit.proposal.payee}</p>							<p>Group ID: {proposalAudit.proposal.groupId}</p>								<p>Created: {formatDate(proposalAudit.proposal.createdAt)}</p>
 								<p>Votes: {proposalAudit.votes.length} | Rule: #{proposalAudit.rule.ruleId}</p>
 								<p>Threshold: {proposalAudit.rule.threshold} | Quorum: {proposalAudit.rule.quorum}</p>
 							</div>
@@ -344,6 +460,21 @@
 				</div>
 			{/if}
 		</section>
+		{:else if selectedGroup && !selectedGroupId}
+			<div class="text-center py-8 text-gray-600 bg-white rounded-lg shadow">
+				<p class="text-lg font-semibold mb-2">📝 Governance Not Available</p>
+				<p class="text-sm">This group only has native fund management.</p>
+				<p class="text-sm mt-2">You can still view fund proposals in the Funds section.</p>
+			</div>
+		{:else if selectedGroupId}
+			<div class="text-center py-8 text-gray-600 bg-white rounded-lg shadow">
+				<p>Loading group information...</p>
+			</div>
+		{:else}
+			<div class="text-center py-8 text-gray-600 bg-white rounded-lg shadow">
+				<p>Please select a group to view governance data.</p>
+			</div>
+		{/if}
 	{/if}
 </main>
 

@@ -20,7 +20,12 @@ persistent actor Governance {
         Text.hash(Nat.toText(n));
     };
 
-    transient var members = HashMap.HashMap<Principal, Types.Member>(10, Principal.equal, Principal.hash);
+    // Group storage
+    transient var groups = HashMap.HashMap<Nat, Types.Group>(10, Nat.equal, natHash);
+    var groupCounter : Nat = 0;
+
+    // Group-scoped storage (key format: "groupId:itemId")
+    transient var groupMembers = HashMap.HashMap<Text, Types.GroupMember>(10, Text.equal, Text.hash);
     transient var assets = HashMap.HashMap<Nat, Types.Asset>(10, Nat.equal, natHash);
     transient var rules = HashMap.HashMap<Nat, Types.Rule>(10, Nat.equal, natHash);
     transient var proposals = HashMap.HashMap<Nat, Types.Proposal>(10, Nat.equal, natHash);
@@ -33,33 +38,98 @@ persistent actor Governance {
 
     // ========= Helpers =========
 
-    func hasRole(m : Types.Member, r : Types.Role) : Bool {
-        Array.find<Types.Role>(m.roles, func(x) { x == r }) != null;
+    func makeGroupMemberKey(groupId : Nat, principal : Principal) : Text {
+        Nat.toText(groupId) # ":" # Principal.toText(principal);
     };
 
-    func requireRole(p : Principal, r : Types.Role) : Result.Result<Types.Member, Text> {
-        switch (members.get(p)) {
+    func hasRole(roles : [Types.Role], r : Types.Role) : Bool {
+        Array.find<Types.Role>(roles, func(x) { x == r }) != null;
+    };
+
+    func requireGroupRole(p : Principal, groupId : Nat, r : Types.Role) : Result.Result<Types.GroupMember, Text> {
+        let key = makeGroupMemberKey(groupId, p);
+        switch (groupMembers.get(key)) {
             case (?m) {
                 if (not m.active) return #err("Member inactive");
-                if (hasRole(m, r)) #ok(m) else #err("Missing role");
+                if (hasRole(m.roles, r)) #ok(m) else #err("Missing role");
             };
-            case null #err("Not a member");
+            case null #err("Not a member of this group");
         };
+    };
+
+    func groupExists(groupId : Nat) : Bool {
+        switch (groups.get(groupId)) {
+            case (?g) g.active;
+            case null false;
+        };
+    };
+
+    // ========= Group Management =========
+
+    public shared (msg) func createGroup(
+        name : Text,
+        description : Text,
+    ) : async Result.Result<Nat, Text> {
+        groupCounter += 1;
+        groups.put(
+            groupCounter,
+            {
+                groupId = groupCounter;
+                name = name;
+                description = description;
+                createdBy = msg.caller;
+                createdAt = Time.now();
+                active = true;
+            },
+        );
+        // Add creator as admin
+        let key = makeGroupMemberKey(groupCounter, msg.caller);
+        groupMembers.put(
+            key,
+            {
+                groupId = groupCounter;
+                principal = msg.caller;
+                roles = [#admin];
+                active = true;
+                joinedAt = Time.now();
+            },
+        );
+        #ok(groupCounter);
+    };
+
+    public query func getGroup(groupId : Nat) : async ?Types.Group {
+        groups.get(groupId);
+    };
+
+    public query func listGroups() : async [Types.Group] {
+        var result : [Types.Group] = [];
+        for ((_, group) in groups.entries()) {
+            if (group.active) {
+                result := Array.append(result, [group]);
+            };
+        };
+        result;
     };
 
     // ========= Admin =========
 
     public shared (msg) func addMember(
+        groupId : Nat,
         principal : Principal,
         roles : [Types.Role],
     ) : async Result.Result<(), Text> {
-        switch (requireRole(msg.caller, #admin)) {
+        if (not groupExists(groupId)) return #err("Group not found");
+        
+        switch (requireGroupRole(msg.caller, groupId, #admin)) {
             case (#err(e)) return #err(e);
             case (#ok(_)) {};
         };
-        members.put(
-            principal,
+        
+        let key = makeGroupMemberKey(groupId, principal);
+        groupMembers.put(
+            key,
             {
+                groupId = groupId;
                 principal = principal;
                 roles = roles;
                 active = true;
@@ -69,14 +139,30 @@ persistent actor Governance {
         #ok(());
     };
 
+    public query func getGroupMembers(groupId : Nat) : async [Types.GroupMember] {
+        var result : [Types.GroupMember] = [];
+        for ((_, member) in groupMembers.entries()) {
+            if (member.groupId == groupId and member.active) {
+                result := Array.append(result, [member]);
+            };
+        };
+        result;
+    };
+
     // ========= Asset =========
 
     public shared (msg) func registerAsset(
+        groupId : Nat,
+        category : Types.AssetCategory, // #native or #external
         assetType : Types.AssetType,
         description : Text,
+        canisterId : ?Text,
+        tokenIdentifier : ?Text,
         constraints : ?Text,
     ) : async Result.Result<Nat, Text> {
-        switch (requireRole(msg.caller, #admin)) {
+        if (not groupExists(groupId)) return #err("Group not found");
+        
+        switch (requireGroupRole(msg.caller, groupId, #admin)) {
             case (#err(e)) return #err(e);
             case (#ok(_)) {};
         };
@@ -85,8 +171,12 @@ persistent actor Governance {
             assetCounter,
             {
                 assetId = assetCounter;
+                groupId = groupId;
+                category = category;
                 assetType = assetType;
                 description = description;
+                canisterId = canisterId;
+                tokenIdentifier = tokenIdentifier;
                 constraints = constraints;
                 createdAt = Time.now();
             },
@@ -94,15 +184,28 @@ persistent actor Governance {
         #ok(assetCounter);
     };
 
+    public query func getGroupAssets(groupId : Nat) : async [Types.Asset] {
+        var result : [Types.Asset] = [];
+        for ((_, asset) in assets.entries()) {
+            if (asset.groupId == groupId) {
+                result := Array.append(result, [asset]);
+            };
+        };
+        result;
+    };
+
     // ========= Rule =========
 
     public shared (msg) func setRule(
+        groupId : Nat,
         assetId : ?Nat,
         threshold : Nat,
         quorum : Nat,
         timelock : ?Nat,
     ) : async Result.Result<Nat, Text> {
-        switch (requireRole(msg.caller, #admin)) {
+        if (not groupExists(groupId)) return #err("Group not found");
+        
+        switch (requireGroupRole(msg.caller, groupId, #admin)) {
             case (#err(e)) return #err(e);
             case (#ok(_)) {};
         };
@@ -111,6 +214,7 @@ persistent actor Governance {
             ruleCounter,
             {
                 ruleId = ruleCounter;
+                groupId = groupId;
                 assetId = assetId;
                 threshold = threshold;
                 quorum = quorum;
@@ -121,9 +225,20 @@ persistent actor Governance {
         #ok(ruleCounter);
     };
 
+    public query func getGroupRules(groupId : Nat) : async [Types.Rule] {
+        var result : [Types.Rule] = [];
+        for ((_, rule) in rules.entries()) {
+            if (rule.groupId == groupId) {
+                result := Array.append(result, [rule]);
+            };
+        };
+        result;
+    };
+
     // ========= Proposal =========
 
     public shared (msg) func createProposal(
+        groupId : Nat,
         assetId : Nat,
         amount : Nat,
         purpose : Text,
@@ -131,18 +246,35 @@ persistent actor Governance {
         evidenceHash : ?Text,
         ruleId : Nat,
     ) : async Result.Result<Nat, Text> {
-        switch (requireRole(msg.caller, #proposer)) {
+        if (not groupExists(groupId)) return #err("Group not found");
+        
+        switch (requireGroupRole(msg.caller, groupId, #proposer)) {
             case (#err(e)) return #err(e);
             case (#ok(_)) {};
         };
-        if (assets.get(assetId) == null) return #err("Invalid asset");
-        if (rules.get(ruleId) == null) return #err("Invalid rule");
+        
+        // Verify asset belongs to the group
+        switch (assets.get(assetId)) {
+            case (?asset) {
+                if (asset.groupId != groupId) return #err("Asset not in this group");
+            };
+            case null return #err("Invalid asset");
+        };
+        
+        // Verify rule belongs to the group
+        switch (rules.get(ruleId)) {
+            case (?rule) {
+                if (rule.groupId != groupId) return #err("Rule not in this group");
+            };
+            case null return #err("Invalid rule");
+        };
 
         proposalCounter += 1;
         proposals.put(
             proposalCounter,
             {
                 proposalId = proposalCounter;
+                groupId = groupId;
                 assetId = assetId;
                 amount = amount;
                 purpose = purpose;
@@ -157,21 +289,33 @@ persistent actor Governance {
         #ok(proposalCounter);
     };
 
+    public query func getGroupProposals(groupId : Nat) : async [Types.Proposal] {
+        var result : [Types.Proposal] = [];
+        for ((_, proposal) in proposals.entries()) {
+            if (proposal.groupId == groupId) {
+                result := Array.append(result, [proposal]);
+            };
+        };
+        result;
+    };
+
     // ========= Voting =========
 
     public shared (msg) func vote(
         proposalId : Nat,
         approve : Bool,
     ) : async Result.Result<(), Text> {
-        switch (requireRole(msg.caller, #voter)) {
-            case (#err(e)) return #err(e);
-            case (#ok(_)) {};
-        };
         let p = proposals.get(proposalId);
         if (p == null) return #err("Proposal not found");
 
         switch (p) {
             case (?proposal) {
+                // Verify caller is a voter in the proposal's group
+                switch (requireGroupRole(msg.caller, proposal.groupId, #voter)) {
+                    case (#err(e)) return #err(e);
+                    case (#ok(_)) {};
+                };
+                
                 if (proposal.status != #pending) return #err("Voting closed");
 
                 let vs = switch (votes.get(proposalId)) {
@@ -325,6 +469,52 @@ persistent actor Governance {
         result;
     };
 
+    // 按组列出 Proposal 审计
+    public query func listGroupProposalsAudit(
+        groupId : Nat,
+        from : Nat,
+        limit : Nat,
+    ) : async [Types.ProposalAudit] {
+        var result : [Types.ProposalAudit] = [];
+        var i = from;
+        var count = 0;
+
+        label scanLoop while (count < limit and i <= proposalCounter) {
+            let p = proposals.get(i);
+            if (p != null) {
+                switch (p) {
+                    case (?proposal) {
+                        if (proposal.groupId == groupId) {
+                            let vs = switch (votes.get(i)) {
+                                case (?v) v;
+                                case null [];
+                            };
+                            let r = rules.get(proposal.ruleId);
+                            let a = authorizations.get(i);
+                            switch (r) {
+                                case (?rule) {
+                                    let audit = {
+                                        proposal = proposal;
+                                        votes = vs;
+                                        rule = rule;
+                                        authorization = a;
+                                    };
+                                    result := Array.append(result, [audit]);
+                                    count += 1;
+                                };
+                                case null {};
+                            };
+                        };
+                    };
+                    case null {};
+                };
+            };
+            i += 1;
+        };
+
+        result;
+    };
+
     // 按资产审计
     public query func auditAsset(
         assetId : Nat
@@ -357,15 +547,23 @@ persistent actor Governance {
         result;
     };
 
-    // 成员参与记录（不泄露投票倾向）
+    // 成员参与记录（不泄露投票倾向）- 现在需要指定组
     public query func auditMember(
+        groupId : Nat,
         principal : Principal
     ) : async [Nat] {
         var result : [Nat] = [];
 
         for ((id, vs) in votes.entries()) {
-            if (Array.find<Types.Vote>(vs, func(v) { v.voter == principal }) != null) {
-                result := Array.append(result, [id]);
+            // Check if this proposal belongs to the group
+            switch (proposals.get(id)) {
+                case (?proposal) {
+                    if (proposal.groupId == groupId and 
+                        Array.find<Types.Vote>(vs, func(v) { v.voter == principal }) != null) {
+                        result := Array.append(result, [id]);
+                    };
+                };
+                case null {};
             };
         };
 
@@ -374,16 +572,69 @@ persistent actor Governance {
 
     // 系统概览（审计报告用）
     public query func auditSystemInfo() : async {
+        totalGroups : Nat;
         totalMembers : Nat;
         totalAssets : Nat;
         totalProposals : Nat;
         rulesVersion : Nat;
     } {
         {
-            totalMembers = members.size();
+            totalGroups = groups.size();
+            totalMembers = groupMembers.size();
             totalAssets = assets.size();
             totalProposals = proposalCounter;
             rulesVersion = ruleCounter;
+        };
+    };
+
+    // 组概览
+    public query func auditGroupInfo(groupId : Nat) : async ?{
+        group : Types.Group;
+        totalMembers : Nat;
+        totalAssets : Nat;
+        totalProposals : Nat;
+        totalRules : Nat;
+    } {
+        switch (groups.get(groupId)) {
+            case (?group) {
+                var memberCount = 0;
+                var assetCount = 0;
+                var proposalCount = 0;
+                var ruleCount = 0;
+
+                for ((_, member) in groupMembers.entries()) {
+                    if (member.groupId == groupId and member.active) {
+                        memberCount += 1;
+                    };
+                };
+
+                for ((_, asset) in assets.entries()) {
+                    if (asset.groupId == groupId) {
+                        assetCount += 1;
+                    };
+                };
+
+                for ((_, proposal) in proposals.entries()) {
+                    if (proposal.groupId == groupId) {
+                        proposalCount += 1;
+                    };
+                };
+
+                for ((_, rule) in rules.entries()) {
+                    if (rule.groupId == groupId) {
+                        ruleCount += 1;
+                    };
+                };
+
+                ?{
+                    group = group;
+                    totalMembers = memberCount;
+                    totalAssets = assetCount;
+                    totalProposals = proposalCount;
+                    totalRules = ruleCount;
+                };
+            };
+            case null null;
         };
     };
 
