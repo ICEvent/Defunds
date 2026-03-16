@@ -49,6 +49,7 @@ persistent actor Defunds{
 	var _stable_proposalId = 1; // Unique ID for each proposal
 	var _stable_groups : [(Nat, GroupTypes.GroupFund)] = [];
 	var _stable_proposals : [(Nat, GroupTypes.GroupProposal)] = [];
+	var _stable_aiAgentFunds : [(Nat, GroupTypes.AIAgentFundRecord)] = [];
 
 	transient let nat64Hash = func(n : Nat64) : Hash.Hash {
 		Text.hash(Nat64.toText(n));
@@ -63,7 +64,7 @@ persistent actor Defunds{
 	var DEFAULT_PAGE_SIZE = 50;
 
 	transient let grants = Grants.Grants(_stable_grantId, _stable_grants);
-	transient let groups = Groups.Groups(_stable_groupId, _stable_groups, _stable_proposalId, _stable_proposals, Principal.fromActor(Defunds));
+	transient let groups = Groups.Groups(_stable_groupId, _stable_groups, _stable_proposalId, _stable_proposals, Principal.fromActor(Defunds), _stable_aiAgentFunds);
 
 	transient let ICPLedger : actor {
 		query_blocks : shared query ICPTypes.GetBlocksArgs -> async ICPTypes.QueryBlocksResponse;
@@ -125,6 +126,7 @@ persistent actor Defunds{
 		_stable_groupId := groups.getNextGroupId();
 		_stable_proposals := groups.toStableProposals();
 		_stable_proposalId := groups.getNextProposalId();
+		_stable_aiAgentFunds := groups.toStableAIAgentFunds();
 
 		upgradeVotingPowers := Iter.toArray(votingPowers.entries());
 		upgradeConcilMembers := Iter.toArray(Iter.map<(Principal, Bool), Principal>(concilMembers.entries(), func((p, _)) { p }));
@@ -719,6 +721,99 @@ persistent actor Defunds{
 			#err("Anonymous users cannot join groups");
 		} else {
 			groups.joinGroupFund(caller, groupId);
+		};
+	};
+
+	//============================================================================================================
+	// AI Agent Fund Management
+	//============================================================================================================
+
+	public shared ({ caller }) func createAIAgentFund(
+		name : Text,
+		description : Text,
+		isPublic : Bool,
+		strategy : GroupTypes.AIStrategy,
+		riskTolerance : Nat,
+		maxAllocationPct : Nat,
+		autoApproveThreshold : Nat,
+	) : async Result.Result<GroupTypes.AIAgentFund, Text> {
+		if (Principal.isAnonymous(caller)) {
+			return #err("Anonymous users cannot create AI Agent Funds");
+		};
+		if (riskTolerance < 1 or riskTolerance > 100) {
+			return #err("riskTolerance must be between 1 and 100");
+		};
+		if (maxAllocationPct < 1 or maxAllocationPct > 100) {
+			return #err("maxAllocationPct must be between 1 and 100");
+		};
+		if (autoApproveThreshold > 100) {
+			return #err("autoApproveThreshold must be between 0 and 100");
+		};
+		let config : GroupTypes.AIAgentConfig = {
+			strategy = strategy;
+			riskTolerance = riskTolerance;
+			maxAllocationPct = maxAllocationPct;
+			autoApproveThreshold = autoApproveThreshold;
+			enabled = true;
+		};
+		let aiFund = groups.createAIAgentFund(caller, name, description, isPublic, config);
+		#ok(aiFund);
+	};
+
+	public shared ({ caller }) func setAIAgentConfig(
+		groupId : Nat,
+		strategy : GroupTypes.AIStrategy,
+		riskTolerance : Nat,
+		maxAllocationPct : Nat,
+		autoApproveThreshold : Nat,
+		enabled : Bool,
+	) : async Result.Result<(), Text> {
+		if (Principal.isAnonymous(caller)) {
+			return #err("Anonymous users cannot update AI Agent configuration");
+		};
+		if (riskTolerance < 1 or riskTolerance > 100) {
+			return #err("riskTolerance must be between 1 and 100");
+		};
+		if (maxAllocationPct < 1 or maxAllocationPct > 100) {
+			return #err("maxAllocationPct must be between 1 and 100");
+		};
+		if (autoApproveThreshold > 100) {
+			return #err("autoApproveThreshold must be between 0 and 100");
+		};
+		let config : GroupTypes.AIAgentConfig = {
+			strategy = strategy;
+			riskTolerance = riskTolerance;
+			maxAllocationPct = maxAllocationPct;
+			autoApproveThreshold = autoApproveThreshold;
+			enabled = enabled;
+		};
+		groups.setAIAgentConfig(groupId, caller, config);
+	};
+
+	public shared ({ caller }) func runAIEvaluation(groupId : Nat) : async Result.Result<[GroupTypes.AIProposalEvaluation], Text> {
+		if (Principal.isAnonymous(caller)) {
+			return #err("Anonymous users cannot run AI evaluations");
+		};
+		groups.evaluateProposals(groupId, caller);
+	};
+
+	public query func getAIAgentFund(groupId : Nat) : async ?GroupTypes.AIAgentFund {
+		groups.getAIAgentFund(groupId);
+	};
+
+	public query func getAllAIAgentFunds() : async [GroupTypes.AIAgentFund] {
+		groups.getAllAIAgentFunds();
+	};
+
+	public query func getPublicAIAgentFunds() : async [GroupTypes.AIAgentFund] {
+		groups.getPublicAIAgentFunds();
+	};
+
+	public query ({ caller }) func getMyAIAgentFunds() : async [GroupTypes.AIAgentFund] {
+		if (Principal.isAnonymous(caller)) {
+			[];
+		} else {
+			groups.getUserAIAgentFunds(caller);
 		};
 	};
 
