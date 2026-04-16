@@ -14,14 +14,14 @@
   const transactionId = donation.txid;
   
 </script>
-<div class="bg-white shadow-md rounded-md p-4 mb-4 w-full max-w-full overflow-hidden">
-  <p class="text-gray-700 break-words whitespace-normal">
+<div class="mb-4 w-full max-w-full overflow-hidden rounded-xl border border-slate-700/80 bg-slate-900 p-4 shadow-finance">
+  <p class="break-words whitespace-normal text-slate-300">
       received
       <a
           href="{EXPLORER_ICP_TX}{transactionId}"
           target="_blank"
           rel="noopener noreferrer"
-          class="text-blue-500 hover:text-blue-700"
+          class="text-sky-300 hover:text-sky-200"
       >
           {Number(donation.amount)/100000000} {getTokenNameByID(donation.currency)}
       </a>
@@ -30,7 +30,7 @@
           href="{EXPLORER_ACCOUNT}{donation.donor}"
           target="_blank"
           rel="noopener noreferrer"
-          class="text-blue-500 hover:text-blue-700"
+          class="text-sky-300 hover:text-sky-200"
       >
           {`${donation.donor.slice(0, 5)}...${donation.donor.slice(-5)}`}
       </a>

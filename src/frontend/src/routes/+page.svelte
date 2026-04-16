@@ -6,41 +6,30 @@
 
 </script>
 
-<main class="container mx-auto px-4 py-8 bg-gray-100">
+<main class="container mx-auto px-4 py-8">
 
 	<TreasureBox />
-	<div class="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8">
+	<div class="mt-8 grid grid-cols-1 gap-8 md:grid-cols-2">
         <section class="w-full">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-2xl font-bold">Donations</h2>
+            <div class="mb-4 flex items-center justify-between">
+                <h2 class="text-2xl font-semibold text-slate-100">Donations</h2>
                 
             </div>
-            <div class="w-full">
+            <div class="w-full rounded-2xl border border-slate-800 bg-slate-900/60 p-4 shadow-finance">
                 <Donations />
-                <a href="/donations" class="text-blue-500 hover:text-blue-700">More...</a>
+                <a href="/donations" class="text-sm font-medium text-sky-300 hover:text-sky-200">More...</a>
             </div>
         </section>
 
         <section class="w-full">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-2xl font-bold">Applications</h2>
+            <div class="mb-4 flex items-center justify-between">
+                <h2 class="text-2xl font-semibold text-slate-100">Applications</h2>
                 
             </div>
-            <div class="w-full">
+            <div class="w-full rounded-2xl border border-slate-800 bg-slate-900/60 p-4 shadow-finance">
                 <Applications />
-                <a href="/applications" class="text-blue-500 hover:text-blue-700">More...</a>
+                <a href="/applications" class="text-sm font-medium text-sky-300 hover:text-sky-200">More...</a>
             </div>
         </section>
     </div>
 </main>
-
-
-<style>
-	@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-
-	:global(body) {
-		font-family: 'Inter', sans-serif;
-	}
-
-	
-</style>
