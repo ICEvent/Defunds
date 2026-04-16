@@ -61,22 +61,22 @@
 	
 </script>
 
-<div class="treasure-box-container bg-green-200 py-8">
+<div class="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-10 shadow-finance">
 	<header class="mb-8 text-center">
-		<h1 class="text-4xl font-bold text-indigo-600 mb-8">
+		<h1 class="mb-6 text-4xl font-semibold tracking-tight text-slate-100">
 			Your Fund, You Decide
 		</h1>
-		<div class="mb-8">
+		<div class="mb-8 text-sm text-slate-400">
 			All Time Total Voting Power: {Number(totalVotingPower)/VOTE_POWER_DECIMALS}
 			
 		</div>
 		<div class="relative inline-block">
-			<div class="treasure-box bg-yellow-500 rounded-md p-4 shadow-md">
+			<div class="treasure-box rounded-xl border border-slate-700 bg-slate-950 px-6 py-4">
 				<a
 					href={DEFUND_TREASURY_ACCOUNT}
 					target="_blank"
 					rel="noopener noreferrer"
-					class="text-lg text-white font-bold hover:underline"
+					class="text-lg font-semibold text-sky-300 hover:text-sky-200 hover:underline"
 				>
 					{totalDonations}
 					{getTokenNameByID(ICP_LEDGER_CANISTER_ID)}
@@ -91,9 +91,5 @@
 	.treasure-box {
 		position: relative;
 		z-index: 1;
-	}
-
-	.treasure-box-container {
-		background-color: #d9f7be; /* Light green color */
 	}
 </style>

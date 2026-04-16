@@ -72,40 +72,39 @@
 	}
 </script>
 
-<nav class="bg-gray-700 py-4">
-   <div class="container mx-auto px-4 flex justify-between items-center">
+<nav class="border-b border-slate-800/80 bg-slate-950/95 py-4 backdrop-blur">
+   <div class="container mx-auto flex items-center justify-between px-4">
 	   <a
 		   href="/"
-		   class="text-yellow-500 font-bold flex items-center text-2xl"
+		   class="flex items-center text-2xl font-semibold tracking-tight text-slate-100"
 	   >
 		   <img
 			   src="/defund_logo.jpg"
 			   alt="Defund Logo"
-			   class="h-8 mr-2"
-			   style="color: #FFD700;"
+			   class="mr-2 h-8 w-8 rounded-md ring-1 ring-sky-400/30"
 		   />
 		   Defunds
 	   </a>
-	   <div class="flex items-center space-x-4">
-		   <a href="/funds" class="text-white hover:text-yellow-400 font-semibold">Funds</a>
-		   <a href="/ai-agent-fund" class="text-white hover:text-yellow-400 font-semibold">AI Agent</a>
-		   <a href="/governance" class="text-white hover:text-yellow-400 font-semibold">Governance</a>
+	   <div class="flex items-center space-x-4 text-sm font-medium">
+		   <a href="/funds" class="text-slate-300 hover:text-sky-300">Funds</a>
+		   <a href="/ai-agent-fund" class="text-slate-300 hover:text-sky-300">AI Agent</a>
+		   <a href="/governance" class="text-slate-300 hover:text-sky-300">Governance</a>
 		   {#if isAuthed}
 			   <button
-				   class="text-white hover:text-gray-300 focus:outline-none"
+				   class="text-slate-300 hover:text-sky-300 focus:outline-none"
 				   on:click={navigateToProfile}
 			   >
 				   Profile
 			   </button>
 			   <button
-				   class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+				   class="rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-slate-100 shadow-finance hover:border-sky-500/60 hover:text-sky-200"
 				   on:click={handleLogout}
 			   >
 				   Logout
 			   </button>
 		   {:else}
 			   <button
-				   class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+				   class="rounded-lg bg-sky-600 px-4 py-2 font-semibold text-white shadow-finance hover:bg-sky-500"
 				   on:click={() => (showLoginDialog = true)}
 			   >
 				   Login

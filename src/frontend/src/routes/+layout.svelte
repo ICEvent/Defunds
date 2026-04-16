@@ -12,7 +12,7 @@
 </style> -->
 	<ProgressIndicator />
 	<Navbar />
-	<main>
+	<main class="min-h-[calc(100vh-136px)] bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
 		<Notification />
 		<slot />
 	</main>
