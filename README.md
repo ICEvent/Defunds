@@ -37,3 +37,5 @@ A decentralized charity fund platform built on the Internet Computer blockchain 
 - Token Standards: ICRC-1, ICRC-2
 
 
+export DFX_WARNING=-mainnet_plaintext_identity
+dfx canister --ic install backend --mode upgrade --wasm-memory-persistence keep

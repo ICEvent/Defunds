@@ -4,7 +4,7 @@ import Debug "mo:base/Debug";
 // -----------------------------
 // Actor - LP Strategy Bot
 // -----------------------------
-actor LPStrategyBot {
+persistent actor LPStrategyBot {
 
     type Price = LPStrategy.Price;
     type StrategyState = LPStrategy.StrategyState;

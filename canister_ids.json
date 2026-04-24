@@ -4,5 +4,11 @@
   },
   "frontend": {
     "ic": "gncpj-jyaaa-aaaan-qagta-cai"
+  },
+  "governance": {
+    "ic": "orkad-xyaaa-aaaal-ai7ta-cai"
+  },
+  "lpstrategybot": {
+    "ic": "nvfz5-xqaaa-aaaal-arqoa-cai"
   }
 }
