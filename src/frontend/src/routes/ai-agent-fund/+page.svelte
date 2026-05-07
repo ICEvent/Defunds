@@ -272,9 +272,11 @@
   .input {
     width: 100%;
     padding: 0.5rem;
-    border: 1px solid #d1d5db;
+    border: 1px solid #475569;
     border-radius: 0.375rem;
     font-size: 0.875rem;
+    background-color: #1e293b;
+    color: #f1f5f9;
   }
   .input:focus {
     outline: none;

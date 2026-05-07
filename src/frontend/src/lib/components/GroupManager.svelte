@@ -95,7 +95,7 @@
 						type="text"
 						bind:value={groupName}
 						placeholder="Enter group name"
-						class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+						class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
 					/>
 				</div>
 
@@ -108,7 +108,7 @@
 						bind:value={groupDescription}
 						placeholder="Enter group description"
 						rows="3"
-						class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+						class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
 					/>
 				</div>
 

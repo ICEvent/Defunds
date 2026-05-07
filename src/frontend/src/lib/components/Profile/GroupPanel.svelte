@@ -85,7 +85,7 @@ let isPublic = false;
                             type="text"
                             bind:value={groupName}
                             placeholder="Enter fund group name"
-                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
                         />
                     </div>
                     <div>
@@ -97,7 +97,7 @@ let isPublic = false;
                             bind:value={groupDescription}
                             placeholder="Enter description"
                             rows="3"
-                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
                         />
                     </div>
                     <div class="flex items-center">

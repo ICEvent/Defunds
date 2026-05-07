@@ -184,7 +184,7 @@
 
 <style>
   .group-management-section { max-width: 600px; margin: 2rem auto; }
-  .input { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
+  .input { width: 100%; padding: 0.5rem; border: 1px solid #475569; border-radius: 4px; background-color: #1e293b; color: #f1f5f9; }
   .btn { padding: 0.5rem 1rem; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-right: 0.5rem; }
   .btn-red { background: #ef4444; }
   .members-list { margin-top: 1rem; }
