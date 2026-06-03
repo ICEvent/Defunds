@@ -650,6 +650,14 @@ persistent actor Defunds{
 		};
 	};
 
+	public shared ({ caller }) func updateGroup(groupId : Nat, name : Text, description : Text, isPublic : Bool) : async Result.Result<(), Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot update groups");
+		} else {
+			groups.updateGroup(groupId, caller, name, description, isPublic);
+		};
+	};
+
 	public shared ({ caller }) func updateGroupMemberVotingPower(groupId : Nat, memberPrincipal : Principal, votingPower : Nat) : async Result.Result<(), Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot manage members");
@@ -683,7 +691,12 @@ persistent actor Defunds{
 		if (Principal.isAnonymous(caller)) {
 			[];
 		} else {
-			groups.getUserGroups(caller);
+			Array.filter<GroupTypes.GroupFund>(
+				groups.getAllGroups(),
+				func(group : GroupTypes.GroupFund) : Bool {
+					group.creator == caller;
+				},
+			);
 		};
 	};
 

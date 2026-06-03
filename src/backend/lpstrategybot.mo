@@ -1,5 +1,4 @@
 import LPStrategy "./lpstrategy";
-import Debug "mo:base/Debug";
 
 // -----------------------------
 // Actor - LP Strategy Bot
@@ -9,7 +8,7 @@ persistent actor LPStrategyBot {
     type Price = LPStrategy.Price;
     type StrategyState = LPStrategy.StrategyState;
 
-    stable var state : StrategyState = {
+    var state : StrategyState = {
         bBuyTarget = 3100.0;
         bSellTarget = 3300.0;
         bBuyFunds = 10000.0;

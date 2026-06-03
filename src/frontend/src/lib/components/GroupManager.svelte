@@ -31,7 +31,7 @@
 
 	async function handleCreateGroup() {
 		if (!groupName.trim()) {
-			error = 'Group name is required';
+			error = 'Fund name is required';
 			return;
 		}
 
@@ -56,7 +56,7 @@
 				error = result.err;
 			}
 		} catch (e) {
-			error = e.message || 'Failed to create group';
+			error = e.message || 'Failed to create fund';
 		} finally {
 			creating = false;
 		}
@@ -69,32 +69,32 @@
 </script>
 
 <div class="group-manager mb-6 bg-white shadow-lg rounded-lg p-6">
-	<!-- Create Group Button -->
+	<!-- Create Fund Button -->
 	<div class="mb-4 flex justify-between items-center">
-		<h2 class="text-xl font-semibold text-gray-800">Groups</h2>
+		<h2 class="text-xl font-semibold text-gray-800">Funds</h2>
 		<button
 			on:click={() => (showCreateForm = !showCreateForm)}
 			class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
 		>
-			{showCreateForm ? 'Hide Form' : '+ Create New Group'}
+			{showCreateForm ? 'Hide Form' : '+ Create New Fund'}
 		</button>
 	</div>
 
-	<!-- Create Group Form -->
+	<!-- Create Fund Form -->
 	{#if showCreateForm}
 		<div class="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-			<h3 class="text-lg font-semibold mb-3">Create New Group</h3>
+			<h3 class="text-lg font-semibold mb-3">Create New Fund</h3>
 
 			<div class="space-y-3">
 				<div>
 					<label for="group-name" class="block text-sm font-medium text-gray-700 mb-1"
-						>Group Name <span class="text-red-500">*</span></label
+						>Fund Name <span class="text-red-500">*</span></label
 					>
 					<input
 						id="group-name"
 						type="text"
 						bind:value={groupName}
-						placeholder="Enter group name"
+						placeholder="Enter fund name"
 						class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
 					/>
 				</div>
@@ -124,7 +124,7 @@
 						disabled={creating}
 						class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition-colors"
 					>
-						{creating ? 'Creating...' : 'Create Group'}
+						{creating ? 'Creating...' : 'Create Fund'}
 					</button>
 					<button
 						on:click={() => {
@@ -140,14 +140,14 @@
 		</div>
 	{/if}
 
-	<!-- Groups List -->
+	<!-- Funds List -->
 	<div class="space-y-2">
 		<h3 class="text-base font-semibold mb-3 text-gray-700">
-			Your Groups ({groups.length})
+			Your Funds ({groups.length})
 		</h3>
 		{#if groups.length === 0}
 			<p class="text-gray-500 text-sm py-4 text-center">
-				No groups yet. Create one to get started!
+				No funds yet. Create one to get started.
 			</p>
 		{:else}
 			<div class="grid gap-3">

@@ -96,7 +96,7 @@
 					<MenuItem
 						on:click={() => changeActiveMenu("groups")}
 						active={activeMenuItem === "groups"}
-						name="Group Funds"
+						name="Funds"
 					/>
 				</ul>
 			</nav>

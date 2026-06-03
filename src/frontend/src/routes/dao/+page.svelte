@@ -117,7 +117,7 @@
 
 					<div class="grid grid-cols-2 gap-4">
 						<div class="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
-							<div class="text-sm text-slate-400">Groups</div>
+							<div class="text-sm text-slate-400">Funds</div>
 							<div class="mt-2 text-3xl font-bold text-white">{systemInfo.totalGroups ?? groups.length}</div>
 						</div>
 						<div class="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
@@ -137,7 +137,7 @@
 						{#if principal}
 							Signed in as {principal}
 						{:else}
-							Sign in to create groups and vote on proposals.
+							Sign in to create funds and vote on proposals.
 						{/if}
 					</p>
 				</div>
@@ -164,7 +164,7 @@
 					Native funds and group balances are managed transparently so contributors can understand how resources are held and used.
 				</p>
 				<div class="mt-5 grid gap-3 text-sm text-slate-700">
-					<div class="rounded-2xl bg-slate-50 px-4 py-3">Native groups: {nativeGroups.length}</div>
+					<div class="rounded-2xl bg-slate-50 px-4 py-3">Native funds: {nativeGroups.length}</div>
 					<div class="rounded-2xl bg-slate-50 px-4 py-3">Total assets tracked: {systemInfo.totalAssets}</div>
 				</div>
 			</div>
@@ -176,7 +176,7 @@
 					Governance-enabled groups use rules and proposal flows to coordinate approvals, voting thresholds, and execution.
 				</p>
 				<div class="mt-5 grid gap-3 text-sm text-slate-700">
-					<div class="rounded-2xl bg-slate-50 px-4 py-3">Governance groups: {governanceGroups.length}</div>
+					<div class="rounded-2xl bg-slate-50 px-4 py-3">Governance-enabled funds: {governanceGroups.length}</div>
 					<div class="rounded-2xl bg-slate-50 px-4 py-3">Rules version: {systemInfo.rulesVersion}</div>
 				</div>
 			</div>
@@ -198,15 +198,15 @@
 	<section class="container mx-auto px-4 pb-16">
 		<div class="mb-6 flex items-end justify-between gap-4">
 			<div>
-				<p class="text-sm font-semibold uppercase tracking-[0.2em] text-sky-600">Groups</p>
-				<h2 class="mt-2 text-3xl font-bold tracking-tight text-slate-900">Governance-enabled groups</h2>
+				<p class="text-sm font-semibold uppercase tracking-[0.2em] text-sky-600">Funds</p>
+				<h2 class="mt-2 text-3xl font-bold tracking-tight text-slate-900">Governance-enabled funds</h2>
 			</div>
 			<a href="/governance" class="text-sm font-semibold text-sky-700 hover:text-sky-600">Open full governance view</a>
 		</div>
 
 		{#if governanceActor && groups.length === 0}
 			<div class="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500">
-				No groups have been created yet. Create one in the governance section to start coordinating decisions.
+				No funds have been created yet. Create one in the governance section to start coordinating decisions.
 			</div>
 		{:else}
 			<div class="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
@@ -214,7 +214,7 @@
 					<div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-lg">
 						<div class="flex items-start justify-between gap-4">
 							<div>
-								<p class="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Group {groupId(group)}</p>
+								<p class="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Fund {groupId(group)}</p>
 								<h3 class="mt-2 text-xl font-semibold text-slate-900">{group.name}</h3>
 							</div>
 							<div class="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">

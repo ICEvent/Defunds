@@ -233,6 +233,26 @@ module {
             }
         };
 
+        public func updateGroup(groupId : Nat, caller : Principal, name : Text, description : Text, isPublic : Bool) : Result.Result<(), Text> {
+            switch (groupFunds.get(groupId)) {
+                case null { #err("Group not found") };
+                case (?group) {
+                    if (group.creator != caller) {
+                        #err("Only the fund creator can update fund metadata");
+                    } else {
+                        let updatedGroup : GroupFund = {
+                            group with
+                            name = name;
+                            description = description;
+                            isPublic = isPublic;
+                        };
+                        groupFunds.put(groupId, updatedGroup);
+                        #ok();
+                    }
+                }
+            }
+        };
+
         public func updateMemberVotingPower(groupId : Nat, principal : Principal, votingPower : Nat) : Result.Result<(), Text> {
             switch (groupFunds.get(groupId)) {
                 case null { #err("Group not found") };
@@ -395,15 +415,25 @@ module {
                     // total requested amount, capped at AI_SCORE_PENALTY_PCT (50 %).
                     // Multiplication precedes division to preserve integer precision
                     // (Motoko Nat does not support fractional division).
-                    let excess = proposal.amount - maxAllowed;
-                    let penalty = (score * excess * AI_SCORE_PENALTY_PCT) / (proposal.amount * 100);
-                    if (penalty >= score) { score := 0 } else { score -= penalty };
+                    let excess = Nat.sub(proposal.amount, maxAllowed);
+                    let penaltyDenominator = proposal.amount * 100;
+                    let penalty = if (penaltyDenominator > 0) {
+                        (score * excess * AI_SCORE_PENALTY_PCT) / penaltyDenominator
+                    } else {
+                        0
+                    };
+                    if (penalty >= score) { score := 0 } else { score := Nat.sub(score, penalty) };
                 } else {
                     // Within budget: apply a percentage bonus proportional to remaining
                     // headroom, capped at AI_SCORE_BONUS_PCT (10 %) of the current score.
                     // Multiplication precedes division to preserve integer precision.
-                    let headroom = maxAllowed - proposal.amount;
-                    let bonus = (score * headroom * AI_SCORE_BONUS_PCT) / (maxAllowed * 100);
+                    let headroom = Nat.sub(maxAllowed, proposal.amount);
+                    let bonusDenominator = maxAllowed * 100;
+                    let bonus = if (bonusDenominator > 0) {
+                        (score * headroom * AI_SCORE_BONUS_PCT) / bonusDenominator
+                    } else {
+                        0
+                    };
                     score += bonus;
                     if (score > 100) { score := 100 };
                 };

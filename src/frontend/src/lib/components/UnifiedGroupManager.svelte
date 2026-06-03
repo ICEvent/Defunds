@@ -5,6 +5,7 @@
 	export let governanceActor = null;
 	export let backendActor = null;
 	export let selectedGroupId = null;
+	export let useMyGroupsApi = false;
 
 	const dispatch = createEventDispatcher();
 
@@ -21,7 +22,7 @@
 		description: '',
 		isPublic: true,
 		createBackendGroup: true, // Whether to create native fund group
-		createGovernanceGroup: true, // Whether to create governance group
+		createGovernanceGroup: false, // Whether to create governance/voting group
 	};
 
 	$: if (governanceActor || backendActor) {
@@ -42,7 +43,9 @@
 			// Load backend groups
 			if (backendActor) {
 				try {
-					backendGroups = await backendActor.getAllGroups();
+					backendGroups = useMyGroupsApi
+						? await backendActor.getMyGroups()
+						: await backendActor.getAllGroups();
 				} catch (e) {
 					console.warn('Backend groups not available:', e);
 					backendGroups = [];
@@ -52,8 +55,12 @@
 			// Merge and unify groups
 			unifiedGroups = mergeGroups(governanceGroups, backendGroups);
 
-			// Auto-select first group if none selected
-			if (!selectedGroupId && unifiedGroups.length > 0) {
+			// Auto-select first group when there is no selection or current selection
+			// is no longer present after filtering/reload.
+			const hasSelected = unifiedGroups.some(
+				(g) => (g.governanceGroupId || g.backendGroupId) === selectedGroupId
+			);
+			if ((!selectedGroupId || !hasSelected) && unifiedGroups.length > 0) {
 				selectGroup(unifiedGroups[0].governanceGroupId || unifiedGroups[0].backendGroupId, unifiedGroups[0].type);
 			}
 		} catch (e) {
@@ -72,6 +79,12 @@
 			let backendGroup = null;
 			if (govGroup.backendGroupId && govGroup.backendGroupId.length > 0) {
 				backendGroup = backGroups.find((bg) => bg.id === govGroup.backendGroupId[0]);
+			}
+
+			// In "my funds" mode, only show governance groups linked to funds
+			// returned by backend.getMyGroups() (i.e., user-owned/manageable funds).
+			if (useMyGroupsApi && !backendGroup) {
+				return;
 			}
 
 			merged.push({
@@ -172,7 +185,7 @@
 				description: '',
 				isPublic: true,
 				createBackendGroup: true,
-				createGovernanceGroup: true,
+				createGovernanceGroup: false,
 			};
 			await loadAllGroups();
 			if (governanceGroupId) {
@@ -223,14 +236,14 @@
 <div class="unified-group-manager bg-white shadow-md rounded-lg p-4 mb-6">
 	<div class="flex justify-between items-center mb-4">
 		<div>
-			<h3 class="text-lg font-semibold text-gray-800">Group Management</h3>
-			<p class="text-xs text-gray-600">Manage both native funds and external assets</p>
+			<h3 class="text-lg font-semibold text-gray-800">Fund Management</h3>
+			<p class="text-xs text-gray-600">A fund can include native treasury and optional governance</p>
 		</div>
 		<button
 			class="text-sm bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded"
 			on:click={() => (showCreateForm = !showCreateForm)}
 		>
-			{showCreateForm ? 'Cancel' : '+ New Group'}
+			{showCreateForm ? 'Cancel' : '+ New Fund'}
 		</button>
 	</div>
 
@@ -242,18 +255,18 @@
 
 	{#if showCreateForm}
 		<div class="bg-gray-50 p-4 rounded-lg mb-4 border">
-			<h4 class="text-md font-semibold mb-3">Create New Group</h4>
+			<h4 class="text-md font-semibold mb-3">Create New Fund</h4>
 			<form on:submit|preventDefault={handleCreateGroup}>
 				<div class="mb-3">
 					<label class="block text-gray-700 text-sm font-bold mb-1" for="groupName">
-						Group Name
+						Fund Name
 					</label>
 					<input
 						id="groupName"
 						type="text"
 						bind:value={newGroup.name}
 						class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 text-sm leading-tight focus:outline-none focus:shadow-outline"
-						placeholder="e.g., Marketing Team"
+						placeholder="e.g., Community Growth Fund"
 						required
 					/>
 				</div>
@@ -272,7 +285,7 @@
 				</div>
 
 				<div class="mb-3 space-y-2">
-					<label class="block text-gray-700 text-sm font-bold mb-1">Group Features</label>
+					<label class="block text-gray-700 text-sm font-bold mb-1">Fund Features</label>
 					<label class="flex items-center">
 						<input
 							type="checkbox"
@@ -292,9 +305,12 @@
 							disabled={!governanceActor}
 						/>
 						<span class="text-sm text-gray-700">
-							⚖️ Governance & External Assets {!governanceActor ? '(Not available)' : ''}
+								⚖️ Add voting power / governance {!governanceActor ? '(Not available)' : ''}
 						</span>
 					</label>
+						<p class="ml-6 text-xs text-gray-500">
+							Leave this unchecked to create a private fund-only group without voting power.
+						</p>
 					{#if newGroup.createBackendGroup}
 						<label class="flex items-center ml-4">
 							<input type="checkbox" bind:checked={newGroup.isPublic} class="mr-2" />
@@ -320,7 +336,9 @@
 		</div>
 	{:else if unifiedGroups.length === 0}
 		<div class="text-center py-4 text-gray-600">
-			<p class="text-sm">No groups found. Create your first group!</p>
+			<p class="text-sm">
+				{useMyGroupsApi ? 'No funds created by you yet. Create your first fund.' : 'No funds found. Create your first fund.'}
+			</p>
 		</div>
 	{:else}
 		<div class="space-y-2 max-h-96 overflow-y-auto">

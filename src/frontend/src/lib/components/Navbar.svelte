@@ -88,7 +88,6 @@
 	   <div class="flex items-center space-x-4 text-sm font-medium">
 		   <a href="/funds" class="text-slate-300 hover:text-sky-300">Funds</a>
 		   <a href="/ai-agent-fund" class="text-slate-300 hover:text-sky-300">AI Agent</a>
-		   <a href="/governance" class="text-slate-300 hover:text-sky-300">Governance</a>
 		   {#if isAuthed}
 			   <button
 				   class="text-slate-300 hover:text-sky-300 focus:outline-none"

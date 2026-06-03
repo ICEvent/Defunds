@@ -1,5 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
+	import { page } from '$app/stores';
+	import { get } from 'svelte/store';
 	import { globalStore } from '$lib/store';
 	import * as governanceAPI from '$lib/api/governance';
 	import GroupManager from '$lib/components/GroupManager.svelte';
@@ -33,6 +35,23 @@
 	let assets = [];
 	let rules = [];
 
+	let showCreateAsset = false;
+	let showCreateRule = false;
+	let assetForm = {
+		category: 'native',
+		assetType: 'cash',
+		description: '',
+		canisterId: '',
+		tokenIdentifier: '',
+		constraints: '',
+	};
+	let ruleForm = {
+		assetId: '',
+		threshold: 1,
+		quorum: 1,
+		timelock: '',
+	};
+
 	// Create proposal form
 	let showCreateProposal = false;
 	let proposalForm = {
@@ -47,8 +66,14 @@
 	// Vote modal
 	let showVoteModal = false;
 	let selectedProposal = null;
+	let deepLinkFundId = '';
+	let deepLinkOpen = '';
 
 	onMount(() => {
+		const params = get(page).url.searchParams;
+		deepLinkFundId = params.get('fundId') || '';
+		deepLinkOpen = params.get('open') || '';
+
 		globalStore.subscribe(async (value) => {
 			isAuthed = value.isAuthed;
 			principal = value.principal?.toText() || '';
@@ -56,6 +81,9 @@
 
 			if (governanceActor) {
 				await loadSystemInfo();
+				if (deepLinkFundId) {
+					await applyDeepLinkSelection();
+				}
 			}
 		});
 	});
@@ -66,6 +94,45 @@
 		
 		if (selectedGroupId) {
 			await loadGroupData();
+			if (deepLinkOpen) {
+				openRequestedSection(deepLinkOpen);
+				deepLinkOpen = '';
+			}
+		}
+	}
+
+	async function applyDeepLinkSelection() {
+		if (!governanceActor || !deepLinkFundId) return;
+
+		try {
+			const allFunds = await governanceAPI.listGroups(governanceActor);
+			const matchedFund = allFunds.find((fund) => String(fund.groupId) === String(deepLinkFundId));
+			if (!matchedFund) return;
+
+			selectedGroup = matchedFund;
+			selectedGroupId = matchedFund.groupId;
+			await loadGroupData();
+			if (deepLinkOpen) {
+				openRequestedSection(deepLinkOpen);
+				deepLinkOpen = '';
+			}
+			deepLinkFundId = '';
+		} catch (e) {
+			console.error('Error applying deep link selection:', e);
+		}
+	}
+
+	function openRequestedSection(section) {
+		showCreateAsset = false;
+		showCreateRule = false;
+		showCreateProposal = false;
+
+		if (section === 'asset') {
+			showCreateAsset = true;
+		} else if (section === 'rule') {
+			showCreateRule = true;
+		} else if (section === 'proposal') {
+			showCreateProposal = true;
 		}
 	}
 
@@ -102,6 +169,104 @@
 		} catch (e) {
 			error = e.message;
 			console.error('Error loading group data:', e);
+		} finally {
+			loading = false;
+		}
+	}
+
+	function resetAssetForm() {
+		assetForm = {
+			category: 'native',
+			assetType: 'cash',
+			description: '',
+			canisterId: '',
+			tokenIdentifier: '',
+			constraints: '',
+		};
+	}
+
+	function resetRuleForm() {
+		ruleForm = {
+			assetId: assets[0]?.assetId ? String(assets[0].assetId) : '',
+			threshold: 1,
+			quorum: 1,
+			timelock: '',
+		};
+	}
+
+	function buildAssetCategory(category) {
+		return category === 'external' ? { external: null } : { native: null };
+	}
+
+	function buildAssetType(assetType) {
+		switch (assetType) {
+			case 'equipment':
+				return { equipment: null };
+			case 'grant':
+				return { grant: null };
+			case 'other':
+				return { other: null };
+			case 'cash':
+			default:
+				return { cash: null };
+		}
+	}
+
+	async function handleCreateAsset() {
+		if (!governanceActor || !selectedGroupId || !assetForm.description.trim()) return;
+
+		loading = true;
+		try {
+			const result = await governanceAPI.registerAsset(
+				governanceActor,
+				selectedGroupId,
+				buildAssetCategory(assetForm.category),
+				buildAssetType(assetForm.assetType),
+				assetForm.description.trim(),
+				assetForm.canisterId.trim() || null,
+				assetForm.tokenIdentifier.trim() || null,
+				assetForm.constraints.trim() || null
+			);
+
+			if ('ok' in result) {
+				alert(`Asset created with ID: ${result.ok}`);
+				showCreateAsset = false;
+				resetAssetForm();
+				await loadGroupData();
+			} else {
+				alert(`Error: ${result.err}`);
+			}
+		} catch (e) {
+			alert(`Error creating asset: ${e.message}`);
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function handleCreateRule() {
+		if (!governanceActor || !selectedGroupId) return;
+
+		loading = true;
+		try {
+			const result = await governanceAPI.setRule(
+				governanceActor,
+				selectedGroupId,
+				ruleForm.assetId ? Number(ruleForm.assetId) : null,
+				Number(ruleForm.threshold),
+				Number(ruleForm.quorum),
+				ruleForm.timelock ? BigInt(ruleForm.timelock) : null
+			);
+
+			if ('ok' in result) {
+				alert(`Rule created with ID: ${result.ok}`);
+				showCreateRule = false;
+				resetRuleForm();
+				await loadGroupData();
+			} else {
+				alert(`Error: ${result.err}`);
+			}
+		} catch (e) {
+			alert(`Error creating rule: ${e.message}`);
 		} finally {
 			loading = false;
 		}
@@ -196,10 +361,21 @@
 		const date = new Date(Number(timestamp) / 1000000); // Convert nanoseconds to milliseconds
 		return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
 	}
+
+	function formatAssetCategory(category) {
+		return 'native' in category ? 'Native' : 'External';
+	}
+
+	function formatAssetType(assetType) {
+		if ('cash' in assetType) return 'Cash';
+		if ('grant' in assetType) return 'Grant';
+		if ('equipment' in assetType) return 'Equipment';
+		return 'Other';
+	}
 </script>
 
 <main class="container mx-auto px-4 py-8 bg-gray-50 min-h-screen">
-	<h1 class="text-4xl font-bold mb-8 text-center text-blue-600">Unified Group Governance</h1>
+	<h1 class="text-4xl font-bold mb-8 text-center text-blue-600">Unified Fund Governance</h1>
 
 	{#if !isAuthed}
 		<div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-6" role="alert">
@@ -213,7 +389,7 @@
 			<div class="grid grid-cols-2 md:grid-cols-5 gap-4">
 				<div class="bg-indigo-100 p-4 rounded-lg text-center">
 					<div class="text-3xl font-bold text-indigo-600">{systemInfo.totalGroups}</div>
-					<div class="text-sm text-gray-600">Total Groups</div>
+					<div class="text-sm text-gray-600">Total Funds</div>
 				</div>
 				<div class="bg-blue-100 p-4 rounded-lg text-center">
 					<div class="text-3xl font-bold text-blue-600">{systemInfo.totalMembers}</div>
@@ -234,19 +410,19 @@
 			</div>
 		</section>
 
-		<!-- Group Manager -->
+		<!-- Fund Manager -->
 		<GroupManager
 			{governanceActor}
 			on:groupSelected={handleGroupSelected}
 		/>
 
 		{#if selectedGroup && selectedGroupId}
-			<!-- Group Info -->
+			<!-- Fund Info -->
 			<section class="bg-white shadow-lg rounded-lg p-6 mb-8">
 				<div class="flex justify-between items-start mb-4">
 					<div>
 						<h2 class="text-2xl font-semibold text-blue-800 border-b pb-2">
-							{selectedGroup.name} Overview
+							{selectedGroup.name} Fund Overview
 						</h2>
 						<p class="text-gray-600 mt-2">{selectedGroup.description}</p>
 						<div class="flex gap-2 mt-3">
@@ -282,6 +458,164 @@
 							<div class="text-xs text-gray-600">Rules</div>
 						</div>
 					</div>
+
+					{#if selectedGroup.hasGovernance}
+						<div class="mt-6 grid gap-6 lg:grid-cols-2">
+							<section class="rounded-xl border border-slate-200 bg-slate-50 p-5">
+								<div class="flex items-center justify-between gap-4">
+									<div>
+										<h3 class="text-xl font-semibold text-slate-900">Assets</h3>
+										<p class="text-sm text-slate-600">Register assets that proposals and rules can target.</p>
+									</div>
+									<button
+										class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+										on:click={() => {
+											showCreateAsset = !showCreateAsset;
+											if (showCreateAsset) showCreateRule = false;
+										}}
+									>
+										{showCreateAsset ? 'Cancel' : 'Create Asset'}
+									</button>
+								</div>
+
+								{#if showCreateAsset}
+									<form class="mt-4 grid gap-4 rounded-lg border border-slate-200 bg-white p-4" on:submit|preventDefault={handleCreateAsset}>
+										<div class="grid gap-4 md:grid-cols-2">
+											<div>
+												<label class="mb-2 block text-sm font-medium text-slate-700" for="assetCategory">Category</label>
+												<select id="assetCategory" bind:value={assetForm.category} class="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900">
+													<option value="native">Native</option>
+													<option value="external">External</option>
+												</select>
+											</div>
+											<div>
+												<label class="mb-2 block text-sm font-medium text-slate-700" for="assetType">Type</label>
+												<select id="assetType" bind:value={assetForm.assetType} class="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900">
+													<option value="cash">Cash</option>
+													<option value="grant">Grant</option>
+													<option value="equipment">Equipment</option>
+													<option value="other">Other</option>
+												</select>
+											</div>
+										</div>
+										<div>
+											<label class="mb-2 block text-sm font-medium text-slate-700" for="assetDescription">Description</label>
+											<input id="assetDescription" bind:value={assetForm.description} class="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" placeholder="Describe the asset" required />
+										</div>
+										<div class="grid gap-4 md:grid-cols-2">
+											<div>
+												<label class="mb-2 block text-sm font-medium text-slate-700" for="assetCanisterId">Canister ID (optional)</label>
+												<input id="assetCanisterId" bind:value={assetForm.canisterId} class="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" placeholder="Principal or canister id" />
+											</div>
+											<div>
+												<label class="mb-2 block text-sm font-medium text-slate-700" for="assetTokenIdentifier">Token identifier (optional)</label>
+												<input id="assetTokenIdentifier" bind:value={assetForm.tokenIdentifier} class="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" placeholder="Token id" />
+											</div>
+										</div>
+										<div>
+											<label class="mb-2 block text-sm font-medium text-slate-700" for="assetConstraints">Constraints (optional)</label>
+											<textarea id="assetConstraints" bind:value={assetForm.constraints} rows="2" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" placeholder="Any limits or notes"></textarea>
+										</div>
+										<button type="submit" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700" disabled={loading}>
+											{loading ? 'Creating...' : 'Save Asset'}
+										</button>
+									</form>
+								{/if}
+
+								<div class="mt-4 space-y-3">
+									{#if assets.length === 0}
+										<p class="rounded-lg bg-white p-4 text-sm text-slate-600">No assets registered yet.</p>
+									{:else}
+										{#each assets as asset}
+											<div class="rounded-lg border border-slate-200 bg-white p-4">
+												<div class="flex items-start justify-between gap-4">
+													<div>
+														<div class="text-sm font-semibold text-slate-900">#{asset.assetId} {asset.description}</div>
+														<div class="mt-1 text-xs text-slate-600">{formatAssetCategory(asset.category)} · {formatAssetType(asset.assetType)}</div>
+													</div>
+													<div class="text-xs text-slate-500">Created {formatDate(asset.createdAt)}</div>
+												</div>
+											</div>
+										{/each}
+									{/if}
+								</div>
+							</section>
+
+							<section class="rounded-xl border border-slate-200 bg-slate-50 p-5">
+								<div class="flex items-center justify-between gap-4">
+									<div>
+										<h3 class="text-xl font-semibold text-slate-900">Rules</h3>
+										<p class="text-sm text-slate-600">Define thresholds and quorum before proposals are submitted.</p>
+									</div>
+									<button
+										class="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700"
+										on:click={() => {
+											showCreateRule = !showCreateRule;
+											if (showCreateRule) showCreateAsset = false;
+										}}
+									>
+										{showCreateRule ? 'Cancel' : 'Create Rule'}
+									</button>
+								</div>
+
+								{#if showCreateRule}
+									<form class="mt-4 grid gap-4 rounded-lg border border-slate-200 bg-white p-4" on:submit|preventDefault={handleCreateRule}>
+										<div>
+											<label class="mb-2 block text-sm font-medium text-slate-700" for="ruleAssetId">Asset (optional)</label>
+											<select id="ruleAssetId" bind:value={ruleForm.assetId} class="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900">
+												<option value="">Global rule</option>
+												{#each assets as asset}
+													<option value={asset.assetId}>#{asset.assetId} - {asset.description}</option>
+												{/each}
+											</select>
+										</div>
+										<div class="grid gap-4 md:grid-cols-2">
+											<div>
+												<label class="mb-2 block text-sm font-medium text-slate-700" for="ruleThreshold">Threshold</label>
+												<input id="ruleThreshold" type="number" min="1" bind:value={ruleForm.threshold} class="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" required />
+											</div>
+											<div>
+												<label class="mb-2 block text-sm font-medium text-slate-700" for="ruleQuorum">Quorum</label>
+												<input id="ruleQuorum" type="number" min="1" bind:value={ruleForm.quorum} class="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" required />
+											</div>
+										</div>
+										<div>
+											<label class="mb-2 block text-sm font-medium text-slate-700" for="ruleTimelock">Timelock (nanoseconds, optional)</label>
+											<input id="ruleTimelock" type="number" min="0" bind:value={ruleForm.timelock} class="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900" placeholder="Leave blank for no timelock" />
+										</div>
+										<button type="submit" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700" disabled={loading}>
+											{loading ? 'Creating...' : 'Save Rule'}
+										</button>
+									</form>
+								{/if}
+
+								<div class="mt-4 space-y-3">
+									{#if rules.length === 0}
+										<p class="rounded-lg bg-white p-4 text-sm text-slate-600">No rules defined yet.</p>
+									{:else}
+										{#each rules as rule}
+											<div class="rounded-lg border border-slate-200 bg-white p-4">
+												<div class="flex items-start justify-between gap-4">
+													<div>
+														<div class="text-sm font-semibold text-slate-900">Rule #{rule.ruleId}</div>
+														<div class="mt-1 text-xs text-slate-600">Threshold {rule.threshold} · Quorum {rule.quorum}</div>
+														<div class="mt-1 text-xs text-slate-500">
+															{#if rule.assetId.length > 0}
+																Asset #{rule.assetId[0]}
+															{:else}
+																Global rule
+															{/if}
+														</div>
+													</div>
+													<div class="text-xs text-slate-500">Version {rule.version}</div>
+												</div>
+											</div>
+										{/each}
+									{/if}
+								</div>
+							</section>
+						</div>
+					{/if}
 				{/if}
 			</section>
 
@@ -460,19 +794,19 @@
 				</div>
 			{/if}
 		</section>
-		{:else if selectedGroup && !selectedGroupId}
+			{:else if selectedGroup && !selectedGroupId}
 			<div class="text-center py-8 text-gray-600 bg-white rounded-lg shadow">
 				<p class="text-lg font-semibold mb-2">📝 Governance Not Available</p>
-				<p class="text-sm">This group only has native fund management.</p>
+				<p class="text-sm">This fund has native treasury only.</p>
 				<p class="text-sm mt-2">You can still view fund proposals in the Funds section.</p>
 			</div>
 		{:else if selectedGroupId}
 			<div class="text-center py-8 text-gray-600 bg-white rounded-lg shadow">
-				<p>Loading group information...</p>
+				<p>Loading fund information...</p>
 			</div>
 		{:else}
 			<div class="text-center py-8 text-gray-600 bg-white rounded-lg shadow">
-				<p>Please select a group to view governance data.</p>
+				<p>Please select a fund to view governance data.</p>
 			</div>
 		{/if}
 	{/if}
