@@ -9,26 +9,43 @@
     let balance = 0;
     let votingPower = 0;
 
-    onMount(async () => {
-        const unsubscribe = globalStore.subscribe((store) => {
-            icpledger = store.icpledger;
-            principal = store.principal;
-            backend = store.backend;
-        });
+    async function loadProfileData() {
+        if (!principal) {
+            balance = 0;
+            votingPower = 0;
+            return;
+        }
 
-        if (backend && principal) {
+        if (backend) {
             const power = await backend.getVotingPower(principal);
-            if (power.length > 0) { 
-                votingPower = Number(power[0].totalPower)/VOTE_POWER_DECIMALS;
+            if (power.length > 0) {
+                votingPower = Number(power[0].totalPower) / VOTE_POWER_DECIMALS;
+            } else {
+                votingPower = 0;
             }
         }
+
         if (icpledger) {
             const icpbalance = await icpledger.icrc1_balance_of({
                 owner: principal,
                 subaccount: [],
             });
             balance = Number(icpbalance) / ICP_TOKEN_DECIMALS;
-        };
+        } else {
+            balance = 0;
+        }
+    }
+
+    onMount(() => {
+        const unsubscribe = globalStore.subscribe((store) => {
+            icpledger = store.icpledger;
+            principal = store.principal;
+            backend = store.backend;
+
+            loadProfileData().catch((error) => {
+                console.error('Failed to load profile data:', error);
+            });
+        });
 
         return unsubscribe;
     });

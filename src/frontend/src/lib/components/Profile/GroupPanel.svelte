@@ -22,6 +22,24 @@
     let newMemberPrincipal = "";
     let newMemberVotingPower = 1;
 
+    function toVotingPowerBigInt(value) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) {
+            throw new Error("Voting power must be a valid number.");
+        }
+
+        const rounded = Math.round(numeric);
+        if (Math.abs(numeric - rounded) > 1e-9) {
+            throw new Error("Voting power must be a whole number.");
+        }
+
+        if (rounded < 1) {
+            throw new Error("Voting power must be at least 1.");
+        }
+
+        return BigInt(rounded);
+    }
+
     onMount(() => {
         const unsubscribe = globalStore.subscribe((store) => {
             backend = store.backend;
@@ -95,7 +113,7 @@
                 selectedBackendFundId,
                 newMemberName.trim(),
                 principal,
-                BigInt(newMemberVotingPower)
+                toVotingPowerBigInt(newMemberVotingPower)
             );
 
             if ("ok" in result) {
@@ -164,7 +182,7 @@
             const result = await backend.updateGroupMemberVotingPower(
                 selectedBackendFundId,
                 memberPrincipal,
-                BigInt(votingPower)
+                toVotingPowerBigInt(votingPower)
             );
             if ("ok" in result) {
                 showNotification("Voting power updated.", "success");
