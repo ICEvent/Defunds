@@ -26,15 +26,17 @@
         cursor: pointer;
         border-radius: 8px;
         transition: all 0.2s ease;
+        color: #334155;
     }
 
     .menu-item:hover {
         background-color: #f3f4f6;
+        color: #0f172a;
     }
 
     .menu-item.active {
         font-weight: 600;
         background-color: #e5e7eb;
-        color: #1a202c;
+        color: #0f172a;
     }
 </style>

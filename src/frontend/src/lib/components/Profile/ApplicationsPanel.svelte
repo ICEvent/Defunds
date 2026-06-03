@@ -478,6 +478,13 @@
         border-radius: 8px;
         font-size: 15px;
         background: #fff;
+        color: #111827;
+    }
+
+    input::placeholder,
+    textarea::placeholder {
+        color: #94a3b8;
+        opacity: 1;
     }
     textarea {
         height: 140px;

@@ -139,13 +139,13 @@
                 type="number"
                 bind:value={donationAmount}
                 placeholder="Amount"
-                class="w-full sm:flex-1 px-4 py-2 border rounded-lg text-sm sm:text-base"
+                class="w-full sm:flex-1 px-4 py-2 border rounded-lg text-sm sm:text-base text-slate-900 placeholder:text-slate-400"
                 min="0"
                 step="0.01"
             />
             <select
                 bind:value={donationCurrency}
-                class="w-full sm:w-auto px-4 py-2 border rounded-lg text-sm sm:text-base"
+                class="w-full sm:w-auto px-4 py-2 border rounded-lg text-sm sm:text-base text-slate-900"
             >
                 <option selected value="ICP">ICP</option>
 

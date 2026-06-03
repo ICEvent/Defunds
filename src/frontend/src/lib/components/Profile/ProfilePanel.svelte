@@ -39,16 +39,16 @@
         <h2 class="text-xl font-semibold mb-4">Profile Information</h2>
         <div class="space-y-4">
             <div>
-                <h3 class="text-sm text-gray-500 mb-1">Principal ID</h3>
+                <h3 class="text-sm text-slate-700 mb-1">Principal ID</h3>
                 <code class="block bg-gray-50 p-3 rounded text-sm break-all">{principal}</code>
             </div>
             <div class="grid grid-cols-2 gap-4">
                 <div class="bg-gray-50 p-4 rounded-lg">
-                    <h3 class="text-sm font-medium text-gray-500">Voting Power</h3>
+                    <h3 class="text-sm font-medium text-slate-700">Voting Power</h3>
                     <p class="mt-2 text-2xl font-bold text-purple-600">{votingPower}</p>
                 </div>
                 <div class="bg-gray-50 p-4 rounded-lg">
-                    <h3 class="text-sm font-medium text-gray-500">ICP</h3>
+                    <h3 class="text-sm font-medium text-slate-700">ICP</h3>
                     <p class="mt-2 text-2xl font-bold text-green-600">{balance}</p>
                 </div>
                 
