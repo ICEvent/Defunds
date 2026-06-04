@@ -110,11 +110,12 @@
 			   </button>
 		   {/if}
 	   </div>
-	   <Dialog
-		   isOpen={showLoginDialog}
-		   on:close={() => (showLoginDialog = false)}
-	   >
-		   <LoginForm closeLoginForm={() => (showLoginDialog = false)} />
-	   </Dialog>
    </div>
 </nav>
+
+<Dialog
+	isOpen={showLoginDialog}
+	on:close={() => (showLoginDialog = false)}
+>
+	<LoginForm closeLoginForm={() => (showLoginDialog = false)} />
+</Dialog>

@@ -89,11 +89,21 @@ persistent actor Defunds{
 			case (#ckBTC) { "ckBTC" };
 			case (#ckETH) { "ckETH" };
 			case (#ckUSDC) { "ckUSDC" };
+			case (#ICRC(token)) { token };
 		};
 	};
 	var minVotePercentage : Nat = 50; // 50% of total donors must vote
 	var minPowerPercentage : Nat = 50; // 50% of total voting power required
 	var maxAmountPercentage : Nat = 5; // 5% of total funds maximum
+
+	private func isConcilMemberInternal(member : Principal) : Bool {
+		Option.isSome(concilMembers.get(member));
+	};
+
+	private func canManageConcilMembers(caller : Principal) : Bool {
+		Principal.isController(caller) or isConcilMemberInternal(caller);
+	};
+
 	public shared ({ caller }) func updateVotingPolicy(
 		newMinVote : Nat,
 		newMinPower : Nat,
@@ -170,12 +180,37 @@ persistent actor Defunds{
 	public shared ({ caller }) func addConcilMember(member : Principal) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot add council members");
-		} else if (Option.isNull(concilMembers.get(caller))) {
+		} else if (not canManageConcilMembers(caller)) {
 			#err("Only controller or council members can add new members");
+		} else if (Principal.isAnonymous(member)) {
+			#err("Cannot add anonymous principal as council member");
+		} else if (isConcilMemberInternal(member)) {
+			#err("Principal is already a council member");
 		} else {
 			concilMembers.put(member, true);
 			#ok(1);
 		};
+	};
+
+	public shared ({ caller }) func removeConcilMember(member : Principal) : async Result.Result<Nat, Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot remove council members");
+		} else if (not canManageConcilMembers(caller)) {
+			#err("Only controller or council members can remove members");
+		} else if (not isConcilMemberInternal(member)) {
+			#err("Principal is not a council member");
+		} else {
+			ignore concilMembers.remove(member);
+			#ok(1);
+		};
+	};
+
+	public query func getConcilMembers() : async [Principal] {
+		Iter.toArray(concilMembers.keys());
+	};
+
+	public query func isConcilMember(member : Principal) : async Bool {
+		isConcilMemberInternal(member);
 	};
 
 	//---------------------------------------

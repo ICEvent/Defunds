@@ -47,9 +47,7 @@
     }
 
     async function handleSubmit() {
-        const decimals = getDecimalsByCurrency(
-            Object.keys(formData.currency)[0],
-        );
+        const decimals = getDecimalsByCurrency(formData.currency);
         const amount = BigInt(
             Math.floor(formData.amount * Math.pow(10, decimals)),
         );

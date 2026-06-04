@@ -7,6 +7,7 @@ module {
         #ckUSDC;
         #ckBTC;
         #ckETH;
+        #ICRC : Text;
     };
 
     public type Donation = {

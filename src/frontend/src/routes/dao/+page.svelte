@@ -1,13 +1,31 @@
 <script>
 	import { onMount } from 'svelte';
+	import { Principal } from '@dfinity/principal';
 	import { globalStore } from '$lib/store';
 	import * as governanceAPI from '$lib/api/governance';
 
 	let isAuthed = false;
 	let principal = '';
 	let governanceActor = null;
+	let backendActor = null;
 	let loading = false;
 	let error = '';
+	let councilLoading = false;
+	let councilError = '';
+	let councilSuccess = '';
+	let councilMembers = [];
+	let newCouncilMember = '';
+	let councilApiUnavailable = false;
+
+	function isMethodNotFoundError(error) {
+		const message = String(error?.message || '').toLowerCase();
+		return (
+			message.includes('has no query method') ||
+			message.includes('has no update method') ||
+			message.includes('method not found') ||
+			message.includes('canister has no')
+		);
+	}
 
 	let systemInfo = {
 		totalGroups: 0,
@@ -26,9 +44,14 @@
 			isAuthed = store.isAuthed;
 			principal = store.principal?.toText?.() || '';
 			governanceActor = store.governance;
+			backendActor = store.backend;
 
 			if (governanceActor) {
 				await loadDashboard();
+			}
+
+			if (backendActor) {
+				await loadCouncilMembers();
 			}
 		});
 
@@ -52,6 +75,87 @@
 			error = err?.message || 'Failed to load DAO data.';
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function loadCouncilMembers() {
+		if (!backendActor || councilApiUnavailable) return;
+
+		councilLoading = true;
+		councilError = '';
+		try {
+			const members = await backendActor.getConcilMembers();
+			councilMembers = (members || []).map((member) => member.toText());
+		} catch (err) {
+			if (isMethodNotFoundError(err)) {
+				councilApiUnavailable = true;
+				councilError = 'Council management is not available on the currently deployed backend version. Please deploy the latest backend canister.';
+			} else {
+				councilError = err?.message || 'Failed to load council members.';
+			}
+		} finally {
+			councilLoading = false;
+		}
+	}
+
+	async function addCouncilMember() {
+		if (!backendActor || councilApiUnavailable) return;
+
+		const candidate = newCouncilMember.trim();
+		if (!candidate) {
+			councilError = 'Council member principal is required.';
+			return;
+		}
+
+		councilLoading = true;
+		councilError = '';
+		councilSuccess = '';
+		try {
+			const principalValue = Principal.fromText(candidate);
+			const result = await backendActor.addConcilMember(principalValue);
+			if ('ok' in result) {
+				councilSuccess = 'Council member added.';
+				newCouncilMember = '';
+				await loadCouncilMembers();
+			} else {
+				councilError = result.err || 'Failed to add council member.';
+			}
+		} catch (err) {
+			if (isMethodNotFoundError(err)) {
+				councilApiUnavailable = true;
+				councilError = 'Council management is not available on the currently deployed backend version. Please deploy the latest backend canister.';
+			} else {
+				councilError = err?.message || 'Failed to add council member.';
+			}
+		} finally {
+			councilLoading = false;
+		}
+	}
+
+	async function removeCouncilMember(memberText) {
+		if (!backendActor || councilApiUnavailable) return;
+
+		councilLoading = true;
+		councilError = '';
+		councilSuccess = '';
+		try {
+			const principalValue = Principal.fromText(memberText);
+			const result = await backendActor.removeConcilMember(principalValue);
+			if ('ok' in result) {
+				councilSuccess = 'Council member removed.';
+				await loadCouncilMembers();
+			} else {
+				councilError = result.err || 'Failed to remove council member.';
+			}
+		} catch (err) {
+			if (isMethodNotFoundError(err)) {
+				councilApiUnavailable = true;
+				councilError = 'Council management is not available on the currently deployed backend version. Please deploy the latest backend canister.';
+			} else {
+				councilError = err?.message || 'Failed to remove council member.';
+			}
+		} finally {
+			councilLoading = false;
 		}
 	}
 
@@ -141,6 +245,74 @@
 						{/if}
 					</p>
 				</div>
+			</div>
+		</div>
+	</section>
+
+	<section class="container mx-auto px-4 py-12">
+		<div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+			<div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+				<div>
+					<p class="text-sm font-semibold uppercase tracking-[0.2em] text-violet-600">Council members</p>
+					<h2 class="mt-2 text-2xl font-bold tracking-tight text-slate-900">Manage council access</h2>
+				</div>
+				{#if councilLoading}
+					<span class="text-sm font-medium text-slate-500">Updating...</span>
+				{/if}
+			</div>
+
+			<div class="mb-4 grid gap-3 md:grid-cols-[1fr_auto]">
+				<input
+					type="text"
+					bind:value={newCouncilMember}
+					placeholder="Principal to add as council member"
+					class="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 focus:border-violet-500 focus:outline-none"
+				/>
+				<button
+					on:click={addCouncilMember}
+					disabled={councilLoading || !isAuthed || councilApiUnavailable}
+					class="rounded-xl bg-violet-600 px-5 py-3 font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-slate-300"
+				>
+					Add member
+				</button>
+			</div>
+
+			{#if councilError}
+				<div class="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+					{councilError}
+				</div>
+			{/if}
+
+			{#if councilSuccess}
+				<div class="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+					{councilSuccess}
+				</div>
+			{/if}
+
+			{#if !isAuthed}
+				<div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+					Sign in to manage council members.
+				</div>
+			{/if}
+
+			<div class="space-y-2">
+				<div class="text-sm font-semibold text-slate-700">Current members ({councilMembers.length})</div>
+				{#if councilMembers.length === 0}
+					<p class="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-500">No council members configured yet.</p>
+				{:else}
+					{#each councilMembers as member}
+						<div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 px-4 py-3">
+							<div class="font-mono text-sm text-slate-700 break-all">{member}</div>
+							<button
+								on:click={() => removeCouncilMember(member)}
+								disabled={councilLoading || !isAuthed || councilApiUnavailable}
+								class="rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:bg-slate-300"
+							>
+								Remove
+							</button>
+						</div>
+					{/each}
+				{/if}
 			</div>
 		</div>
 	</section>

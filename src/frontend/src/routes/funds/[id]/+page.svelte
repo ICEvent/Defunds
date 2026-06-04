@@ -52,8 +52,9 @@
     showProgress();
     try {
       const groupResult = await backend.getGroup(groupId);
-      if (groupResult) {
-        group = groupResult;
+      const loadedGroup = Array.isArray(groupResult) && groupResult.length > 0 ? groupResult[0] : null;
+      if (loadedGroup) {
+        group = loadedGroup;
         isMember = group.members.some(m => m.principal.toText() === principal?.toText());
         isCreator = group.creator.toText() === principal?.toText();
 

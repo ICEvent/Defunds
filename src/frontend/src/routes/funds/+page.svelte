@@ -66,13 +66,13 @@
 <div class="max-w-6xl mx-auto p-8">
   <div class="flex justify-between items-center mb-6">
     <div>
-      <h1 class="text-3xl font-bold">Funds</h1>
-      <p class="text-sm text-gray-600 mt-1">Public funds directory</p>
+      <h1 class="text-3xl font-bold text-slate-100">Funds</h1>
+      <p class="text-sm text-slate-300 mt-1">Public funds directory</p>
     </div>
   </div>
 
   <section>
-    <h2 class="text-2xl font-semibold mb-4">Public Funds</h2>
+    <h2 class="text-2xl font-semibold mb-4 text-slate-100">Public Funds</h2>
     {#if publicGroups.length === 0}
       <div class="text-gray-500 text-center py-8">No public funds available</div>
     {:else}
@@ -87,11 +87,11 @@
               <span class="text-xs px-2 py-1 rounded bg-green-100 text-green-800">Public</span>
             </div>
             <p class="text-sm text-gray-600 mb-3">{group.description}</p>
-            <div class="text-xs text-gray-500 space-y-1 mb-4">
-              <div>Members: {group.members.length}</div>
-              <div>Balance: {group.balance}</div>
-              <div>Account: {formatAccount(group.account)}</div>
-              <div>Created: {formatDate(group.createdAt)}</div>
+            <div class="text-xs space-y-2 mb-4">
+              <div class="flex justify-between gap-4"><span class="font-medium text-slate-700">Members</span><span class="text-slate-900">{group.members.length}</span></div>
+              <div class="flex justify-between gap-4"><span class="font-medium text-slate-700">Balance</span><span class="text-slate-900">{group.balance}</span></div>
+              <div class="flex justify-between gap-4"><span class="font-medium text-slate-700">Account</span><span class="text-slate-900">{formatAccount(group.account)}</span></div>
+              <div class="flex justify-between gap-4"><span class="font-medium text-slate-700">Created</span><span class="text-slate-900">{formatDate(group.createdAt)}</span></div>
             </div>
             <div class="flex gap-2">
               <button on:click={() => viewGroup(group.id)} class="btn btn-sm btn-primary flex-1">View</button>

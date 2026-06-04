@@ -4,6 +4,7 @@
     import { Principal } from "@dfinity/principal";
     import { ICP_TOKEN_DECIMALS, DEFUND_CANISTER_ID } from "$lib/constants";
     import {
+        getCurrencyName,
         getCurrencyObjectByName,
         getDecimalsByCurrency,
     } from "$lib/utils/currency.utils";
@@ -171,8 +172,8 @@
                     </div>
                     <div class="flex items-center gap-4">
                         <div class="text-lg font-semibold text-green-600">
-                            {Number(donation.amount) / 10 ** getDecimalsByCurrency(Object.keys(donation.currency)[0])}
-                            {Object.keys(donation.currency)[0]}
+                            {Number(donation.amount) / 10 ** getDecimalsByCurrency(getCurrencyName(donation.currency))}
+                            {getCurrencyName(donation.currency)}
                         </div>
                         {#if !donation.isConfirmed}
                             <button 
