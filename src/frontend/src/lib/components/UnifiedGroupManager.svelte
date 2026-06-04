@@ -1,6 +1,7 @@
 <script>
 	import { createEventDispatcher } from 'svelte';
 	import * as governanceAPI from '$lib/api/governance';
+	import { getCurrencyObjectByName } from '$lib/utils/currency.utils';
 
 	export let governanceActor = null;
 	export let backendActor = null;
@@ -21,6 +22,8 @@
 		name: '',
 		description: '',
 		isPublic: true,
+		currency: 'ICP',
+		customCurrency: '',
 		createBackendGroup: true, // Whether to create native fund group
 		createGovernanceGroup: false, // Whether to create governance/voting group
 	};
@@ -149,13 +152,22 @@
 		try {
 			let backendGroupId = null;
 			let governanceGroupId = null;
+			const selectedCurrency =
+				newGroup.currency === 'ICRC'
+					? newGroup.customCurrency.trim()
+					: newGroup.currency;
 
 			// Create backend group if requested
 			if (newGroup.createBackendGroup && backendActor) {
+				if (!selectedCurrency) {
+					throw new Error('Currency is required for native fund groups.');
+				}
+
 				const backendResult = await backendActor.createGroup(
 					newGroup.name,
 					newGroup.description,
-					newGroup.isPublic
+					newGroup.isPublic,
+					getCurrencyObjectByName(selectedCurrency)
 				);
 				if ('ok' in backendResult) {
 					backendGroupId = backendResult.ok.id;
@@ -184,6 +196,8 @@
 				name: '',
 				description: '',
 				isPublic: true,
+				currency: 'ICP',
+				customCurrency: '',
 				createBackendGroup: true,
 				createGovernanceGroup: false,
 			};
@@ -286,6 +300,41 @@
 
 				<div class="mb-3 space-y-2">
 					<label class="block text-gray-700 text-sm font-bold mb-1">Fund Features</label>
+					{#if newGroup.createBackendGroup}
+						<div class="ml-4">
+							<label class="block text-gray-700 text-xs font-semibold mb-1" for="groupCurrency">
+								Fund Currency
+							</label>
+							<select
+								id="groupCurrency"
+								bind:value={newGroup.currency}
+								class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 text-sm leading-tight focus:outline-none focus:shadow-outline"
+							>
+								<option value="ICP">ICP</option>
+								<option value="ckBTC">ckBTC</option>
+								<option value="ckETH">ckETH</option>
+								<option value="ckUSDC">ckUSDC</option>
+								<option value="ICRC">Custom ICRC</option>
+							</select>
+						</div>
+
+						{#if newGroup.currency === 'ICRC'}
+							<div class="ml-4">
+								<label class="block text-gray-700 text-xs font-semibold mb-1" for="customCurrency">
+									ICRC Ledger Canister ID
+								</label>
+								<input
+									id="customCurrency"
+									type="text"
+									bind:value={newGroup.customCurrency}
+									class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 text-sm leading-tight focus:outline-none focus:shadow-outline"
+									placeholder="e.g., xevnm-gaaaa-aaaar-qafnq-cai"
+									required={newGroup.createBackendGroup && newGroup.currency === 'ICRC'}
+								/>
+							</div>
+						{/if}
+					{/if}
+
 					<label class="flex items-center">
 						<input
 							type="checkbox"

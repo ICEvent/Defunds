@@ -3,6 +3,7 @@
   import { showNotification } from "$lib/stores/notification";
   import { hideProgress, showProgress } from "$lib/stores/progress";
   import { goto } from "$app/navigation";
+  import { getCurrencyName } from "$lib/utils/currency.utils";
 
   let publicGroups = [];
   let backend;
@@ -64,12 +65,6 @@
 </script>
 
 <div class="max-w-6xl mx-auto p-8">
-  <div class="flex justify-between items-center mb-6">
-    <div>
-      <h1 class="text-3xl font-bold text-slate-100">Funds</h1>
-      <p class="text-sm text-slate-300 mt-1">Public funds directory</p>
-    </div>
-  </div>
 
   <section>
     <h2 class="text-2xl font-semibold mb-4 text-slate-100">Public Funds</h2>
@@ -88,8 +83,9 @@
             </div>
             <p class="text-sm text-gray-600 mb-3">{group.description}</p>
             <div class="text-xs space-y-2 mb-4">
+              <div class="flex justify-between gap-4"><span class="font-medium text-slate-700">Currency</span><span class="text-slate-900">{getCurrencyName(group.currency)}</span></div>
               <div class="flex justify-between gap-4"><span class="font-medium text-slate-700">Members</span><span class="text-slate-900">{group.members.length}</span></div>
-              <div class="flex justify-between gap-4"><span class="font-medium text-slate-700">Balance</span><span class="text-slate-900">{group.balance}</span></div>
+              <div class="flex justify-between gap-4"><span class="font-medium text-slate-700">Balance</span><span class="text-slate-900">{group.balance} {getCurrencyName(group.currency)}</span></div>
               <div class="flex justify-between gap-4"><span class="font-medium text-slate-700">Account</span><span class="text-slate-900">{formatAccount(group.account)}</span></div>
               <div class="flex justify-between gap-4"><span class="font-medium text-slate-700">Created</span><span class="text-slate-900">{formatDate(group.createdAt)}</span></div>
             </div>

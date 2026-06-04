@@ -47,7 +47,8 @@ persistent actor Defunds{
 
 	var _stable_groupId = 1; // Unique ID for each grant
 	var _stable_proposalId = 1; // Unique ID for each proposal
-	var _stable_groups : [(Nat, GroupTypes.GroupFund)] = [];
+	var _stable_groups : [(Nat, GroupTypes.LegacyGroupFund)] = [];
+	var _stable_groupCurrencies : [(Nat, Types.Currency)] = [];
 	var _stable_proposals : [(Nat, GroupTypes.GroupProposal)] = [];
 	var _stable_aiAgentFunds : [(Nat, GroupTypes.AIAgentFundRecord)] = [];
 
@@ -64,7 +65,7 @@ persistent actor Defunds{
 	var DEFAULT_PAGE_SIZE = 50;
 
 	transient let grants = Grants.Grants(_stable_grantId, _stable_grants);
-	transient let groups = Groups.Groups(_stable_groupId, _stable_groups, _stable_proposalId, _stable_proposals, Principal.fromActor(Defunds), _stable_aiAgentFunds);
+	transient let groups = Groups.Groups(_stable_groupId, _stable_groups, _stable_groupCurrencies, _stable_proposalId, _stable_proposals, Principal.fromActor(Defunds), _stable_aiAgentFunds);
 
 	transient let ICPLedger : actor {
 		query_blocks : shared query ICPTypes.GetBlocksArgs -> async ICPTypes.QueryBlocksResponse;
@@ -72,6 +73,54 @@ persistent actor Defunds{
 		account_balance : shared query ICPTypes.BinaryAccountBalanceArgs -> async ICPTypes.Tokens;
 
 	} = actor "ryjl3-tyaaa-aaaaa-aaaba-cai";
+
+	type Icrc1Account = {
+		owner : Principal;
+		subaccount : ?Blob;
+	};
+
+	type Icrc1TransferArg = {
+		from_subaccount : ?Blob;
+		to : Icrc1Account;
+		amount : Nat;
+		fee : ?Nat;
+		memo : ?Blob;
+		created_at_time : ?Nat64;
+	};
+
+	type Icrc1TransferError = {
+		#BadFee : { expected_fee : Nat };
+		#BadBurn : { min_burn_amount : Nat };
+		#InsufficientFunds : { balance : Nat };
+		#TooOld;
+		#CreatedInFuture : { ledger_time : Nat64 };
+		#TemporarilyUnavailable;
+		#Duplicate : { duplicate_of : Nat };
+		#GenericError : { error_code : Nat; message : Text };
+	};
+
+	type Icrc1TransferResult = {
+		#Ok : Nat;
+		#Err : Icrc1TransferError;
+	};
+
+	private func icrc1LedgerActor(canisterId : Principal) : actor {
+		icrc1_transfer : shared Icrc1TransferArg -> async Icrc1TransferResult;
+	} {
+		actor (Principal.toText(canisterId));
+	};
+
+	private func getIcrcLedgerCanister(currency : Types.Currency) : ?Principal {
+		switch (currency) {
+			case (#ICP) { null };
+			case (#ckBTC) { ?Principal.fromText("mxzaz-hqaaa-aaaar-qaada-cai") };
+			case (#ckETH) { ?Principal.fromText("ss2fx-dyaaa-aaaar-qacoq-cai") };
+			case (#ckUSDC) { ?Principal.fromText("xevnm-gaaaa-aaaar-qafnq-cai") };
+			case (#ICRC(canisterText)) {
+				?Principal.fromText(canisterText);
+			};
+		};
+	};
 
 	transient var donorCredits = TrieMap.TrieMap<Principal, Nat>(Principal.equal, Principal.hash);
 	donorCredits := TrieMap.fromEntries<Principal, Nat>(Iter.fromArray(upgradeCredits), Principal.equal, Principal.hash);
@@ -133,6 +182,7 @@ persistent actor Defunds{
 		_stable_grants := grants.toStable();
 		_stable_grantId := grants.getNextGrantId();
 		_stable_groups := groups.toStable();
+		_stable_groupCurrencies := groups.toStableCurrencies();
 		_stable_groupId := groups.getNextGroupId();
 		_stable_proposals := groups.toStableProposals();
 		_stable_proposalId := groups.getNextProposalId();
@@ -577,30 +627,78 @@ persistent actor Defunds{
 					} else if (grant.grantStatus != #approved) {
 						#err("Grant must be approved to claim");
 					} else {
-						// Transfer funds to recipient
-						let transferArgs : ICPTypes.TransferArgs = {
-							memo = 0;
-							amount = { e8s = grant.amount };
-							fee = { e8s = ICP_FEE };
-							from_subaccount = null;
-							to = Blob.fromArray(Hex.decode(grant.recipient));
-							created_at_time = null;
-						};
-
-						try {
-							let transferResult = await ICPLedger.transfer(transferArgs);
-							switch (transferResult) {
-								case (#Ok(blockIndex)) {
-									ignore grants.changeGrantStatus(grantId, #released);
-									_avaliable_funds -= grant.amount;
-									#ok(blockIndex);
+						switch (grant.currency) {
+							case (#ICP) {
+								// Legacy ICP ledger transfer path
+								let transferArgs : ICPTypes.TransferArgs = {
+									memo = 0;
+									amount = { e8s = grant.amount };
+									fee = { e8s = ICP_FEE };
+									from_subaccount = null;
+									to = Blob.fromArray(Hex.decode(grant.recipient));
+									created_at_time = null;
 								};
-								case (#Err(_)) {
-									#err("Transfer failed");
+
+								try {
+									let transferResult = await ICPLedger.transfer(transferArgs);
+									switch (transferResult) {
+										case (#Ok(blockIndex)) {
+											ignore grants.changeGrantStatus(grantId, #released);
+											_avaliable_funds -= grant.amount;
+											#ok(blockIndex);
+										};
+										case (#Err(_)) {
+											#err("Transfer failed");
+										};
+									};
+								} catch (_) {
+									#err("Transfer error");
 								};
 							};
-						} catch (_) {
-							#err("Transfer error");
+							case (_) {
+								// ICRC1 transfer path for ck* tokens and dynamic #ICRC(canisterId)
+								switch (getIcrcLedgerCanister(grant.currency)) {
+									case null {
+										#err("Unsupported token ledger for grant currency");
+									};
+									case (?ledgerCanister) {
+										let ledger = icrc1LedgerActor(ledgerCanister);
+										let recipientOwner = Principal.fromText(grant.recipient);
+
+										let transferArgs : Icrc1TransferArg = {
+											from_subaccount = null;
+											to = {
+												owner = recipientOwner;
+												subaccount = null;
+											};
+											amount = Nat64.toNat(grant.amount);
+											fee = null;
+											memo = null;
+											created_at_time = null;
+										};
+
+										try {
+											let transferResult = await ledger.icrc1_transfer(transferArgs);
+											switch (transferResult) {
+												case (#Ok(blockIndexNat)) {
+													if (blockIndexNat > 18_446_744_073_709_551_615) {
+														#err("ICRC transfer succeeded but block index exceeds nat64 range");
+													} else {
+														ignore grants.changeGrantStatus(grantId, #released);
+														_avaliable_funds -= grant.amount;
+														#ok(Nat64.fromNat(blockIndexNat));
+													};
+												};
+												case (#Err(_)) {
+													#err("ICRC transfer failed");
+												};
+											};
+										} catch (_) {
+											#err("ICRC transfer error");
+										};
+									};
+								};
+							};
 						};
 					};
 				};
@@ -644,7 +742,7 @@ persistent actor Defunds{
 	//============================================================================================================
 	// Group Management
 	//============================================================================================================
-	public shared ({ caller }) func createGroup(name : Text, description : Text, isPublic : Bool) : async Result.Result<GroupTypes.GroupFund, Text> {
+	public shared ({ caller }) func createGroup(name : Text, description : Text, isPublic : Bool, currency : Types.Currency) : async Result.Result<GroupTypes.GroupFund, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot create groups");
 		} else {
@@ -656,7 +754,7 @@ persistent actor Defunds{
 					if (power.totalPower == 0) {
 						#err("Insufficient voting power to create groups");
 					} else {
-						let r = groups.createGroupFund(caller, name, description,  isPublic);
+						let r = groups.createGroupFund(caller, name, description, isPublic, currency);
 						#ok(r);
 					};
 				};

@@ -6,6 +6,7 @@
   import { goto } from "$app/navigation";
   import { Principal } from "@dfinity/principal";
   import * as governanceAPI from '$lib/api/governance';
+  import { getCurrencyName } from "$lib/utils/currency.utils";
 
   let groupId;
   let group = null;
@@ -236,6 +237,9 @@
             <span class="text-xs px-3 py-1 rounded {group.isPublic ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
               {group.isPublic ? 'Public' : 'Private'}
             </span>
+            <span class="text-xs px-3 py-1 rounded bg-amber-100 text-amber-800 font-semibold">
+              🪙 {getCurrencyName(group.currency)}
+            </span>
             {#if hasGovernance}
               <span class="text-xs px-3 py-1 rounded bg-blue-100 text-blue-800 font-semibold">
                 ⚖️ Governance Enabled
@@ -252,7 +256,7 @@
       
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
         <div class="stat-box">
-          <div class="text-sm text-gray-500">Balance</div>
+          <div class="text-sm text-gray-500">Balance ({getCurrencyName(group.currency)})</div>
           <div class="text-xl font-bold">{group.balance}</div>
         </div>
         <div class="stat-box">
@@ -270,7 +274,7 @@
       </div>
 
       <div class="mt-4 p-3 bg-gray-50 rounded">
-        <div class="text-xs text-gray-500">Subaccount Address</div>
+        <div class="text-xs text-gray-500">Group Account</div>
         <div class="text-xs font-mono break-all">{formatAccount(group.account)}</div>
       </div>
     </div>

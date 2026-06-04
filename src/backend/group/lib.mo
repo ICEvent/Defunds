@@ -11,18 +11,21 @@ import Blob "mo:base/Blob";
 import Buffer "mo:base/Buffer";
 
 import Types "types";
+import BaseTypes "../types";
 
 module {
 
     type GroupFund = Types.GroupFund;
+    type LegacyGroupFund = Types.LegacyGroupFund;
     type GroupProposal = Types.GroupProposal;
     type Member = Types.Member;
     type AIAgentFund = Types.AIAgentFund;
     type AIAgentFundRecord = Types.AIAgentFundRecord;
     type AIAgentConfig = Types.AIAgentConfig;
     type AIProposalEvaluation = Types.AIProposalEvaluation;
+    type Currency = BaseTypes.Currency;
 
-    public class Groups(stableGroupId : Nat, stableGroups : [(Nat, GroupFund)], stableProposalId : Nat, stableProposals : [(Nat, GroupProposal)], mainActorPrincipal : Principal, stableAIAgentFunds : [(Nat, AIAgentFundRecord)]) {
+    public class Groups(stableGroupId : Nat, stableGroups : [(Nat, LegacyGroupFund)], stableGroupCurrencies : [(Nat, Currency)], stableProposalId : Nat, stableProposals : [(Nat, GroupProposal)], mainActorPrincipal : Principal, stableAIAgentFunds : [(Nat, AIAgentFundRecord)]) {
         
         private var nextGroupId : Nat = stableGroupId;
         private var nextProposalId : Nat = stableProposalId;
@@ -32,7 +35,36 @@ module {
         };
 
         var groupFunds : TrieMap.TrieMap<Nat, GroupFund> = TrieMap.TrieMap<Nat, GroupFund>(Nat.equal, natHash);
-        groupFunds := TrieMap.fromEntries<Nat, GroupFund>(Iter.fromArray(stableGroups), Nat.equal, natHash);
+        let stableCurrencyMap = TrieMap.fromEntries<Nat, Currency>(Iter.fromArray(stableGroupCurrencies), Nat.equal, natHash);
+        groupFunds := TrieMap.fromEntries<Nat, GroupFund>(
+            Iter.map<(Nat, LegacyGroupFund), (Nat, GroupFund)>(
+                Iter.fromArray(stableGroups),
+                func((groupId, g)) {
+                    let currency = switch (stableCurrencyMap.get(groupId)) {
+                        case (?c) c;
+                        case null #ICP;
+                    };
+                    (
+                        groupId,
+                        {
+                            id = g.id;
+                            name = g.name;
+                            description = g.description;
+                            creator = g.creator;
+                            currency = currency;
+                            isPublic = g.isPublic;
+                            members = g.members;
+                            balance = g.balance;
+                            proposals = g.proposals;
+                            createdAt = g.createdAt;
+                            account = g.account;
+                        },
+                    );
+                },
+            ),
+            Nat.equal,
+            natHash,
+        );
 
         var groupProposals : TrieMap.TrieMap<Nat, GroupProposal> = TrieMap.TrieMap<Nat, GroupProposal>(Nat.equal, natHash);
         groupProposals := TrieMap.fromEntries<Nat, GroupProposal>(Iter.fromArray(stableProposals), Nat.equal, natHash);
@@ -41,8 +73,38 @@ module {
         var aiAgentFunds : TrieMap.TrieMap<Nat, AIAgentFundRecord> = TrieMap.TrieMap<Nat, AIAgentFundRecord>(Nat.equal, natHash);
         aiAgentFunds := TrieMap.fromEntries<Nat, AIAgentFundRecord>(Iter.fromArray(stableAIAgentFunds), Nat.equal, natHash);
 
-        public func toStable() : [(Nat, GroupFund)] {
-            Iter.toArray(groupFunds.entries());
+        public func toStable() : [(Nat, LegacyGroupFund)] {
+            Iter.toArray(
+                Iter.map<(Nat, GroupFund), (Nat, LegacyGroupFund)>(
+                    groupFunds.entries(),
+                    func((groupId, g)) {
+                        (
+                            groupId,
+                            {
+                                id = g.id;
+                                name = g.name;
+                                description = g.description;
+                                creator = g.creator;
+                                isPublic = g.isPublic;
+                                members = g.members;
+                                balance = g.balance;
+                                proposals = g.proposals;
+                                createdAt = g.createdAt;
+                                account = g.account;
+                            },
+                        );
+                    },
+                )
+            );
+        };
+
+        public func toStableCurrencies() : [(Nat, Currency)] {
+            Iter.toArray(
+                Iter.map<(Nat, GroupFund), (Nat, Currency)>(
+                    groupFunds.entries(),
+                    func((groupId, g)) { (groupId, g.currency) },
+                )
+            );
         };
 
         public func getNextGroupId() : Nat {
@@ -73,7 +135,7 @@ module {
             Array.freeze(subaccount)
         };
 
-        public func createGroupFund(caller: Principal, name : Text, description : Text,  isPublic : Bool ) : GroupFund {
+        public func createGroupFund(caller: Principal, name : Text, description : Text, isPublic : Bool, currency : Currency ) : GroupFund {
             let groupId = nextGroupId;
             let member : Member = {
                 name = "Owner";
@@ -86,6 +148,7 @@ module {
                 name = name;
                 description = description;
                 creator = caller;
+                currency = currency;
                 isPublic = isPublic;
                 members = [member];
                 balance = 0;
@@ -360,7 +423,7 @@ module {
         // Create an AI Agent Fund: creates a regular GroupFund and registers an
         // AI agent record keyed on the same group ID.
         public func createAIAgentFund(caller : Principal, name : Text, description : Text, isPublic : Bool, config : AIAgentConfig) : AIAgentFund {
-            let groupFund = createGroupFund(caller, name, description, isPublic);
+            let groupFund = createGroupFund(caller, name, description, isPublic, #ICP);
             let record : AIAgentFundRecord = {
                 groupId = groupFund.id;
                 agentConfig = config;

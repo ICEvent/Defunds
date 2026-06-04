@@ -1,3 +1,5 @@
+import Types "../types";
+
 module {
     public type Member = {
         name : Text;
@@ -10,12 +12,28 @@ module {
         name : Text;
         description : Text;
         creator : Principal;
+        currency : Types.Currency;
         isPublic : Bool;
         members : [Member];
         balance : Nat;
         proposals : [Nat];
         createdAt : Int;
         account : [Nat8]; // <-- Added for group subaccount
+    };
+
+    // Legacy stable layout (kept for upgrade compatibility).
+    // This mirrors the historical GroupFund shape before `currency` existed.
+    public type LegacyGroupFund = {
+        id : Nat;
+        name : Text;
+        description : Text;
+        creator : Principal;
+        isPublic : Bool;
+        members : [Member];
+        balance : Nat;
+        proposals : [Nat];
+        createdAt : Int;
+        account : [Nat8];
     };
 
     // ========= AI Agent Fund Types =========
