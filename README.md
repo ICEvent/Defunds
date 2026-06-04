@@ -1,4 +1,4 @@
-# Defund
+# Defunds
 
 A decentralized charity fund platform built on the Internet Computer blockchain that brings transparency and community governance to charitable giving.
 
