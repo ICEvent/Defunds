@@ -6,6 +6,7 @@ on:
       - feat/funds-governance-ux
     paths:
       - .github/scripts/apply-funds-governance.py
+      - .github/workflows/apply-funds-governance.yml
 
 permissions:
   contents: write
