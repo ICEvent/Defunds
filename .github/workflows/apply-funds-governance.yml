@@ -1,0 +1,43 @@
+name: Apply funds governance hardening
+
+on:
+  push:
+    branches:
+      - feat/funds-governance-ux
+    paths:
+      - .github/scripts/apply-funds-governance.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/funds-governance-ux
+          fetch-depth: 0
+
+      - name: Apply guarded source updates
+        run: python .github/scripts/apply-funds-governance.py
+
+      - name: Verify intended invariants
+        run: |
+          git diff --check
+          grep -q 'votingPower = 0;' src/backend/group/lib.mo
+          grep -q 'hasActiveProposals(groupId' src/backend/group/lib.mo
+          grep -q 'Member has already voted on this proposal' src/backend/group/lib.mo
+          grep -q 'groups.getUserGroups(caller)' src/backend/main.mo
+          grep -q 'Only the fund creator can manage voting power' src/backend/main.mo
+
+      - name: Commit backend changes and remove migration helpers
+        run: |
+          rm -f .github/patches/funds-governance-v2.patch
+          rm -f .github/scripts/apply-funds-governance.py
+          rm -f .github/workflows/apply-funds-governance.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'fix: harden fund governance permissions and voting [skip ci]'
+          git push origin HEAD:feat/funds-governance-ux
