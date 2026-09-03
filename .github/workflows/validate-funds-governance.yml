@@ -32,11 +32,12 @@ jobs:
       - name: Check backend Motoko
         run: |
           # The repository currently configures `mops sources` but has no mops.toml.
-          # Remove only that stale packtool setting in the disposable CI workspace
-          # so this job can validate the Motoko source itself.
+          # Remove only that stale packtool setting in this disposable CI workspace.
           jq 'del(.defaults.build.packtool)' dfx.json > /tmp/dfx.json
           mv /tmp/dfx.json dfx.json
           dfx build backend --check
 
-      - name: Build frontend
-        run: npm run build --workspace=frontend --ignore-scripts
+      - name: Compile Svelte frontend
+        run: |
+          cd src/frontend
+          npx vite build
