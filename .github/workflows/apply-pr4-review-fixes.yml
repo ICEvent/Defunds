@@ -1,0 +1,462 @@
+name: Apply PR4 review fixes
+
+on:
+  push:
+    branches:
+      - feat/funds-governance-ux
+    paths:
+      - .github/workflows/apply-pr4-review-fixes.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/funds-governance-ux
+          fetch-depth: 0
+
+      - name: Apply guarded fixes
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one match, found {count}")
+              p.write_text(text.replace(old, new, 1))
+
+          # 1) Backend: terminal path for active proposals.
+          replace_once(
+              "src/backend/group/lib.mo",
+              '''        public func vote(caller: Principal, groupId : Nat, proposalId : Nat, voteYes : Bool) : async Result.Result<(), Text> {''',
+              '''        public func cancelGroupProposal(caller : Principal, groupId : Nat, proposalId : Nat) : Result.Result<(), Text> {
+            switch (groupFunds.get(groupId)) {
+                case null { #err("Group not found") };
+                case (?group) {
+                    if (group.creator != caller) {
+                        return #err("Only the fund creator can close an active proposal");
+                    };
+                    switch (groupProposals.get(proposalId)) {
+                        case null { #err("Proposal not found") };
+                        case (?proposal) {
+                            if (proposal.groupId != groupId) {
+                                #err("Proposal does not belong to this group")
+                            } else {
+                                switch (proposal.status) {
+                                    case (#active) {
+                                        // V1 has no separate cancelled state. Closing by the owner
+                                        // records the existing terminal #rejected state explicitly.
+                                        groupProposals.put(proposalId, { proposal with status = #rejected });
+                                        #ok();
+                                    };
+                                    case (_) { #err("Proposal is not active") };
+                                };
+                            };
+                        };
+                    };
+                };
+            };
+        };
+
+        public func vote(caller: Principal, groupId : Nat, proposalId : Nat, voteYes : Bool) : async Result.Result<(), Text> {'''
+          )
+
+          replace_once(
+              "src/backend/main.mo",
+              '''\tpublic shared ({ caller }) func voteOnProposal(groupId : Nat, proposalId : Nat, voteYes : Bool) : async Result.Result<(), Text> {
+\t\tif (Principal.isAnonymous(caller)) {
+\t\t\t#err("Anonymous users cannot vote");
+\t\t} else {
+\t\t\tawait groups.vote(caller, groupId, proposalId, voteYes);
+\t\t};
+\t};''',
+              '''\tpublic shared ({ caller }) func cancelGroupProposal(groupId : Nat, proposalId : Nat) : async Result.Result<(), Text> {
+\t\tif (Principal.isAnonymous(caller)) {
+\t\t\t#err("Anonymous users cannot close proposals");
+\t\t} else {
+\t\t\tgroups.cancelGroupProposal(caller, groupId, proposalId);
+\t\t};
+\t};
+
+\tpublic shared ({ caller }) func voteOnProposal(groupId : Nat, proposalId : Nat, voteYes : Bool) : async Result.Result<(), Text> {
+\t\tif (Principal.isAnonymous(caller)) {
+\t\t\t#err("Anonymous users cannot vote");
+\t\t} else {
+\t\t\tawait groups.vote(caller, groupId, proposalId, voteYes);
+\t\t};
+\t};'''
+          )
+
+          detail = "src/frontend/src/routes/funds/[id]/+page.svelte"
+
+          # 2) Private-fund auth restoration race + stale request guard.
+          replace_once(
+              detail,
+              '''  import { Principal } from "@dfinity/principal";''',
+              '''  import { Principal } from "@dfinity/principal";
+  import { AuthClient } from "@dfinity/auth-client";'''
+          )
+
+          replace_once(
+              detail,
+              '''  let editingPowerFor = "";
+  let editingPowerValue = "";''',
+              '''  let editingPowerFor = "";
+  let editingPowerValue = "";
+  let showEditFund = false;
+  let editFundName = "";
+  let editFundDescription = "";
+  let editFundIsPublic = false;
+  let persistedSession = false;
+  let loadVersion = 0;'''
+          )
+
+          replace_once(
+              detail,
+              '''  $: principalText = principal?.toText?.() ?? "";
+  $: myMember = group && principalText ? group.members.find((member) => member.principal.toText() === principalText) ?? null : null;
+  $: isMember = Boolean(myMember);''',
+              '''  $: principalText = principal?.toText?.() ?? "";
+  $: canonicalMembers = group ? (() => {
+    const seen = new Set();
+    return group.members.filter((member) => {
+      const id = member.principal.toText();
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  })() : [];
+  $: myMember = principalText ? canonicalMembers.find((member) => member.principal.toText() === principalText) ?? null : null;
+  $: isMember = Boolean(myMember);'''
+          )
+
+          replace_once(
+              detail,
+              '''  $: totalVotingPower = group ? (() => {
+    const counted = new Set();
+    return group.members.reduce((sum, member) => {
+      const id = member.principal.toText();
+      if (counted.has(id)) return sum;
+      counted.add(id);
+      return sum + BigInt(member.votingPower ?? 0);
+    }, 0n);
+  })() : 0n;''',
+              '''  $: totalVotingPower = canonicalMembers.reduce(
+    (sum, member) => sum + BigInt(member.votingPower ?? 0),
+    0n,
+  );'''
+          )
+
+          replace_once(
+              detail,
+              '''  onMount(() => {
+    groupId = BigInt($page.params.id);
+    let unsubscribe;
+    let disposed = false;
+
+    import("$lib/store").then(({ globalStore }) => {
+      if (disposed) return;
+      unsubscribe = globalStore.subscribe((store) => {
+        const actorChanged = backend !== store.backend;
+        backend = store.backend;
+        principal = store.principal;
+        isAuthed = store.isAuthed;
+        if (backend && actorChanged) void loadGroupData();
+      });
+    });
+
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+    };
+  });
+
+  async function loadGroupData() {
+    showProgress();
+    try {
+      const [groupResult, proposalResult] = await Promise.all([
+        backend.getGroup(groupId),
+        backend.getGroupProposals(groupId),
+      ]);
+      const loadedGroup = Array.isArray(groupResult) && groupResult.length > 0 ? groupResult[0] : null;
+      if (!loadedGroup) {
+        showNotification("Fund not found.", "error");
+        goto("/funds");
+        return;
+      }
+      group = loadedGroup;
+      proposals = [...(proposalResult ?? [])].sort((a, b) => a.createdAt === b.createdAt ? 0 : a.createdAt > b.createdAt ? -1 : 1);
+    } catch (error) {
+      showNotification(`Unable to load fund: ${error?.message ?? error}`, "error");
+    } finally {
+      hideProgress();
+    }
+  }''',
+              '''  onMount(() => {
+    groupId = BigInt($page.params.id);
+    let unsubscribe;
+    let disposed = false;
+
+    void (async () => {
+      try {
+        const authClient = await AuthClient.create({
+          idleOptions: {
+            disableIdle: true,
+            disableDefaultIdleCallback: true,
+          },
+        });
+        persistedSession = await authClient.isAuthenticated();
+      } catch {
+        persistedSession = false;
+      }
+
+      if (disposed) return;
+      const { globalStore } = await import("$lib/store");
+      if (disposed) return;
+
+      unsubscribe = globalStore.subscribe((store) => {
+        const actorChanged = backend !== store.backend;
+        const authChanged = isAuthed !== store.isAuthed
+          || principal?.toText?.() !== store.principal?.toText?.();
+        backend = store.backend;
+        principal = store.principal;
+        isAuthed = store.isAuthed;
+
+        if (!backend || (!actorChanged && !authChanged)) return;
+        // If Internet Identity has a persisted session, wait for Navbar/login
+        // restoration to replace the anonymous actor before deciding a private
+        // fund is missing.
+        if (persistedSession && !isAuthed) return;
+        void loadGroupData();
+      });
+    })();
+
+    return () => {
+      disposed = true;
+      loadVersion += 1;
+      unsubscribe?.();
+    };
+  });
+
+  async function loadGroupData() {
+    const version = ++loadVersion;
+    const actor = backend;
+    showProgress();
+    try {
+      const [groupResult, proposalResult] = await Promise.all([
+        actor.getGroup(groupId),
+        actor.getGroupProposals(groupId),
+      ]);
+      if (version !== loadVersion) return;
+      const loadedGroup = Array.isArray(groupResult) && groupResult.length > 0 ? groupResult[0] : null;
+      if (!loadedGroup) {
+        showNotification("Fund not found or you do not have access.", "error");
+        goto("/funds");
+        return;
+      }
+      group = loadedGroup;
+      proposals = [...(proposalResult ?? [])].sort((a, b) => a.createdAt === b.createdAt ? 0 : a.createdAt > b.createdAt ? -1 : 1);
+      if (!showEditFund) {
+        editFundName = loadedGroup.name;
+        editFundDescription = loadedGroup.description;
+        editFundIsPublic = loadedGroup.isPublic;
+      }
+    } catch (error) {
+      if (version === loadVersion) {
+        showNotification(`Unable to load fund: ${error?.message ?? error}`, "error");
+      }
+    } finally {
+      if (version === loadVersion) hideProgress();
+    }
+  }'''
+          )
+
+          # 3) Financial formatting: never render a positive base-unit value as zero.
+          replace_once(
+              detail,
+              '''      const fraction = (value % scale).toString().padStart(safeDecimals, "0").slice(0, 8).replace(/0+$/, "");''',
+              '''      const fraction = (value % scale).toString().padStart(safeDecimals, "0").replace(/0+$/, "");'''
+          )
+
+          # 4) Owner metadata editing and terminal proposal action.
+          replace_once(
+              detail,
+              '''  async function copyAccount() {''',
+              '''  function openEditFund() {
+    if (!group || !isCreator) return;
+    editFundName = group.name;
+    editFundDescription = group.description;
+    editFundIsPublic = group.isPublic;
+    showEditFund = true;
+  }
+
+  async function saveFundMetadata() {
+    if (!isCreator) return;
+    const cleanName = editFundName.trim();
+    if (!cleanName) {
+      showNotification("Fund name is required.", "error");
+      return;
+    }
+    const success = await runAction(
+      "update-fund",
+      () => backend.updateGroup(groupId, cleanName, editFundDescription.trim(), editFundIsPublic),
+      "Fund details updated.",
+    );
+    if (success) showEditFund = false;
+  }
+
+  async function closeProposalAsRejected(proposal) {
+    if (!isCreator || statusKey(proposal.status) !== "active") return;
+    if (!confirm("Close this active proposal as rejected? This ends voting and unlocks member management.")) return;
+    await runAction(
+      `close-proposal-${proposal.id}`,
+      () => backend.cancelGroupProposal(groupId, proposal.id),
+      "Proposal closed as rejected.",
+    );
+  }
+
+  async function copyAccount() {'''
+          )
+
+          replace_once(
+              detail,
+              '''        {#if isAuthed && group.isPublic && !isMember}
+          <button type="button" disabled={Boolean(busyAction)} on:click={joinGroup} class="rounded-xl bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50">
+            {busyAction === "join" ? "Joining…" : "Join as observer"}
+          </button>
+        {/if}''',
+              '''        <div class="flex flex-wrap gap-2">
+          {#if isCreator}
+            <button type="button" on:click={openEditFund} class="rounded-xl border border-white/20 px-4 py-2.5 text-sm font-semibold text-white hover:bg-white/10">
+              Edit fund
+            </button>
+          {/if}
+          {#if isAuthed && group.isPublic && !isMember}
+            <button type="button" disabled={Boolean(busyAction)} on:click={joinGroup} class="rounded-xl bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50">
+              {busyAction === "join" ? "Joining…" : "Join as observer"}
+            </button>
+          {/if}
+        </div>'''
+          )
+
+          replace_once(
+              detail,
+              '''    <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div class="text-xs font-semibold uppercase tracking-wide text-slate-400">Treasury identity</div>''',
+              '''    {#if showEditFund && isCreator}
+      <section class="mt-6 rounded-2xl border border-sky-200 bg-sky-50/70 p-5 shadow-sm sm:p-6">
+        <div class="flex flex-col gap-1">
+          <h2 class="text-xl font-semibold text-slate-950">Edit fund</h2>
+          <p class="text-sm text-slate-600">Update the fund identity and visibility. Private funds are readable only by members.</p>
+        </div>
+        <div class="mt-4 grid gap-4">
+          <label class="grid gap-1.5 text-sm font-medium text-slate-700">
+            Fund name
+            <input bind:value={editFundName} class="rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-normal text-slate-900 outline-none focus:border-sky-500" />
+          </label>
+          <label class="grid gap-1.5 text-sm font-medium text-slate-700">
+            Description
+            <textarea bind:value={editFundDescription} rows="3" class="rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-normal text-slate-900 outline-none focus:border-sky-500"></textarea>
+          </label>
+          <label class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700">
+            <input type="checkbox" bind:checked={editFundIsPublic} class="h-4 w-4 rounded border-slate-300" />
+            Publicly discoverable
+          </label>
+          <div class="flex justify-end gap-2">
+            <button type="button" disabled={Boolean(busyAction)} on:click={() => showEditFund = false} class="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-white disabled:opacity-50">Cancel</button>
+            <button type="button" disabled={Boolean(busyAction)} on:click={saveFundMetadata} class="rounded-xl bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50">
+              {busyAction === "update-fund" ? "Saving…" : "Save changes"}
+            </button>
+          </div>
+        </div>
+      </section>
+    {/if}
+
+    <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div class="text-xs font-semibold uppercase tracking-wide text-slate-400">Treasury identity</div>'''
+          )
+
+          replace_once(detail, '''{group.members.length}''', '''{canonicalMembers.length}''')
+          replace_once(detail, '''{#each group.members as member (member.principal.toText())}''', '''{#each canonicalMembers as member (member.principal.toText())}''')
+
+          replace_once(
+              detail,
+              '''              {#if canGovern && statusKey(proposal.status) === "active"}
+                <div class="mt-4 flex flex-wrap items-center gap-2">
+                  {#if hasVoted(proposal)}
+                    <span class="rounded-lg bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600">Vote recorded</span>
+                  {:else}
+                    <button type="button" disabled={Boolean(busyAction)} on:click={() => voteOnProposal(proposal, true)} class="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50">Vote yes</button>
+                    <button type="button" disabled={Boolean(busyAction)} on:click={() => voteOnProposal(proposal, false)} class="rounded-xl border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50">Vote no</button>
+                  {/if}
+                </div>
+              {/if}''',
+              '''              {#if statusKey(proposal.status) === "active"}
+                <div class="mt-4 flex flex-wrap items-center gap-2">
+                  {#if canGovern}
+                    {#if hasVoted(proposal)}
+                      <span class="rounded-lg bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600">Vote recorded</span>
+                    {:else}
+                      <button type="button" disabled={Boolean(busyAction)} on:click={() => voteOnProposal(proposal, true)} class="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50">Vote yes</button>
+                      <button type="button" disabled={Boolean(busyAction)} on:click={() => voteOnProposal(proposal, false)} class="rounded-xl border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50">Vote no</button>
+                    {/if}
+                  {/if}
+                  {#if isCreator}
+                    <button type="button" disabled={Boolean(busyAction)} on:click={() => closeProposalAsRejected(proposal)} class="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50">Close as rejected</button>
+                  {/if}
+                </div>
+              {/if}'''
+          )
+
+          # List/Profile exact-value formatting.
+          for path in [
+              "src/frontend/src/routes/funds/+page.svelte",
+              "src/frontend/src/lib/components/Profile/GroupPanel.svelte",
+          ]:
+              p = Path(path)
+              text = p.read_text()
+              old = '''      const fraction = (value % scale).toString().padStart(decimals, "0").slice(0, 6).replace(/0+$/, "");'''
+              new = '''      const fraction = (value % scale).toString().padStart(decimals, "0").replace(/0+$/, "");'''
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exact formatter match once, found {count}")
+              p.write_text(text.replace(old, new, 1))
+
+          # Guard invariants before committing.
+          detail_text = Path(detail).read_text()
+          checks = {
+              "canonical member rendering": "{#each canonicalMembers as member (member.principal.toText())}" in detail_text,
+              "auth session guard": "persistedSession && !isAuthed" in detail_text,
+              "stale load guard": "version !== loadVersion" in detail_text,
+              "metadata edit": "backend.updateGroup(groupId" in detail_text,
+              "owner close UI": "backend.cancelGroupProposal(groupId" in detail_text,
+              "no detail fraction truncation": ".slice(0, 8)" not in detail_text,
+              "backend terminal path": "cancelGroupProposal(caller : Principal" in Path("src/backend/group/lib.mo").read_text(),
+          }
+          failed = [name for name, ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit("Invariant checks failed: " + ", ".join(failed))
+          PY
+
+          git diff --check
+          git status --short
+
+      - name: Commit fixes and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-pr4-review-fixes.yml
+          git add src/backend/group/lib.mo src/backend/main.mo src/frontend/src/routes/funds/+page.svelte 'src/frontend/src/routes/funds/[id]/+page.svelte' src/frontend/src/lib/components/Profile/GroupPanel.svelte
+          git commit -m "fix: address PR4 governance and fund UX review issues [skip ci]"
+          git push origin HEAD:feat/funds-governance-ux
