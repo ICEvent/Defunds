@@ -1,0 +1,42 @@
+name: Apply final Funds review fixes
+
+on:
+  push:
+    branches:
+      - feat/funds-governance-ux
+    paths:
+      - .github/scripts/finalize-funds-review.py
+      - .github/workflows/apply-final-funds-review.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/funds-governance-ux
+          fetch-depth: 0
+
+      - name: Apply guarded final review fixes
+        run: python .github/scripts/finalize-funds-review.py
+
+      - name: Verify review invariants
+        run: |
+          git diff --check
+          grep -q 'private func canReadGroup' src/backend/main.mo
+          grep -q 'public query ({ caller }) func getAIAgentFund' src/backend/main.mo
+          grep -q 'Custom ICRC amounts must be entered in raw ledger base units' src/frontend/src/routes/funds/'[id]'/+page.svelte
+          grep -q 'recorded base units' src/frontend/src/lib/components/Profile/GroupPanel.svelte
+
+      - name: Commit source fixes and remove temporary helpers
+        run: |
+          rm -f .github/scripts/finalize-funds-review.py
+          rm -f .github/workflows/apply-final-funds-review.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'fix: close final fund privacy and token unit review gaps [skip ci]'
+          git push origin HEAD:feat/funds-governance-ux
