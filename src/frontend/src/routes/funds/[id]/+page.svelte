@@ -32,8 +32,14 @@
   $: isCreator = Boolean(group && principalText && group.creator.toText() === principalText);
   $: myVotingPower = BigInt(myMember?.votingPower ?? 0);
   $: canGovern = myVotingPower > 0n;
+  $: customIcrc = Boolean(
+    group?.currency &&
+    typeof group.currency === "object" &&
+    Object.prototype.hasOwnProperty.call(group.currency, "ICRC")
+  );
   $: currency = group ? getCurrencyName(group.currency) : "";
-  $: decimals = group ? getDecimalsByCurrency(group.currency) : 8;
+  $: decimals = group ? (customIcrc ? 0 : getDecimalsByCurrency(group.currency)) : 8;
+  $: amountUnit = customIcrc ? "base units" : currency;
   $: totalVotingPower = group ? (() => {
     const counted = new Set();
     return group.members.reduce((sum, member) => {
@@ -114,7 +120,10 @@
     const text = String(value ?? "").trim();
     if (!/^\d+(\.\d+)?$/.test(text)) throw new Error("Enter a valid positive amount.");
     const [whole, fraction = ""] = text.split(".");
-    if (fraction.length > precision) throw new Error(`${currency} supports at most ${precision} decimal places.`);
+    if (fraction.length > precision) {
+      if (customIcrc) throw new Error("Custom ICRC amounts must be entered in raw ledger base units.");
+      throw new Error(`${currency} supports at most ${precision} decimal places.`);
+    }
     const scale = 10n ** BigInt(precision);
     const fractionUnits = BigInt((fraction + "0".repeat(precision)).slice(0, precision) || "0");
     const amount = BigInt(whole) * scale + fractionUnits;
@@ -332,9 +341,9 @@
 
       <div class="mt-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
-          <div class="text-xs uppercase tracking-wide text-slate-400">Recorded balance</div>
-          <div class="mt-1 text-2xl font-semibold">{formatTokenAmount(group.balance)} {currency}</div>
-          <div class="mt-1 text-xs text-amber-200">Not live-ledger verified</div>
+          <div class="text-xs uppercase tracking-wide text-slate-400">{customIcrc ? "Recorded base units" : "Recorded balance"}</div>
+          <div class="mt-1 text-2xl font-semibold">{formatTokenAmount(group.balance)} {customIcrc ? "base units" : currency}</div>
+          <div class="mt-1 text-xs text-amber-200">{customIcrc ? "Custom token decimals not fetched" : "Not live-ledger verified"}</div>
         </div>
         <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
           <div class="text-xs uppercase tracking-wide text-slate-400">Members</div>
@@ -442,6 +451,12 @@
         Approval currently represents a governance decision. The Group Fund code does not yet execute the treasury transfer automatically, so approved proposals should be treated as <strong>execution pending</strong> until an execution receipt exists.
       </div>
 
+      {#if customIcrc}
+        <div class="mt-3 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-800">
+          Custom ICRC token decimals are not fetched yet. Proposal amounts for this fund must be entered as raw ledger <strong>base units</strong>; Defunds will not guess a decimal scale for financial values.
+        </div>
+      {/if}
+
       {#if showCreateProposal && canGovern}
         <div class="mt-4 grid gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <div class="grid gap-4 lg:grid-cols-2">
@@ -450,8 +465,8 @@
               <input bind:value={proposalTitle} placeholder="What should the fund do?" class="rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-normal text-slate-900 outline-none focus:border-sky-500" />
             </label>
             <label class="grid gap-1.5 text-sm font-medium text-slate-700">
-              Amount ({currency})
-              <input bind:value={proposalAmount} inputmode="decimal" placeholder="0.00" class="rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-normal text-slate-900 outline-none focus:border-sky-500" />
+              Amount ({amountUnit})
+              <input bind:value={proposalAmount} inputmode={customIcrc ? "numeric" : "decimal"} placeholder={customIcrc ? "e.g. 1000000" : "0.00"} class="rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-normal text-slate-900 outline-none focus:border-sky-500" />
             </label>
           </div>
           <label class="grid gap-1.5 text-sm font-medium text-slate-700">
@@ -492,7 +507,7 @@
               <div class="mt-4 grid gap-3 md:grid-cols-3">
                 <div class="rounded-xl bg-slate-50 p-3">
                   <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Amount</div>
-                  <div class="mt-1 font-semibold text-slate-900">{formatTokenAmount(proposal.amount)} {currency}</div>
+                  <div class="mt-1 font-semibold text-slate-900">{formatTokenAmount(proposal.amount)} {amountUnit}</div>
                 </div>
                 <div class="rounded-xl bg-slate-50 p-3 md:col-span-2">
                   <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Recipient</div>

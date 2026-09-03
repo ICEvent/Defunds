@@ -92,10 +92,19 @@
     return BigInt(member.votingPower ?? 0) > 0n ? "Voting member" : "Observer";
   }
 
-  function formatTokenAmount(raw, currency) {
+  function isCustomIcrc(currencyVariant) {
+    return Boolean(
+      currencyVariant &&
+      typeof currencyVariant === "object" &&
+      Object.prototype.hasOwnProperty.call(currencyVariant, "ICRC")
+    );
+  }
+
+  function formatTokenAmount(raw, currencyVariant) {
     try {
       const value = BigInt(raw ?? 0);
-      const decimals = Math.max(0, Math.min(getDecimalsByCurrency(currency), 30));
+      if (isCustomIcrc(currencyVariant)) return value.toString();
+      const decimals = Math.max(0, Math.min(getDecimalsByCurrency(currencyVariant), 30));
       const scale = 10n ** BigInt(decimals);
       const whole = value / scale;
       const fraction = (value % scale).toString().padStart(decimals, "0").slice(0, 6).replace(/0+$/, "");
@@ -145,7 +154,7 @@
         </p>
       </div>
       <div class="rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-xs leading-5 text-amber-100">
-        Balance shown below is the fund's recorded balance field, not a verified live-ledger balance yet.
+        Balance shown below is the fund's recorded balance field, not a verified live-ledger balance yet. Custom ICRC values are shown as raw ledger base units until token decimals are fetched.
       </div>
     </div>
   </section>
@@ -233,7 +242,7 @@
               <div class="mt-1 text-lg font-semibold text-slate-900">{group.members?.length ?? 0}</div>
             </div>
             <div class="rounded-xl bg-slate-50 p-3">
-              <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Recorded balance</div>
+              <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{isCustomIcrc(group.currency) ? "Recorded base units" : "Recorded balance"}</div>
               <div class="mt-1 truncate text-lg font-semibold text-slate-900">{formatTokenAmount(group.balance, group.currency)}</div>
             </div>
           </div>

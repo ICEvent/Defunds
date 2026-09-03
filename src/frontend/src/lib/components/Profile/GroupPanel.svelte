@@ -57,9 +57,18 @@
     return member && BigInt(member.votingPower ?? 0) > 0n ? "Voting member" : "Observer";
   }
 
+  function isCustomIcrc(currencyVariant) {
+    return Boolean(
+      currencyVariant &&
+      typeof currencyVariant === "object" &&
+      Object.prototype.hasOwnProperty.call(currencyVariant, "ICRC")
+    );
+  }
+
   function formatTokenAmount(raw, currencyVariant) {
     try {
       const value = BigInt(raw ?? 0);
+      if (isCustomIcrc(currencyVariant)) return value.toString();
       const decimals = Math.max(0, Math.min(getDecimalsByCurrency(currencyVariant), 30));
       const scale = 10n ** BigInt(decimals);
       const whole = value / scale;
@@ -185,6 +194,7 @@
           <label class="grid gap-1.5 text-sm font-medium text-slate-700">
             ICRC identifier
             <input bind:value={customCurrency} placeholder="Ledger canister or configured token identifier" class="rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-mono font-normal text-slate-900 outline-none focus:border-sky-500" />
+            <span class="text-xs font-normal text-violet-700">Token decimals are not fetched yet; balances and proposal amounts use raw ledger base units.</span>
           </label>
         {/if}
         <div class="flex justify-end">
@@ -224,7 +234,7 @@
                 <span class="rounded-full px-2 py-0.5 text-xs font-semibold {fund.isPublic ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}">{fund.isPublic ? "Public" : "Private"}</span>
               </div>
               <p class="mt-1 line-clamp-2 text-sm text-slate-500">{fund.description || "No description provided."}</p>
-              <div class="mt-2 text-xs text-slate-400">{fund.members.length} members · recorded balance {formatTokenAmount(fund.balance, fund.currency)} {getCurrencyName(fund.currency)}</div>
+              <div class="mt-2 text-xs text-slate-400">{fund.members.length} members · {isCustomIcrc(fund.currency) ? "recorded base units" : "recorded balance"} {formatTokenAmount(fund.balance, fund.currency)} {isCustomIcrc(fund.currency) ? "base units" : getCurrencyName(fund.currency)}</div>
             </div>
             <button type="button" on:click={() => goto(`/funds/${fund.id}`)} class="shrink-0 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800">Open fund</button>
           </article>
