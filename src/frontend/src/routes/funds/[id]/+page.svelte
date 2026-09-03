@@ -3,6 +3,7 @@
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import { Principal } from "@dfinity/principal";
+  import { AuthClient } from "@dfinity/auth-client";
   import { showNotification } from "$lib/stores/notification";
   import { hideProgress, showProgress } from "$lib/stores/progress";
   import { getCurrencyName, getDecimalsByCurrency } from "$lib/utils/currency.utils";
@@ -25,9 +26,24 @@
   let busyAction = "";
   let editingPowerFor = "";
   let editingPowerValue = "";
+  let showEditFund = false;
+  let editFundName = "";
+  let editFundDescription = "";
+  let editFundIsPublic = false;
+  let persistedSession = false;
+  let loadVersion = 0;
 
   $: principalText = principal?.toText?.() ?? "";
-  $: myMember = group && principalText ? group.members.find((member) => member.principal.toText() === principalText) ?? null : null;
+  $: canonicalMembers = group ? (() => {
+    const seen = new Set();
+    return group.members.filter((member) => {
+      const id = member.principal.toText();
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  })() : [];
+  $: myMember = principalText ? canonicalMembers.find((member) => member.principal.toText() === principalText) ?? null : null;
   $: isMember = Boolean(myMember);
   $: isCreator = Boolean(group && principalText && group.creator.toText() === principalText);
   $: myVotingPower = BigInt(myMember?.votingPower ?? 0);
@@ -40,57 +56,83 @@
   $: currency = group ? getCurrencyName(group.currency) : "";
   $: decimals = group ? (customIcrc ? 0 : getDecimalsByCurrency(group.currency)) : 8;
   $: amountUnit = customIcrc ? "base units" : currency;
-  $: totalVotingPower = group ? (() => {
-    const counted = new Set();
-    return group.members.reduce((sum, member) => {
-      const id = member.principal.toText();
-      if (counted.has(id)) return sum;
-      counted.add(id);
-      return sum + BigInt(member.votingPower ?? 0);
-    }, 0n);
-  })() : 0n;
+  $: totalVotingPower = canonicalMembers.reduce(
+    (sum, member) => sum + BigInt(member.votingPower ?? 0),
+    0n,
+  );
 
   onMount(() => {
     groupId = BigInt($page.params.id);
     let unsubscribe;
     let disposed = false;
 
-    import("$lib/store").then(({ globalStore }) => {
+    void (async () => {
+      try {
+        const authClient = await AuthClient.create({
+          idleOptions: {
+            disableIdle: true,
+            disableDefaultIdleCallback: true,
+          },
+        });
+        persistedSession = await authClient.isAuthenticated();
+      } catch {
+        persistedSession = false;
+      }
+
       if (disposed) return;
+      const { globalStore } = await import("$lib/store");
+      if (disposed) return;
+
       unsubscribe = globalStore.subscribe((store) => {
         const actorChanged = backend !== store.backend;
+        const authChanged = isAuthed !== store.isAuthed
+          || principal?.toText?.() !== store.principal?.toText?.();
         backend = store.backend;
         principal = store.principal;
         isAuthed = store.isAuthed;
-        if (backend && actorChanged) void loadGroupData();
+
+        if (!backend || (!actorChanged && !authChanged)) return;
+        if (persistedSession && !isAuthed) return;
+        void loadGroupData();
       });
-    });
+    })();
 
     return () => {
       disposed = true;
+      loadVersion += 1;
       unsubscribe?.();
     };
   });
 
   async function loadGroupData() {
+    const version = ++loadVersion;
+    const actor = backend;
     showProgress();
     try {
       const [groupResult, proposalResult] = await Promise.all([
-        backend.getGroup(groupId),
-        backend.getGroupProposals(groupId),
+        actor.getGroup(groupId),
+        actor.getGroupProposals(groupId),
       ]);
+      if (version !== loadVersion) return;
       const loadedGroup = Array.isArray(groupResult) && groupResult.length > 0 ? groupResult[0] : null;
       if (!loadedGroup) {
-        showNotification("Fund not found.", "error");
+        showNotification("Fund not found or you do not have access.", "error");
         goto("/funds");
         return;
       }
       group = loadedGroup;
       proposals = [...(proposalResult ?? [])].sort((a, b) => a.createdAt === b.createdAt ? 0 : a.createdAt > b.createdAt ? -1 : 1);
+      if (!showEditFund) {
+        editFundName = loadedGroup.name;
+        editFundDescription = loadedGroup.description;
+        editFundIsPublic = loadedGroup.isPublic;
+      }
     } catch (error) {
-      showNotification(`Unable to load fund: ${error?.message ?? error}`, "error");
+      if (version === loadVersion) {
+        showNotification(`Unable to load fund: ${error?.message ?? error}`, "error");
+      }
     } finally {
-      hideProgress();
+      if (version === loadVersion) hideProgress();
     }
   }
 
@@ -109,7 +151,7 @@
       const safeDecimals = Math.max(0, Math.min(precision, 30));
       const scale = 10n ** BigInt(safeDecimals);
       const whole = value / scale;
-      const fraction = (value % scale).toString().padStart(safeDecimals, "0").slice(0, 8).replace(/0+$/, "");
+      const fraction = (value % scale).toString().padStart(safeDecimals, "0").replace(/0+$/, "");
       return fraction ? `${whole}.${fraction}` : whole.toString();
     } catch {
       return "Unavailable";
@@ -301,6 +343,39 @@
     );
   }
 
+  function openEditFund() {
+    if (!group || !isCreator) return;
+    editFundName = group.name;
+    editFundDescription = group.description;
+    editFundIsPublic = group.isPublic;
+    showEditFund = true;
+  }
+
+  async function saveFundMetadata() {
+    if (!isCreator) return;
+    const cleanName = editFundName.trim();
+    if (!cleanName) {
+      showNotification("Fund name is required.", "error");
+      return;
+    }
+    const success = await runAction(
+      "update-fund",
+      () => backend.updateGroup(groupId, cleanName, editFundDescription.trim(), editFundIsPublic),
+      "Fund details updated.",
+    );
+    if (success) showEditFund = false;
+  }
+
+  async function closeProposalAsRejected(proposal) {
+    if (!isCreator || statusKey(proposal.status) !== "active") return;
+    if (!confirm("Close this active proposal as rejected? This ends voting and unlocks member management.")) return;
+    await runAction(
+      `close-proposal-${proposal.id}`,
+      () => backend.cancelGroupProposal(groupId, proposal.id),
+      "Proposal closed as rejected.",
+    );
+  }
+
   async function copyAccount() {
     try {
       await navigator.clipboard.writeText(formatAccount(group.account));
@@ -332,11 +407,18 @@
           <h1 class="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">{group.name}</h1>
           <p class="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">{group.description || "No description provided."}</p>
         </div>
-        {#if isAuthed && group.isPublic && !isMember}
-          <button type="button" disabled={Boolean(busyAction)} on:click={joinGroup} class="rounded-xl bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50">
-            {busyAction === "join" ? "Joining…" : "Join as observer"}
-          </button>
-        {/if}
+        <div class="flex flex-wrap gap-2">
+          {#if isCreator}
+            <button type="button" on:click={openEditFund} class="rounded-xl border border-white/20 px-4 py-2.5 text-sm font-semibold text-white hover:bg-white/10">
+              Edit fund
+            </button>
+          {/if}
+          {#if isAuthed && group.isPublic && !isMember}
+            <button type="button" disabled={Boolean(busyAction)} on:click={joinGroup} class="rounded-xl bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50">
+              {busyAction === "join" ? "Joining…" : "Join as observer"}
+            </button>
+          {/if}
+        </div>
       </div>
 
       <div class="mt-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -347,7 +429,7 @@
         </div>
         <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
           <div class="text-xs uppercase tracking-wide text-slate-400">Members</div>
-          <div class="mt-1 text-2xl font-semibold">{group.members.length}</div>
+          <div class="mt-1 text-2xl font-semibold">{canonicalMembers.length}</div>
         </div>
         <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
           <div class="text-xs uppercase tracking-wide text-slate-400">Voting power</div>
@@ -359,6 +441,35 @@
         </div>
       </div>
     </section>
+
+    {#if showEditFund && isCreator}
+      <section class="mt-6 rounded-2xl border border-sky-200 bg-sky-50/70 p-5 shadow-sm sm:p-6">
+        <div class="flex flex-col gap-1">
+          <h2 class="text-xl font-semibold text-slate-950">Edit fund</h2>
+          <p class="text-sm text-slate-600">Update the fund identity and visibility. Private funds are readable only by members.</p>
+        </div>
+        <div class="mt-4 grid gap-4">
+          <label class="grid gap-1.5 text-sm font-medium text-slate-700">
+            Fund name
+            <input bind:value={editFundName} class="rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-normal text-slate-900 outline-none focus:border-sky-500" />
+          </label>
+          <label class="grid gap-1.5 text-sm font-medium text-slate-700">
+            Description
+            <textarea bind:value={editFundDescription} rows="3" class="rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-normal text-slate-900 outline-none focus:border-sky-500"></textarea>
+          </label>
+          <label class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700">
+            <input type="checkbox" bind:checked={editFundIsPublic} class="h-4 w-4 rounded border-slate-300" />
+            Publicly discoverable
+          </label>
+          <div class="flex justify-end gap-2">
+            <button type="button" disabled={Boolean(busyAction)} on:click={() => showEditFund = false} class="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-white disabled:opacity-50">Cancel</button>
+            <button type="button" disabled={Boolean(busyAction)} on:click={saveFundMetadata} class="rounded-xl bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50">
+              {busyAction === "update-fund" ? "Saving…" : "Save changes"}
+            </button>
+          </div>
+        </div>
+      </section>
+    {/if}
 
     <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -395,7 +506,7 @@
       {/if}
 
       <div class="mt-4 divide-y divide-slate-100 rounded-2xl border border-slate-200">
-        {#each group.members as member (member.principal.toText())}
+        {#each canonicalMembers as member (member.principal.toText())}
           <div class="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div class="min-w-0">
               <div class="flex flex-wrap items-center gap-2">
@@ -531,13 +642,18 @@
                 <div class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">Approved by governance · treasury execution is still pending.</div>
               {/if}
 
-              {#if canGovern && statusKey(proposal.status) === "active"}
+              {#if statusKey(proposal.status) === "active"}
                 <div class="mt-4 flex flex-wrap items-center gap-2">
-                  {#if hasVoted(proposal)}
-                    <span class="rounded-lg bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600">Vote recorded</span>
-                  {:else}
-                    <button type="button" disabled={Boolean(busyAction)} on:click={() => voteOnProposal(proposal, true)} class="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50">Vote yes</button>
-                    <button type="button" disabled={Boolean(busyAction)} on:click={() => voteOnProposal(proposal, false)} class="rounded-xl border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50">Vote no</button>
+                  {#if canGovern}
+                    {#if hasVoted(proposal)}
+                      <span class="rounded-lg bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600">Vote recorded</span>
+                    {:else}
+                      <button type="button" disabled={Boolean(busyAction)} on:click={() => voteOnProposal(proposal, true)} class="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50">Vote yes</button>
+                      <button type="button" disabled={Boolean(busyAction)} on:click={() => voteOnProposal(proposal, false)} class="rounded-xl border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50">Vote no</button>
+                    {/if}
+                  {/if}
+                  {#if isCreator}
+                    <button type="button" disabled={Boolean(busyAction)} on:click={() => closeProposalAsRejected(proposal)} class="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50">Close as rejected</button>
                   {/if}
                 </div>
               {/if}

@@ -72,7 +72,7 @@
       const decimals = Math.max(0, Math.min(getDecimalsByCurrency(currencyVariant), 30));
       const scale = 10n ** BigInt(decimals);
       const whole = value / scale;
-      const fraction = (value % scale).toString().padStart(decimals, "0").slice(0, 6).replace(/0+$/, "");
+      const fraction = (value % scale).toString().padStart(decimals, "0").replace(/0+$/, "");
       return fraction ? `${whole}.${fraction}` : whole.toString();
     } catch {
       return "Unavailable";

@@ -901,6 +901,14 @@ persistent actor Defunds{
 		};
 	};
 
+	public shared ({ caller }) func cancelGroupProposal(groupId : Nat, proposalId : Nat) : async Result.Result<(), Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot close proposals");
+		} else {
+			groups.cancelGroupProposal(caller, groupId, proposalId);
+		};
+	};
+
 	public shared ({ caller }) func voteOnProposal(groupId : Nat, proposalId : Nat, voteYes : Bool) : async Result.Result<(), Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot vote");

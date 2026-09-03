@@ -287,6 +287,35 @@ module {
             };
         };
 
+        public func cancelGroupProposal(caller : Principal, groupId : Nat, proposalId : Nat) : Result.Result<(), Text> {
+            switch (groupFunds.get(groupId)) {
+                case null { #err("Group not found") };
+                case (?group) {
+                    if (group.creator != caller) {
+                        return #err("Only the fund creator can close an active proposal");
+                    };
+                    switch (groupProposals.get(proposalId)) {
+                        case null { #err("Proposal not found") };
+                        case (?proposal) {
+                            if (proposal.groupId != groupId) {
+                                #err("Proposal does not belong to this group")
+                            } else {
+                                switch (proposal.status) {
+                                    case (#active) {
+                                        // V1 has no separate cancelled state. Closing by the owner
+                                        // records the existing terminal #rejected state explicitly.
+                                        groupProposals.put(proposalId, { proposal with status = #rejected });
+                                        #ok();
+                                    };
+                                    case (_) { #err("Proposal is not active") };
+                                };
+                            };
+                        };
+                    };
+                };
+            };
+        };
+
         public func vote(caller: Principal, groupId : Nat, proposalId : Nat, voteYes : Bool) : async Result.Result<(), Text> {
             switch (groupProposals.get(proposalId)) {
                 case null { #err("Proposal not found") };
