@@ -766,12 +766,25 @@ persistent actor Defunds{
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot manage members");
 		} else {
-			let member : GroupTypes.Member = {
-				name = memberName;
-				principal = memberPrincipal;
-				votingPower = votingPower;
+			switch (groups.getGroup(groupId)) {
+				case null { #err("Group not found") };
+				case (?group) {
+					if (group.creator != caller) {
+						#err("Only the fund creator can manage members");
+					} else if (groups.hasActiveProposals(groupId)) {
+						#err("Voting membership is frozen while a proposal is active");
+					} else if (Principal.isAnonymous(memberPrincipal)) {
+						#err("Cannot add anonymous principal as a fund member");
+					} else {
+						let member : GroupTypes.Member = {
+							name = memberName;
+							principal = memberPrincipal;
+							votingPower = votingPower;
+						};
+						groups.addMember(groupId, member);
+					};
+				};
 			};
-			groups.addMember(groupId, member);
 		};
 	};
 
@@ -779,7 +792,20 @@ persistent actor Defunds{
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot manage members");
 		} else {
-			groups.removeMember(groupId, memberPrincipal);
+			switch (groups.getGroup(groupId)) {
+				case null { #err("Group not found") };
+				case (?group) {
+					if (group.creator != caller) {
+						#err("Only the fund creator can manage members");
+					} else if (memberPrincipal == group.creator) {
+						#err("The fund creator cannot be removed");
+					} else if (groups.hasActiveProposals(groupId)) {
+						#err("Voting membership is frozen while a proposal is active");
+					} else {
+						groups.removeMember(groupId, memberPrincipal);
+					};
+				};
+			};
 		};
 	};
 
@@ -795,7 +821,20 @@ persistent actor Defunds{
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot manage members");
 		} else {
-			groups.updateMemberVotingPower(groupId, memberPrincipal, votingPower);
+			switch (groups.getGroup(groupId)) {
+				case null { #err("Group not found") };
+				case (?group) {
+					if (group.creator != caller) {
+						#err("Only the fund creator can manage voting power");
+					} else if (groups.hasActiveProposals(groupId)) {
+						#err("Voting power is frozen while a proposal is active");
+					} else if (memberPrincipal == group.creator and votingPower == 0) {
+						#err("The fund creator must retain voting power");
+					} else {
+						groups.updateMemberVotingPower(groupId, memberPrincipal, votingPower);
+					};
+				};
+			};
 		};
 	};
 
@@ -803,17 +842,42 @@ persistent actor Defunds{
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot manage members");
 		} else {
-			groups.updateMemberName(groupId, memberPrincipal, memberName);
+			switch (groups.getGroup(groupId)) {
+				case null { #err("Group not found") };
+				case (?group) {
+					if (group.creator != caller) {
+						#err("Only the fund creator can manage member names");
+					} else {
+						groups.updateMemberName(groupId, memberPrincipal, memberName);
+					};
+				};
+			};
 		};
 	};
 
-	// Group query methods
-	public query func getGroup(groupId : Nat) : async ?GroupTypes.GroupFund {
-		groups.getGroup(groupId);
+	private func canReadGroup(caller : Principal, group : GroupTypes.GroupFund) : Bool {
+		group.isPublic or (
+			not Principal.isAnonymous(caller) and
+			(group.creator == caller or groups.isMember(group.members, caller))
+		)
 	};
 
-	public query func getAllGroups() : async [GroupTypes.GroupFund] {
-		groups.getAllGroups();
+	// Group query methods. Public funds are inspectable by everyone; private
+	// funds are visible only to their members.
+	public query ({ caller }) func getGroup(groupId : Nat) : async ?GroupTypes.GroupFund {
+		switch (groups.getGroup(groupId)) {
+			case null { null };
+			case (?group) {
+				if (canReadGroup(caller, group)) { ?group } else { null };
+			};
+		};
+	};
+
+	public query ({ caller }) func getAllGroups() : async [GroupTypes.GroupFund] {
+		Array.filter<GroupTypes.GroupFund>(
+			groups.getAllGroups(),
+			func(group : GroupTypes.GroupFund) : Bool { canReadGroup(caller, group) },
+		);
 	};
 
 	public query func getPublicGroups() : async [GroupTypes.GroupFund] {
@@ -824,12 +888,7 @@ persistent actor Defunds{
 		if (Principal.isAnonymous(caller)) {
 			[];
 		} else {
-			Array.filter<GroupTypes.GroupFund>(
-				groups.getAllGroups(),
-				func(group : GroupTypes.GroupFund) : Bool {
-					group.creator == caller;
-				},
-			);
+			groups.getUserGroups(caller);
 		};
 	};
 
@@ -842,6 +901,14 @@ persistent actor Defunds{
 		};
 	};
 
+	public shared ({ caller }) func cancelGroupProposal(groupId : Nat, proposalId : Nat) : async Result.Result<(), Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot close proposals");
+		} else {
+			groups.cancelGroupProposal(caller, groupId, proposalId);
+		};
+	};
+
 	public shared ({ caller }) func voteOnProposal(groupId : Nat, proposalId : Nat, voteYes : Bool) : async Result.Result<(), Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot vote");
@@ -850,16 +917,43 @@ persistent actor Defunds{
 		};
 	};
 
-	public query func getProposal(proposalId : Nat) : async ?GroupTypes.GroupProposal {
-		groups.getProposal(proposalId);
+	public query ({ caller }) func getProposal(proposalId : Nat) : async ?GroupTypes.GroupProposal {
+		switch (groups.getProposal(proposalId)) {
+			case null { null };
+			case (?proposal) {
+				switch (groups.getGroup(proposal.groupId)) {
+					case null { null };
+					case (?group) {
+						if (canReadGroup(caller, group)) { ?proposal } else { null };
+					};
+				};
+			};
+		};
 	};
 
-	public query func getGroupProposals(groupId : Nat) : async [GroupTypes.GroupProposal] {
-		groups.getGroupProposals(groupId);
+	public query ({ caller }) func getGroupProposals(groupId : Nat) : async [GroupTypes.GroupProposal] {
+		switch (groups.getGroup(groupId)) {
+			case null { [] };
+			case (?group) {
+				if (canReadGroup(caller, group)) {
+					groups.getGroupProposals(groupId)
+				} else {
+					[]
+				};
+			};
+		};
 	};
 
-	public query func getAllProposals() : async [GroupTypes.GroupProposal] {
-		groups.getAllProposals();
+	public query ({ caller }) func getAllProposals() : async [GroupTypes.GroupProposal] {
+		Array.filter<GroupTypes.GroupProposal>(
+			groups.getAllProposals(),
+			func(proposal : GroupTypes.GroupProposal) : Bool {
+				switch (groups.getGroup(proposal.groupId)) {
+					case null { false };
+					case (?group) { canReadGroup(caller, group) };
+				};
+			},
+		);
 	};
 
 	public shared ({ caller }) func joinGroup(groupId : Nat) : async Result.Result<(), Text> {
@@ -943,12 +1037,22 @@ persistent actor Defunds{
 		groups.evaluateProposals(groupId, caller);
 	};
 
-	public query func getAIAgentFund(groupId : Nat) : async ?GroupTypes.AIAgentFund {
-		groups.getAIAgentFund(groupId);
+	public query ({ caller }) func getAIAgentFund(groupId : Nat) : async ?GroupTypes.AIAgentFund {
+		switch (groups.getAIAgentFund(groupId)) {
+			case null { null };
+			case (?fund) {
+				if (canReadGroup(caller, fund.groupFund)) { ?fund } else { null };
+			};
+		};
 	};
 
-	public query func getAllAIAgentFunds() : async [GroupTypes.AIAgentFund] {
-		groups.getAllAIAgentFunds();
+	public query ({ caller }) func getAllAIAgentFunds() : async [GroupTypes.AIAgentFund] {
+		Array.filter<GroupTypes.AIAgentFund>(
+			groups.getAllAIAgentFunds(),
+			func(fund : GroupTypes.AIAgentFund) : Bool {
+				canReadGroup(caller, fund.groupFund)
+			},
+		);
 	};
 
 	public query func getPublicAIAgentFunds() : async [GroupTypes.AIAgentFund] {
