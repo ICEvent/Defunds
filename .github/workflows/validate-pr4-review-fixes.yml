@@ -1,0 +1,80 @@
+name: Validate PR4 review fixes
+
+on:
+  push:
+    branches:
+      - feat/funds-governance-ux
+    paths:
+      - .github/workflows/validate-pr4-review-fixes.yml
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/funds-governance-ux
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dfinity/setup-dfx@main
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check backend Motoko and generated interface
+        run: |
+          jq 'del(.defaults.build.packtool)' dfx.json > /tmp/dfx.json
+          mv /tmp/dfx.json dfx.json
+          dfx build backend --check
+          dfx generate backend
+          grep -R "cancelGroupProposal" src/declarations/backend .dfx 2>/dev/null | head -20
+
+      - name: Compile changed Svelte components
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { compile } from 'svelte/compiler';
+
+          const files = [
+            'src/frontend/src/routes/funds/+page.svelte',
+            'src/frontend/src/routes/funds/[id]/+page.svelte',
+            'src/frontend/src/lib/components/Profile/GroupPanel.svelte',
+          ];
+
+          let blockingWarnings = 0;
+          for (const file of files) {
+            const source = fs.readFileSync(file, 'utf8');
+            const result = compile(source, { filename: file, generate: 'ssr' });
+            const a11y = result.warnings.filter((warning) => warning.code?.startsWith('a11y'));
+            console.log(`${file}: compiled; ${a11y.length} accessibility warning(s)`);
+            for (const warning of a11y) console.error(`${warning.code}: ${warning.message}`);
+            blockingWarnings += a11y.length;
+          }
+
+          if (blockingWarnings > 0) process.exit(1);
+          NODE
+
+      - name: Static review invariants
+        run: |
+          ! grep -R "slice(0, 8)" 'src/frontend/src/routes/funds/[id]/+page.svelte'
+          ! grep -R "slice(0, 6)" src/frontend/src/routes/funds/+page.svelte src/frontend/src/lib/components/Profile/GroupPanel.svelte
+          grep -q "canonicalMembers" 'src/frontend/src/routes/funds/[id]/+page.svelte'
+          grep -q "persistedSession && !isAuthed" 'src/frontend/src/routes/funds/[id]/+page.svelte'
+          grep -q "backend.updateGroup(groupId" 'src/frontend/src/routes/funds/[id]/+page.svelte'
+
+      - name: Remove temporary validation workflow
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/validate-pr4-review-fixes.yml
+          git commit -m "chore: remove temporary PR4 validation workflow [skip ci]"
+          git push origin HEAD:feat/funds-governance-ux
