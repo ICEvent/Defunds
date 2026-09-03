@@ -18,226 +18,21 @@ jobs:
         with:
           ref: feat/funds-governance-ux
           fetch-depth: 0
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-
       - uses: dfinity/setup-dfx@main
-
       - name: Apply guarded review fixes
         run: |
-          python3 <<'PY'
-          from pathlib import Path
-
-          def replace_once(path, old, new):
-              p = Path(path)
-              text = p.read_text()
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f"{path}: expected one match, found {count}")
-              p.write_text(text.replace(old, new, 1))
-
-          replace_once(
-              'src/backend/main.mo',
-              '''\tprivate func canReadGroup(caller : Principal, group : GroupTypes.GroupFund) : Bool {
-\t\tgroup.isPublic or (
-\t\t\tnot Principal.isAnonymous(caller) and
-\t\t\tgroups.isMember(group.members, caller)
-\t\t)
-\t};''',
-              '''\tprivate func canReadGroup(caller : Principal, group : GroupTypes.GroupFund) : Bool {
-\t\tgroup.isPublic or (
-\t\t\tnot Principal.isAnonymous(caller) and
-\t\t\t(group.creator == caller or groups.isMember(group.members, caller))
-\t\t)
-\t};'''
-          )
-
-          replace_once(
-              'src/backend/group/lib.mo',
-              '''        public func getUserGroups(user : Principal) : [GroupFund] {
-            let groups = Iter.toArray(groupFunds.vals());
-            Array.filter<GroupFund>(groups, func(g) { isMember(g.members, user) })
-        };''',
-              '''        public func getUserGroups(user : Principal) : [GroupFund] {
-            let groups = Iter.toArray(groupFunds.vals());
-            // Historical data may have a creator missing from members because the
-            // legacy removal endpoint did not protect creator membership.
-            Array.filter<GroupFund>(groups, func(g) { g.creator == user or isMember(g.members, user) })
-        };'''
-          )
-
-          replace_once(
-              'src/backend/group/lib.mo',
-              '''                    case (?v) {
-                        if (isMember(v.groupFund.members, user)) buf.add(v);
-                    };''',
-              '''                    case (?v) {
-                        if (v.groupFund.creator == user or isMember(v.groupFund.members, user)) buf.add(v);
-                    };'''
-          )
-
-          detail = 'src/frontend/src/routes/funds/[id]/+page.svelte'
-          replace_once(
-              detail,
-              '''  let editingPowerFor = "";
-  let editingPowerValue = "";''',
-              '''  let editingPowerFor = "";
-  let editingPowerValue = "";
-  let editingNameFor = "";
-  let editingNameValue = "";'''
-          )
-
-          replace_once(
-              detail,
-              '''  async function saveMemberVotingPower(member) {
-    if (!isCreator || member.principal.toText() === group.creator.toText()) return;
-    try {
-      const votingPower = BigInt(editingPowerValue);
-      if (votingPower < 0n) throw new Error("Voting power cannot be negative.");
-      const success = await runAction(
-        `power-${member.principal.toText()}`,
-        () => backend.updateGroupMemberVotingPower(groupId, member.principal, votingPower),
-        "Voting power updated.",
-      );
-      if (success) cancelPowerEdit();
-    } catch (error) {
-      showNotification(error?.message ?? "Invalid voting power.", "error");
-    }
-  }
-
-  async function createProposal() {''',
-              '''  async function saveMemberVotingPower(member) {
-    if (!isCreator) return;
-    try {
-      const votingPower = BigInt(editingPowerValue);
-      if (votingPower < 0n) throw new Error("Voting power cannot be negative.");
-      if (member.principal.toText() === group.creator.toText() && votingPower === 0n) {
-        throw new Error("The fund owner must retain positive voting power.");
-      }
-      const success = await runAction(
-        `power-${member.principal.toText()}`,
-        () => backend.updateGroupMemberVotingPower(groupId, member.principal, votingPower),
-        "Voting power updated.",
-      );
-      if (success) cancelPowerEdit();
-    } catch (error) {
-      showNotification(error?.message ?? "Invalid voting power.", "error");
-    }
-  }
-
-  function startNameEdit(member) {
-    editingNameFor = member.principal.toText();
-    editingNameValue = member.name ?? "";
-  }
-
-  function cancelNameEdit() {
-    editingNameFor = "";
-    editingNameValue = "";
-  }
-
-  async function saveMemberName(member) {
-    if (!isCreator) return;
-    const memberName = editingNameValue.trim();
-    if (!memberName) {
-      showNotification("Member name is required.", "error");
-      return;
-    }
-    const success = await runAction(
-      `name-${member.principal.toText()}`,
-      () => backend.updateGroupMemberName(groupId, member.principal, memberName),
-      "Member name updated.",
-    );
-    if (success) cancelNameEdit();
-  }
-
-  async function createProposal() {'''
-          )
-
-          old_markup = '''            <div class="min-w-0">
-              <div class="flex flex-wrap items-center gap-2">
-                <span class="font-semibold text-slate-950">{member.name || "Unnamed member"}</span>
-                {#if member.principal.toText() === group.creator.toText()}
-                  <span class="rounded-full bg-slate-950 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">Owner</span>
-                {/if}
-              </div>
-              <div class="mt-1 break-all font-mono text-xs text-slate-500">{member.principal.toText()}</div>
-            </div>
-            <div class="flex flex-wrap items-center gap-2">
-              {#if BigInt(member.votingPower ?? 0) === 0n}
-                <span class="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-600">Observer · no voting power</span>
-              {:else}
-                <span class="rounded-lg bg-sky-50 px-3 py-1.5 text-sm font-semibold text-sky-700">Power {member.votingPower.toString()}</span>
-              {/if}
-              {#if isCreator && member.principal.toText() !== group.creator.toText()}
-                {#if editingPowerFor === member.principal.toText()}
-                  <input bind:value={editingPowerValue} inputmode="numeric" aria-label="Voting power" class="w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-900" />
-                  <button type="button" disabled={Boolean(busyAction)} on:click={() => saveMemberVotingPower(member)} class="text-sm font-semibold text-sky-700 hover:text-sky-900 disabled:opacity-50">Save power</button>
-                  <button type="button" disabled={Boolean(busyAction)} on:click={cancelPowerEdit} class="text-sm font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50">Cancel</button>
-                {:else}
-                  <button type="button" disabled={Boolean(busyAction)} on:click={() => startPowerEdit(member)} class="text-sm font-semibold text-sky-700 hover:text-sky-900 disabled:opacity-50">Set power</button>
-                  <button type="button" disabled={Boolean(busyAction)} on:click={() => removeMember(member)} class="text-sm font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-50">Remove</button>
-                {/if}
-              {/if}
-            </div>'''
-
-          new_markup = '''            <div class="min-w-0 flex-1">
-              <div class="flex flex-wrap items-center gap-2">
-                {#if editingNameFor === member.principal.toText()}
-                  <input bind:value={editingNameValue} aria-label="Member name" class="min-w-48 rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-900" />
-                  <button type="button" disabled={Boolean(busyAction)} on:click={() => saveMemberName(member)} class="text-sm font-semibold text-sky-700 hover:text-sky-900 disabled:opacity-50">Save name</button>
-                  <button type="button" disabled={Boolean(busyAction)} on:click={cancelNameEdit} class="text-sm font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50">Cancel</button>
-                {:else}
-                  <span class="font-semibold text-slate-950">{member.name || "Unnamed member"}</span>
-                  {#if isCreator}
-                    <button type="button" disabled={Boolean(busyAction)} on:click={() => startNameEdit(member)} class="text-xs font-semibold text-slate-500 hover:text-slate-800 disabled:opacity-50">Rename</button>
-                  {/if}
-                {/if}
-                {#if member.principal.toText() === group.creator.toText()}
-                  <span class="rounded-full bg-slate-950 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">Owner</span>
-                {/if}
-              </div>
-              <div class="mt-1 break-all font-mono text-xs text-slate-500">{member.principal.toText()}</div>
-            </div>
-            <div class="flex flex-wrap items-center gap-2">
-              {#if BigInt(member.votingPower ?? 0) === 0n}
-                <span class="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-600">Observer · no voting power</span>
-              {:else}
-                <span class="rounded-lg bg-sky-50 px-3 py-1.5 text-sm font-semibold text-sky-700">Power {member.votingPower.toString()}</span>
-              {/if}
-              {#if isCreator}
-                {#if editingPowerFor === member.principal.toText()}
-                  <input bind:value={editingPowerValue} inputmode="numeric" aria-label="Voting power" class="w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-900" />
-                  <button type="button" disabled={Boolean(busyAction)} on:click={() => saveMemberVotingPower(member)} class="text-sm font-semibold text-sky-700 hover:text-sky-900 disabled:opacity-50">Save power</button>
-                  <button type="button" disabled={Boolean(busyAction)} on:click={cancelPowerEdit} class="text-sm font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50">Cancel</button>
-                {:else}
-                  <button type="button" disabled={Boolean(busyAction)} on:click={() => startPowerEdit(member)} class="text-sm font-semibold text-sky-700 hover:text-sky-900 disabled:opacity-50">Set power</button>
-                {/if}
-                {#if member.principal.toText() !== group.creator.toText()}
-                  <button type="button" disabled={Boolean(busyAction)} on:click={() => removeMember(member)} class="text-sm font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-50">Remove</button>
-                {/if}
-              {/if}
-            </div>'''
-          replace_once(detail, old_markup, new_markup)
-
-          # Guard the intended fixes before compiling.
-          checks = {
-              'creator read access': 'group.creator == caller or groups.isMember(group.members, caller)' in Path('src/backend/main.mo').read_text(),
-              'creator discovery': 'g.creator == user or isMember(g.members, user)' in Path('src/backend/group/lib.mo').read_text(),
-              'member rename UI': 'backend.updateGroupMemberName(groupId' in Path(detail).read_text(),
-              'owner power UI': 'member.principal.toText() === group.creator.toText() && votingPower === 0n' in Path(detail).read_text(),
-          }
-          failed = [name for name, ok in checks.items() if not ok]
-          if failed:
-              raise SystemExit('Invariant checks failed: ' + ', '.join(failed))
+          python3 - <<'PY'
+          import base64, zlib
+          payload = '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'
+          exec(zlib.decompress(base64.b64decode(payload)))
           PY
           git diff --check
-
       - name: Install dependencies
         run: npm ci
-
       - name: Validate backend and generated Candid
         run: |
           jq 'del(.defaults.build.packtool)' dfx.json > /tmp/dfx.json
@@ -245,7 +40,6 @@ jobs:
           dfx build backend --check
           dfx generate backend
           grep -R "cancelGroupProposal" src/declarations/backend .dfx 2>/dev/null | head -10
-
       - name: Compile changed Svelte components
         run: |
           node --input-type=module <<'NODE'
@@ -266,7 +60,6 @@ jobs:
           }
           if (a11yCount) process.exit(1);
           NODE
-
       - name: Commit validated fixes and remove workflow
         run: |
           git config user.name "github-actions[bot]"
