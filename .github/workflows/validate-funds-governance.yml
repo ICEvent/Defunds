@@ -1,0 +1,38 @@
+name: Validate funds governance branch
+
+on:
+  push:
+    branches:
+      - feat/funds-governance-ux
+    paths:
+      - src/backend/group/lib.mo
+      - src/backend/main.mo
+      - src/frontend/src/routes/funds/**
+      - .github/workflows/validate-funds-governance.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dfinity/setup-dfx@main
+
+      - name: Install dependencies and Motoko package tool
+        run: |
+          npm ci
+          npm install --global ic-mops
+
+      - name: Check backend Motoko
+        run: dfx build backend --check
+
+      - name: Build frontend
+        run: npm run build --workspace=frontend --ignore-scripts
