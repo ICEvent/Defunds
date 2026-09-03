@@ -1,0 +1,277 @@
+name: Fix PR4 review round 2
+
+on:
+  push:
+    branches:
+      - feat/funds-governance-ux
+    paths:
+      - .github/workflows/fix-pr4-round2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/funds-governance-ux
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dfinity/setup-dfx@main
+
+      - name: Apply guarded review fixes
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              'src/backend/main.mo',
+              '''\tprivate func canReadGroup(caller : Principal, group : GroupTypes.GroupFund) : Bool {
+\t\tgroup.isPublic or (
+\t\t\tnot Principal.isAnonymous(caller) and
+\t\t\tgroups.isMember(group.members, caller)
+\t\t)
+\t};''',
+              '''\tprivate func canReadGroup(caller : Principal, group : GroupTypes.GroupFund) : Bool {
+\t\tgroup.isPublic or (
+\t\t\tnot Principal.isAnonymous(caller) and
+\t\t\t(group.creator == caller or groups.isMember(group.members, caller))
+\t\t)
+\t};'''
+          )
+
+          replace_once(
+              'src/backend/group/lib.mo',
+              '''        public func getUserGroups(user : Principal) : [GroupFund] {
+            let groups = Iter.toArray(groupFunds.vals());
+            Array.filter<GroupFund>(groups, func(g) { isMember(g.members, user) })
+        };''',
+              '''        public func getUserGroups(user : Principal) : [GroupFund] {
+            let groups = Iter.toArray(groupFunds.vals());
+            // Historical data may have a creator missing from members because the
+            // legacy removal endpoint did not protect creator membership.
+            Array.filter<GroupFund>(groups, func(g) { g.creator == user or isMember(g.members, user) })
+        };'''
+          )
+
+          replace_once(
+              'src/backend/group/lib.mo',
+              '''                    case (?v) {
+                        if (isMember(v.groupFund.members, user)) buf.add(v);
+                    };''',
+              '''                    case (?v) {
+                        if (v.groupFund.creator == user or isMember(v.groupFund.members, user)) buf.add(v);
+                    };'''
+          )
+
+          detail = 'src/frontend/src/routes/funds/[id]/+page.svelte'
+          replace_once(
+              detail,
+              '''  let editingPowerFor = "";
+  let editingPowerValue = "";''',
+              '''  let editingPowerFor = "";
+  let editingPowerValue = "";
+  let editingNameFor = "";
+  let editingNameValue = "";'''
+          )
+
+          replace_once(
+              detail,
+              '''  async function saveMemberVotingPower(member) {
+    if (!isCreator || member.principal.toText() === group.creator.toText()) return;
+    try {
+      const votingPower = BigInt(editingPowerValue);
+      if (votingPower < 0n) throw new Error("Voting power cannot be negative.");
+      const success = await runAction(
+        `power-${member.principal.toText()}`,
+        () => backend.updateGroupMemberVotingPower(groupId, member.principal, votingPower),
+        "Voting power updated.",
+      );
+      if (success) cancelPowerEdit();
+    } catch (error) {
+      showNotification(error?.message ?? "Invalid voting power.", "error");
+    }
+  }
+
+  async function createProposal() {''',
+              '''  async function saveMemberVotingPower(member) {
+    if (!isCreator) return;
+    try {
+      const votingPower = BigInt(editingPowerValue);
+      if (votingPower < 0n) throw new Error("Voting power cannot be negative.");
+      if (member.principal.toText() === group.creator.toText() && votingPower === 0n) {
+        throw new Error("The fund owner must retain positive voting power.");
+      }
+      const success = await runAction(
+        `power-${member.principal.toText()}`,
+        () => backend.updateGroupMemberVotingPower(groupId, member.principal, votingPower),
+        "Voting power updated.",
+      );
+      if (success) cancelPowerEdit();
+    } catch (error) {
+      showNotification(error?.message ?? "Invalid voting power.", "error");
+    }
+  }
+
+  function startNameEdit(member) {
+    editingNameFor = member.principal.toText();
+    editingNameValue = member.name ?? "";
+  }
+
+  function cancelNameEdit() {
+    editingNameFor = "";
+    editingNameValue = "";
+  }
+
+  async function saveMemberName(member) {
+    if (!isCreator) return;
+    const memberName = editingNameValue.trim();
+    if (!memberName) {
+      showNotification("Member name is required.", "error");
+      return;
+    }
+    const success = await runAction(
+      `name-${member.principal.toText()}`,
+      () => backend.updateGroupMemberName(groupId, member.principal, memberName),
+      "Member name updated.",
+    );
+    if (success) cancelNameEdit();
+  }
+
+  async function createProposal() {'''
+          )
+
+          old_markup = '''            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="font-semibold text-slate-950">{member.name || "Unnamed member"}</span>
+                {#if member.principal.toText() === group.creator.toText()}
+                  <span class="rounded-full bg-slate-950 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">Owner</span>
+                {/if}
+              </div>
+              <div class="mt-1 break-all font-mono text-xs text-slate-500">{member.principal.toText()}</div>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              {#if BigInt(member.votingPower ?? 0) === 0n}
+                <span class="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-600">Observer · no voting power</span>
+              {:else}
+                <span class="rounded-lg bg-sky-50 px-3 py-1.5 text-sm font-semibold text-sky-700">Power {member.votingPower.toString()}</span>
+              {/if}
+              {#if isCreator && member.principal.toText() !== group.creator.toText()}
+                {#if editingPowerFor === member.principal.toText()}
+                  <input bind:value={editingPowerValue} inputmode="numeric" aria-label="Voting power" class="w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-900" />
+                  <button type="button" disabled={Boolean(busyAction)} on:click={() => saveMemberVotingPower(member)} class="text-sm font-semibold text-sky-700 hover:text-sky-900 disabled:opacity-50">Save power</button>
+                  <button type="button" disabled={Boolean(busyAction)} on:click={cancelPowerEdit} class="text-sm font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50">Cancel</button>
+                {:else}
+                  <button type="button" disabled={Boolean(busyAction)} on:click={() => startPowerEdit(member)} class="text-sm font-semibold text-sky-700 hover:text-sky-900 disabled:opacity-50">Set power</button>
+                  <button type="button" disabled={Boolean(busyAction)} on:click={() => removeMember(member)} class="text-sm font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-50">Remove</button>
+                {/if}
+              {/if}
+            </div>'''
+
+          new_markup = '''            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2">
+                {#if editingNameFor === member.principal.toText()}
+                  <input bind:value={editingNameValue} aria-label="Member name" class="min-w-48 rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-900" />
+                  <button type="button" disabled={Boolean(busyAction)} on:click={() => saveMemberName(member)} class="text-sm font-semibold text-sky-700 hover:text-sky-900 disabled:opacity-50">Save name</button>
+                  <button type="button" disabled={Boolean(busyAction)} on:click={cancelNameEdit} class="text-sm font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50">Cancel</button>
+                {:else}
+                  <span class="font-semibold text-slate-950">{member.name || "Unnamed member"}</span>
+                  {#if isCreator}
+                    <button type="button" disabled={Boolean(busyAction)} on:click={() => startNameEdit(member)} class="text-xs font-semibold text-slate-500 hover:text-slate-800 disabled:opacity-50">Rename</button>
+                  {/if}
+                {/if}
+                {#if member.principal.toText() === group.creator.toText()}
+                  <span class="rounded-full bg-slate-950 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">Owner</span>
+                {/if}
+              </div>
+              <div class="mt-1 break-all font-mono text-xs text-slate-500">{member.principal.toText()}</div>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              {#if BigInt(member.votingPower ?? 0) === 0n}
+                <span class="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-semibold text-slate-600">Observer · no voting power</span>
+              {:else}
+                <span class="rounded-lg bg-sky-50 px-3 py-1.5 text-sm font-semibold text-sky-700">Power {member.votingPower.toString()}</span>
+              {/if}
+              {#if isCreator}
+                {#if editingPowerFor === member.principal.toText()}
+                  <input bind:value={editingPowerValue} inputmode="numeric" aria-label="Voting power" class="w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-900" />
+                  <button type="button" disabled={Boolean(busyAction)} on:click={() => saveMemberVotingPower(member)} class="text-sm font-semibold text-sky-700 hover:text-sky-900 disabled:opacity-50">Save power</button>
+                  <button type="button" disabled={Boolean(busyAction)} on:click={cancelPowerEdit} class="text-sm font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50">Cancel</button>
+                {:else}
+                  <button type="button" disabled={Boolean(busyAction)} on:click={() => startPowerEdit(member)} class="text-sm font-semibold text-sky-700 hover:text-sky-900 disabled:opacity-50">Set power</button>
+                {/if}
+                {#if member.principal.toText() !== group.creator.toText()}
+                  <button type="button" disabled={Boolean(busyAction)} on:click={() => removeMember(member)} class="text-sm font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-50">Remove</button>
+                {/if}
+              {/if}
+            </div>'''
+          replace_once(detail, old_markup, new_markup)
+
+          # Guard the intended fixes before compiling.
+          checks = {
+              'creator read access': 'group.creator == caller or groups.isMember(group.members, caller)' in Path('src/backend/main.mo').read_text(),
+              'creator discovery': 'g.creator == user or isMember(g.members, user)' in Path('src/backend/group/lib.mo').read_text(),
+              'member rename UI': 'backend.updateGroupMemberName(groupId' in Path(detail).read_text(),
+              'owner power UI': 'member.principal.toText() === group.creator.toText() && votingPower === 0n' in Path(detail).read_text(),
+          }
+          failed = [name for name, ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit('Invariant checks failed: ' + ', '.join(failed))
+          PY
+          git diff --check
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate backend and generated Candid
+        run: |
+          jq 'del(.defaults.build.packtool)' dfx.json > /tmp/dfx.json
+          mv /tmp/dfx.json dfx.json
+          dfx build backend --check
+          dfx generate backend
+          grep -R "cancelGroupProposal" src/declarations/backend .dfx 2>/dev/null | head -10
+
+      - name: Compile changed Svelte components
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { compile } from 'svelte/compiler';
+          const files = [
+            'src/frontend/src/routes/funds/+page.svelte',
+            'src/frontend/src/routes/funds/[id]/+page.svelte',
+            'src/frontend/src/lib/components/Profile/GroupPanel.svelte',
+          ];
+          let a11yCount = 0;
+          for (const file of files) {
+            const result = compile(fs.readFileSync(file, 'utf8'), { filename: file, generate: 'ssr' });
+            const warnings = result.warnings.filter((w) => w.code?.startsWith('a11y'));
+            console.log(`${file}: compiled; ${warnings.length} accessibility warning(s)`);
+            warnings.forEach((w) => console.error(`${w.code}: ${w.message}`));
+            a11yCount += warnings.length;
+          }
+          if (a11yCount) process.exit(1);
+          NODE
+
+      - name: Commit validated fixes and remove workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/fix-pr4-round2.yml
+          git add src/backend/main.mo src/backend/group/lib.mo 'src/frontend/src/routes/funds/[id]/+page.svelte'
+          git commit -m "fix: preserve legacy owner access and member controls [skip ci]"
+          git push origin HEAD:feat/funds-governance-ux
