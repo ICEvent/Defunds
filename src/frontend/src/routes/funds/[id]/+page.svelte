@@ -26,6 +26,8 @@
   let busyAction = "";
   let editingPowerFor = "";
   let editingPowerValue = "";
+  let editingNameFor = "";
+  let editingNameValue = "";
   let showEditFund = false;
   let editFundName = "";
   let editFundDescription = "";
@@ -290,10 +292,13 @@
   }
 
   async function saveMemberVotingPower(member) {
-    if (!isCreator || member.principal.toText() === group.creator.toText()) return;
+    if (!isCreator) return;
     try {
       const votingPower = BigInt(editingPowerValue);
       if (votingPower < 0n) throw new Error("Voting power cannot be negative.");
+      if (member.principal.toText() === group.creator.toText() && votingPower === 0n) {
+        throw new Error("The fund owner must retain positive voting power.");
+      }
       const success = await runAction(
         `power-${member.principal.toText()}`,
         () => backend.updateGroupMemberVotingPower(groupId, member.principal, votingPower),
@@ -303,6 +308,31 @@
     } catch (error) {
       showNotification(error?.message ?? "Invalid voting power.", "error");
     }
+  }
+
+  function startNameEdit(member) {
+    editingNameFor = member.principal.toText();
+    editingNameValue = member.name ?? "";
+  }
+
+  function cancelNameEdit() {
+    editingNameFor = "";
+    editingNameValue = "";
+  }
+
+  async function saveMemberName(member) {
+    if (!isCreator) return;
+    const memberName = editingNameValue.trim();
+    if (!memberName) {
+      showNotification("Member name is required.", "error");
+      return;
+    }
+    const success = await runAction(
+      `name-${member.principal.toText()}`,
+      () => backend.updateGroupMemberName(groupId, member.principal, memberName),
+      "Member name updated.",
+    );
+    if (success) cancelNameEdit();
   }
 
   async function createProposal() {
@@ -508,9 +538,18 @@
       <div class="mt-4 divide-y divide-slate-100 rounded-2xl border border-slate-200">
         {#each canonicalMembers as member (member.principal.toText())}
           <div class="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div class="min-w-0">
+            <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center gap-2">
-                <span class="font-semibold text-slate-950">{member.name || "Unnamed member"}</span>
+                {#if editingNameFor === member.principal.toText()}
+                  <input bind:value={editingNameValue} aria-label="Member name" class="min-w-48 rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-900" />
+                  <button type="button" disabled={Boolean(busyAction)} on:click={() => saveMemberName(member)} class="text-sm font-semibold text-sky-700 hover:text-sky-900 disabled:opacity-50">Save name</button>
+                  <button type="button" disabled={Boolean(busyAction)} on:click={cancelNameEdit} class="text-sm font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50">Cancel</button>
+                {:else}
+                  <span class="font-semibold text-slate-950">{member.name || "Unnamed member"}</span>
+                  {#if isCreator}
+                    <button type="button" disabled={Boolean(busyAction)} on:click={() => startNameEdit(member)} class="text-xs font-semibold text-slate-500 hover:text-slate-800 disabled:opacity-50">Rename</button>
+                  {/if}
+                {/if}
                 {#if member.principal.toText() === group.creator.toText()}
                   <span class="rounded-full bg-slate-950 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">Owner</span>
                 {/if}
@@ -523,13 +562,15 @@
               {:else}
                 <span class="rounded-lg bg-sky-50 px-3 py-1.5 text-sm font-semibold text-sky-700">Power {member.votingPower.toString()}</span>
               {/if}
-              {#if isCreator && member.principal.toText() !== group.creator.toText()}
+              {#if isCreator}
                 {#if editingPowerFor === member.principal.toText()}
                   <input bind:value={editingPowerValue} inputmode="numeric" aria-label="Voting power" class="w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-900" />
                   <button type="button" disabled={Boolean(busyAction)} on:click={() => saveMemberVotingPower(member)} class="text-sm font-semibold text-sky-700 hover:text-sky-900 disabled:opacity-50">Save power</button>
                   <button type="button" disabled={Boolean(busyAction)} on:click={cancelPowerEdit} class="text-sm font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50">Cancel</button>
                 {:else}
                   <button type="button" disabled={Boolean(busyAction)} on:click={() => startPowerEdit(member)} class="text-sm font-semibold text-sky-700 hover:text-sky-900 disabled:opacity-50">Set power</button>
+                {/if}
+                {#if member.principal.toText() !== group.creator.toText()}
                   <button type="button" disabled={Boolean(busyAction)} on:click={() => removeMember(member)} class="text-sm font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-50">Remove</button>
                 {/if}
               {/if}

@@ -495,7 +495,9 @@ module {
 
         public func getUserGroups(user : Principal) : [GroupFund] {
             let groups = Iter.toArray(groupFunds.vals());
-            Array.filter<GroupFund>(groups, func(g) { isMember(g.members, user) })
+            // Historical data may have a creator missing from members because the
+            // legacy removal endpoint did not protect creator membership.
+            Array.filter<GroupFund>(groups, func(g) { g.creator == user or isMember(g.members, user) })
         };
 
         public func getProposal(proposalId : Nat) : ?GroupProposal {
@@ -733,7 +735,7 @@ module {
             for (record in aiAgentFunds.vals()) {
                 switch (toAIAgentFundView(record)) {
                     case (?v) {
-                        if (isMember(v.groupFund.members, user)) buf.add(v);
+                        if (v.groupFund.creator == user or isMember(v.groupFund.members, user)) buf.add(v);
                     };
                     case null {};
                 };

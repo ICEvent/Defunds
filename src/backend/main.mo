@@ -858,7 +858,7 @@ persistent actor Defunds{
 	private func canReadGroup(caller : Principal, group : GroupTypes.GroupFund) : Bool {
 		group.isPublic or (
 			not Principal.isAnonymous(caller) and
-			groups.isMember(group.members, caller)
+			(group.creator == caller or groups.isMember(group.members, caller))
 		)
 	};
 
