@@ -26,13 +26,17 @@ jobs:
 
       - uses: dfinity/setup-dfx@main
 
-      - name: Install dependencies and Motoko package tool
-        run: |
-          npm ci
-          npm install --global ic-mops
+      - name: Install dependencies
+        run: npm ci
 
       - name: Check backend Motoko
-        run: dfx build backend --check
+        run: |
+          # The repository currently configures `mops sources` but has no mops.toml.
+          # Remove only that stale packtool setting in the disposable CI workspace
+          # so this job can validate the Motoko source itself.
+          jq 'del(.defaults.build.packtool)' dfx.json > /tmp/dfx.json
+          mv /tmp/dfx.json dfx.json
+          dfx build backend --check
 
       - name: Build frontend
         run: npm run build --workspace=frontend --ignore-scripts
