@@ -766,12 +766,25 @@ persistent actor Defunds{
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot manage members");
 		} else {
-			let member : GroupTypes.Member = {
-				name = memberName;
-				principal = memberPrincipal;
-				votingPower = votingPower;
+			switch (groups.getGroup(groupId)) {
+				case null { #err("Group not found") };
+				case (?group) {
+					if (group.creator != caller) {
+						#err("Only the fund creator can manage members");
+					} else if (groups.hasActiveProposals(groupId)) {
+						#err("Voting membership is frozen while a proposal is active");
+					} else if (Principal.isAnonymous(memberPrincipal)) {
+						#err("Cannot add anonymous principal as a fund member");
+					} else {
+						let member : GroupTypes.Member = {
+							name = memberName;
+							principal = memberPrincipal;
+							votingPower = votingPower;
+						};
+						groups.addMember(groupId, member);
+					};
+				};
 			};
-			groups.addMember(groupId, member);
 		};
 	};
 
@@ -779,7 +792,20 @@ persistent actor Defunds{
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot manage members");
 		} else {
-			groups.removeMember(groupId, memberPrincipal);
+			switch (groups.getGroup(groupId)) {
+				case null { #err("Group not found") };
+				case (?group) {
+					if (group.creator != caller) {
+						#err("Only the fund creator can manage members");
+					} else if (memberPrincipal == group.creator) {
+						#err("The fund creator cannot be removed");
+					} else if (groups.hasActiveProposals(groupId)) {
+						#err("Voting membership is frozen while a proposal is active");
+					} else {
+						groups.removeMember(groupId, memberPrincipal);
+					};
+				};
+			};
 		};
 	};
 
@@ -795,7 +821,20 @@ persistent actor Defunds{
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot manage members");
 		} else {
-			groups.updateMemberVotingPower(groupId, memberPrincipal, votingPower);
+			switch (groups.getGroup(groupId)) {
+				case null { #err("Group not found") };
+				case (?group) {
+					if (group.creator != caller) {
+						#err("Only the fund creator can manage voting power");
+					} else if (groups.hasActiveProposals(groupId)) {
+						#err("Voting power is frozen while a proposal is active");
+					} else if (memberPrincipal == group.creator and votingPower == 0) {
+						#err("The fund creator must retain voting power");
+					} else {
+						groups.updateMemberVotingPower(groupId, memberPrincipal, votingPower);
+					};
+				};
+			};
 		};
 	};
 
@@ -803,7 +842,16 @@ persistent actor Defunds{
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot manage members");
 		} else {
-			groups.updateMemberName(groupId, memberPrincipal, memberName);
+			switch (groups.getGroup(groupId)) {
+				case null { #err("Group not found") };
+				case (?group) {
+					if (group.creator != caller) {
+						#err("Only the fund creator can manage member names");
+					} else {
+						groups.updateMemberName(groupId, memberPrincipal, memberName);
+					};
+				};
+			};
 		};
 	};
 
@@ -824,12 +872,7 @@ persistent actor Defunds{
 		if (Principal.isAnonymous(caller)) {
 			[];
 		} else {
-			Array.filter<GroupTypes.GroupFund>(
-				groups.getAllGroups(),
-				func(group : GroupTypes.GroupFund) : Bool {
-					group.creator == caller;
-				},
-			);
+			groups.getUserGroups(caller);
 		};
 	};
 

@@ -168,17 +168,73 @@ module {
             false;
         };
 
+        private func containsPrincipal(principals : [Principal], target : Principal) : Bool {
+            Array.find<Principal>(principals, func(p) { p == target }) != null
+        };
+
+        private func memberVotingPower(members : [Member], caller : Principal) : Nat {
+            switch (Array.find<Member>(members, func(m) { m.principal == caller })) {
+                case null { 0 };
+                case (?member) { member.votingPower };
+            }
+        };
+
+        // Count each principal once so historical duplicate memberships cannot
+        // inflate the total power used by a proposal.
+        private func totalMemberVotingPower(members : [Member]) : Nat {
+            let seen = TrieMap.TrieMap<Principal, Bool>(Principal.equal, Principal.hash);
+            var total : Nat = 0;
+            for (member in members.vals()) {
+                if (seen.get(member.principal) == null) {
+                    seen.put(member.principal, true);
+                    total += member.votingPower;
+                };
+            };
+            total
+        };
+
+        private func votingPowerFor(members : [Member], voters : [Principal]) : Nat {
+            let seen = TrieMap.TrieMap<Principal, Bool>(Principal.equal, Principal.hash);
+            var total : Nat = 0;
+            for (member in members.vals()) {
+                if (
+                    seen.get(member.principal) == null and
+                    containsPrincipal(voters, member.principal)
+                ) {
+                    seen.put(member.principal, true);
+                    total += member.votingPower;
+                };
+            };
+            total
+        };
+
+        public func hasActiveProposals(groupId : Nat) : Bool {
+            for (proposal in groupProposals.vals()) {
+                if (proposal.groupId == groupId) {
+                    switch (proposal.status) {
+                        case (#active) { return true };
+                        case (_) {};
+                    };
+                };
+            };
+            false
+        };
+
         public func joinGroupFund(caller: Principal, groupId : Nat) : Result.Result<(), Text> {
             switch (groupFunds.get(groupId)) {
                 case null { #err("Group not found") };
                 case (?group) {
                     if (not group.isPublic) {
                         #err("Group is private");
+                    } else if (isMember(group.members, caller)) {
+                        #err("Already a group member");
                     } else {
+                        // Public discovery does not grant permissionless governance.
+                        // Self-joined users enter as observers with zero voting power.
                         let member : Member = {
                             name = "";
                             principal = caller;
-                            votingPower = 1;
+                            votingPower = 0;
                         };
                         let updatedMembers = Array.append(group.members, [member]);
                         let updatedGroup = {
@@ -195,8 +251,15 @@ module {
             switch (groupFunds.get(groupId)) {
                 case null { #err("Group not found") };
                 case (?group) {
+                    let votingPower = memberVotingPower(group.members, caller);
                     if (not isMember(group.members, caller)) {
                         #err("Not a group member");
+                    } else if (votingPower == 0) {
+                        #err("Member does not have governance voting power");
+                    } else if (Text.size(title) == 0) {
+                        #err("Proposal title is required");
+                    } else if (amount == 0) {
+                        #err("Proposal amount must be greater than zero");
                     } else {
                         let proposalId = nextProposalId;
                         let proposal : GroupProposal = {
@@ -212,6 +275,10 @@ module {
                             createdAt = Time.now();
                         };
                         groupProposals.put(proposalId, proposal);
+                        groupFunds.put(
+                            groupId,
+                            { group with proposals = Array.append(group.proposals, [proposalId]) },
+                        );
 
                         nextProposalId += 1;
                         #ok(proposal);
@@ -224,13 +291,30 @@ module {
             switch (groupProposals.get(proposalId)) {
                 case null { #err("Proposal not found") };
                 case (?proposal) {
+                    if (proposal.groupId != groupId) {
+                        return #err("Proposal does not belong to this group");
+                    };
+                    switch (proposal.status) {
+                        case (#active) {};
+                        case (_) { return #err("Proposal is not active") };
+                    };
                     switch (groupFunds.get(groupId)) {
                         case null { #err("Group not found") };
                         case (?group) {
-                            let isMember = Array.find<Member>(group.members, func(m) { m.principal == caller });
-                            switch (isMember) {
+                            let member = Array.find<Member>(group.members, func(m) { m.principal == caller });
+                            switch (member) {
                                 case null { #err("Not a group member") };
-                                case (?_) {
+                                case (?memberInfo) {
+                                    if (memberInfo.votingPower == 0) {
+                                        return #err("Member does not have governance voting power");
+                                    };
+                                    if (
+                                        containsPrincipal(proposal.yesVotes, caller) or
+                                        containsPrincipal(proposal.noVotes, caller)
+                                    ) {
+                                        return #err("Member has already voted on this proposal");
+                                    };
+
                                     let updatedProposal = if (voteYes) {
                                         {
                                             proposal with yesVotes = Array.append(proposal.yesVotes, [caller])
@@ -241,19 +325,25 @@ module {
                                         };
                                     };
 
-                                    // Check if proposal passes (>50% yes votes)
-                                    let totalVotes = Array.size(updatedProposal.yesVotes) + Array.size(updatedProposal.noVotes);
-                                    let yesVotes = Array.size(updatedProposal.yesVotes);
-
-                                    if (yesVotes * 2 > totalVotes) {
-                                        // Execute proposal
-                                        let finalProposal = {
-                                            updatedProposal with status = #accepted
-                                        };
-                                        groupProposals.put(proposalId, finalProposal);
-                                        // Transfer funds logic here
+                                    let totalPower = totalMemberVotingPower(group.members);
+                                    if (totalPower == 0) {
+                                        return #err("Group has no voting power");
                                     };
 
+                                    let yesPower = votingPowerFor(group.members, updatedProposal.yesVotes);
+                                    let noPower = votingPowerFor(group.members, updatedProposal.noVotes);
+                                    var finalProposal = updatedProposal;
+
+                                    // Majority is calculated against total fund voting power,
+                                    // not just votes already cast.
+                                    if (yesPower * 2 > totalPower) {
+                                        finalProposal := { updatedProposal with status = #accepted };
+                                    } else if (noPower * 2 >= totalPower) {
+                                        // At 50% No power, a >50% Yes majority is no longer reachable.
+                                        finalProposal := { updatedProposal with status = #rejected };
+                                    };
+
+                                    groupProposals.put(proposalId, finalProposal);
                                     #ok();
                                 };
                             };
@@ -521,7 +611,7 @@ module {
                     switch (groupFunds.get(groupId)) {
                         case null { #err("Underlying group not found") };
                         case (?gf) {
-                            if (gf.creator != caller and not isMember(gf.members, caller)) {
+                            if (gf.creator != caller and memberVotingPower(gf.members, caller) == 0) {
                                 return #err("Not authorised to run AI evaluation for this fund");
                             };
                             if (not record.agentConfig.enabled) {
