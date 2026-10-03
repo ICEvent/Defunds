@@ -34,7 +34,6 @@ persistent actor Defunds{
 	type NewGrant = GrantTypes.NewGrant;
 
 	type GrantVoteSnapshot = {
-		eligibleVoters : [(Principal, Nat64)];
 		eligibleVoterCount : Nat;
 		totalVotingPower : Nat64;
 		createdAt : Int;
@@ -191,23 +190,34 @@ persistent actor Defunds{
 		total;
 	};
 
+	private func contributionScoreAt(power : VotingPower, snapshotAt : Int) : Nat64 {
+		var score : Nat64 = 0;
+		for (change in power.powerHistory.vals()) {
+			if (change.timestamp <= snapshotAt) {
+				score += change.amount;
+			};
+		};
+		score;
+	};
+
 	private func buildGrantVoteSnapshot() : GrantVoteSnapshot {
-		let voters = Buffer.Buffer<(Principal, Nat64)>(0);
+		let snapshotAt = Time.now();
+		var eligibleVoterCount : Nat = 0;
 		var total : Nat64 = 0;
-		for ((principal, power) in votingPowers.entries()) {
-			if (power.totalPower > 0) {
-				let governancePower = integerSqrt(power.totalPower);
+		for ((_, power) in votingPowers.entries()) {
+			let historicalScore = contributionScoreAt(power, snapshotAt);
+			if (historicalScore > 0) {
+				let governancePower = integerSqrt(historicalScore);
 				if (governancePower > 0) {
-					voters.add((principal, governancePower));
+					eligibleVoterCount += 1;
 					total += governancePower;
 				};
 			};
 		};
 		{
-			eligibleVoters = Buffer.toArray(voters);
-			eligibleVoterCount = voters.size();
+			eligibleVoterCount = eligibleVoterCount;
 			totalVotingPower = total;
-			createdAt = Time.now();
+			createdAt = snapshotAt;
 			minVotePercentage = minVotePercentage;
 			minPowerPercentage = minPowerPercentage;
 			approvalPercentage = approvalPercentage;
@@ -215,12 +225,17 @@ persistent actor Defunds{
 	};
 
 	private func snapshotVotingPower(snapshot : GrantVoteSnapshot, voter : Principal) : ?Nat64 {
-		for ((principal, power) in snapshot.eligibleVoters.vals()) {
-			if (principal == voter) {
-				return ?power;
+		switch (votingPowers.get(voter)) {
+			case null { null };
+			case (?power) {
+				let historicalScore = contributionScoreAt(power, snapshot.createdAt);
+				if (historicalScore == 0) {
+					null
+				} else {
+					?integerSqrt(historicalScore)
+				};
 			};
 		};
-		null;
 	};
 
 	private func isConcilMemberInternal(member : Principal) : Bool {
