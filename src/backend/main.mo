@@ -294,6 +294,86 @@ persistent actor Defunds{
 		};
 	};
 
+	private func getIcpBlock(blockIndex : Nat64) : async ?ICPTypes.CandidBlock {
+		let response = await ICPLedger.query_blocks({
+			start = blockIndex;
+			length = 1;
+		});
+
+		if (
+			response.blocks.size() > 0 and
+			response.first_block_index == blockIndex
+		) {
+			return ?response.blocks[0];
+		};
+
+		for (range in response.archived_blocks.vals()) {
+			if (
+				blockIndex >= range.start and
+				blockIndex < range.start + range.length
+			) {
+				switch (await range.callback({ start = blockIndex; length = 1 })) {
+					case (#Ok(blockRange)) {
+						if (blockRange.blocks.size() > 0) {
+							return ?blockRange.blocks[0];
+						};
+					};
+					case (#Err(_)) {};
+				};
+			};
+		};
+		null;
+	};
+
+	private func verifyIcpPayoutBlock(
+		grantId : Nat,
+		grant : Grant,
+		commitment : TreasuryCommitment,
+		blockIndex : Nat64,
+		attemptCreatedAt : Nat64,
+	) : async Result.Result<(), Text> {
+		if (not isValidIcpAccountIdentifier(grant.recipient)) {
+			return #err("Invalid ICP recipient account identifier");
+		};
+
+		let expectedTreasury = await ICPLedger.account_identifier({
+			owner = Principal.fromActor(Defunds);
+			subaccount = null;
+		});
+		let expectedRecipient = Blob.fromArray(Hex.decode(grant.recipient));
+
+		switch (await getIcpBlock(blockIndex)) {
+			case null { #err("ICP payout block was not found") };
+			case (?block) {
+				let tx = block.transaction;
+				if (tx.memo != Nat64.fromNat(grantId)) {
+					return #err("ICP payout block memo does not match grant");
+				};
+				if (tx.created_at_time.timestamp_nanos != attemptCreatedAt) {
+					return #err("ICP payout block timestamp does not match payout attempt");
+				};
+				switch (tx.operation) {
+					case (?#Transfer(transfer)) {
+						if (transfer.from != expectedTreasury) {
+							return #err("ICP payout block sender does not match treasury");
+						};
+						if (transfer.to != expectedRecipient) {
+							return #err("ICP payout block recipient does not match grant");
+						};
+						if (transfer.amount.e8s != commitment.amount) {
+							return #err("ICP payout block amount does not match commitment");
+						};
+						if (transfer.fee.e8s != ICP_FEE) {
+							return #err("ICP payout block fee does not match expected fee");
+						};
+						#ok(());
+					};
+					case (_) { #err("ICP payout block is not a transfer") };
+				};
+			};
+		};
+	};
+
 	private func isValidIcpAccountIdentifier(value : Text) : Bool {
 		if (Text.size(value) != 64) {
 			return false;
@@ -1183,6 +1263,19 @@ persistent actor Defunds{
 		votingPowers.get(userId);
 	};
 
+	public query func getGovernancePower(userId : Principal) : async ?Nat64 {
+		switch (votingPowers.get(userId)) {
+			case null { null };
+			case (?power) {
+				if (power.totalPower == 0) {
+					null
+				} else {
+					?integerSqrt(power.totalPower)
+				};
+			};
+		};
+	};
+
 	public query func getDonorCredit(donor : Text) : async ?Nat {
 		return donorCredits.get(Principal.fromText(donor));
 	};
@@ -1571,6 +1664,45 @@ persistent actor Defunds{
 					case (#reconciliationRequired({ createdAt })) {
 						switch (paidBlockIndex) {
 							case (?blockIndex) {
+								switch (grants.getGrant(grantId)) {
+									case null { return #err("Grant not found") };
+									case (?grant) {
+										switch (
+											await verifyIcpPayoutBlock(
+												grantId,
+												grant,
+												existing,
+												blockIndex,
+												createdAt,
+											)
+										) {
+											case (#err(message)) { return #err(message) };
+											case (#ok(())) {};
+										};
+									};
+								};
+
+								// Re-check the same reconciliation attempt after all
+								// ledger awaits before making irreversible state changes.
+								switch (treasuryCommitments.get(grantId)) {
+									case (?current) {
+										switch (current.status) {
+											case (#reconciliationRequired({ createdAt = currentCreatedAt })) {
+												if (currentCreatedAt != createdAt) {
+													return #err("Payout reconciliation state changed during verification");
+												};
+											};
+											case (#paid(existingBlock)) {
+												return #ok(current);
+											};
+											case (_) {
+												return #err("Payout is no longer awaiting reconciliation");
+											};
+										};
+									};
+									case null { return #err("Treasury commitment disappeared during reconciliation") };
+								};
+
 								if (not ensureGrantReleased(grantId)) {
 									return #err("Could not reconcile grant status to released");
 								};
