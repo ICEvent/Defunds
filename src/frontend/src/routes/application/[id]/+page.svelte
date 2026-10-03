@@ -595,8 +595,7 @@
                                                 >{vote.voterId.toString()}</code
                                             >
                                             <span class="vote-power"
-                                                >{Number(vote.votePower) /
-                                                    VOTE_POWER_DECIMALS} Power</span
+                                                >{Number(vote.votePower)} Power</span
                                             >
                                             <span
                                                 class="vote-time text-xs text-gray-400"
