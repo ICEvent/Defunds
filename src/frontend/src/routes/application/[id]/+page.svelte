@@ -36,7 +36,9 @@
               ? "Approved · Funds Reserved"
               : treasuryStatus === "paying"
                 ? "Payment Processing"
-                : treasuryStatus === "paid"
+                : treasuryStatus === "reconciliationRequired"
+                  ? "Payment · Reconciliation Required"
+                  : treasuryStatus === "paid"
                   ? "Paid"
                   : application?.grantStatus || "";
 
@@ -331,7 +333,9 @@
                                     {:else if treasuryStatus === "committed"}
                                         The requested amount and transfer fee are reserved for this grant.
                                     {:else if treasuryStatus === "paying"}
-                                        A payout attempt is in progress. Retrying is idempotent.
+                                        A payout attempt is in progress within the ledger deduplication window.
+                                    {:else if treasuryStatus === "reconciliationRequired"}
+                                        The prior payout result is uncertain. A controller or council member must reconcile the ledger result before retrying.
                                     {:else if treasuryStatus === "paid"}
                                         The payout has been confirmed on the ledger.
                                     {:else}
@@ -697,6 +701,11 @@
     .status.paying {
         background: #dbeafe;
         color: #1e40af;
+    }
+
+    .status.reconciliationRequired {
+        background: #ffe4e6;
+        color: #9f1239;
     }
 
     .status.paid,
