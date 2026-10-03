@@ -199,56 +199,37 @@ module {
 			};
 		};
 
-		public func calculateMinVotes(grantAmount : Nat64, totalFund : Nat64, totalDonors : Nat64) : Nat64 {
-			let ratio = grantAmount / totalFund;
-			let minVotes = (ratio * totalDonors) + 1;
-			minVotes;
-		};
-		public func calculateMinVotingPower(grantAmount : Nat64, totalFund : Nat64, totalVotingPower : Nat64) : Nat64 {
-			let ratio = grantAmount / totalFund;
-			let minPower = (ratio * totalVotingPower) + 1;
-			minPower;
-		};
-		// Check if voting has ended and finalize the grant status
-		public func finalizeVoting(grantId : Nat, totalFund : Nat64, totalDonors : Nat64, totalVotingPower : Nat64) : Bool {
+		// Finalize against the immutable policy snapshot enforced by the backend.
+		// Quorum and eligible voting power are checked before this function is called.
+		public func finalizeVoting(grantId : Nat, approvalPercentage : Nat) : Bool {
 			switch (grants.get(grantId)) {
 				case null { false };
 				case (?grant) {
 					switch (grant.votingStatus) {
 						case null { false };
 						case (?status) {
-							//check if voting has ended
-							if (Time.now() <= status.endTime) { return false };
+							if (Time.now() <= status.endTime) {
+								return false;
+							};
 
-							//check minimal requirement: votes and voting power
-							let totalVotes = status.votes.size();
-							let totalPower = status.approvalVotePower + status.rejectVotePower;
-							let requiredVotes = calculateMinVotes(grant.amount, totalFund, totalDonors);
-							let requiredPower = calculateMinVotingPower(grant.amount, totalFund, totalVotingPower);
-
-							if (Nat64.fromNat(totalVotes) < requiredVotes or totalPower < requiredPower) {
-								let updatedGrant = {
-									grant with
-									grantStatus = #rejected
-								};
+							let participatingPower = status.approvalVotePower + status.rejectVotePower;
+							if (participatingPower == 0) {
+								let updatedGrant = { grant with grantStatus = #rejected };
 								grants.put(grantId, updatedGrant);
 								return true;
 							};
 
-							//check if the grant is approved or rejected
-							let newStatus = if (status.approvalVotePower > status.rejectVotePower) {
-								#approved;
-							} else {
-								#rejected;
-							};
+							let approved = (
+								status.approvalVotePower * 100 >
+								participatingPower * Nat64.fromNat(approvalPercentage)
+							);
 
 							let updatedGrant = {
 								grant with
-								grantStatus = newStatus
+								grantStatus = if (approved) { #approved } else { #rejected };
 							};
 							grants.put(grantId, updatedGrant);
 							true;
-
 						};
 					};
 				};
