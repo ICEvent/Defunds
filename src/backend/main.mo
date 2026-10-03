@@ -348,6 +348,15 @@ persistent actor Defunds{
 			Nat64.equal,
 			nat64Hash,
 		);
+		// On the first upgrade that introduces the replay index, seed it from
+		// historical confirmed donations already retained in voting power history.
+		for ((_, power) in votingPowers.entries()) {
+			for (change in power.powerHistory.vals()) {
+				if (change.source.isConfirmed) {
+					processedDonationBlocks.put(change.source.blockIndex, true);
+				};
+			};
+		};
 		upgradeProcessedDonationBlocks := [];
 		donations := TrieMap.fromEntries<Nat64, Donation>(
 			Iter.fromArray(upgradeDonations),
@@ -500,27 +509,60 @@ persistent actor Defunds{
 							return #err("Donation was not sent to the Defunds treasury");
 						};
 
-						// All external awaits are complete. Re-check and atomically mark the
-						// ledger block before mutating contribution state so concurrent
-						// confirmations cannot credit the same transfer twice.
-						if (Option.isSome(processedDonationBlocks.get(blockIndex))) {
-							donations.delete(blockIndex);
-							return #err("This block index has already been processed");
-						};
-						processedDonationBlocks.put(blockIndex, true);
-
 						let currencyText = currencyToText(tempDonation.currency);
 						let rate : Nat64 = switch (donorExchangeRates.get(currencyText)) {
 							case (null) 1;
 							case (?configuredRate) configuredRate;
 						};
 
+						// Validate all Nat64 arithmetic before marking the ledger block as
+						// processed. A rejected overflow must remain retryable after policy
+						// or accounting remediation.
+						let maxNat64 : Nat = 18_446_744_073_709_551_615;
+						let contributionScoreNat =
+							Nat64.toNat(tempDonation.amount) * Nat64.toNat(rate);
+						let newAccumulatedDonationsNat =
+							Nat64.toNat(_accumulated_donations) + Nat64.toNat(tempDonation.amount);
+						let newAvailableFundsNat =
+							Nat64.toNat(_avaliable_funds) + Nat64.toNat(tempDonation.amount);
+						let newAccumulatedScoreNat =
+							Nat64.toNat(_accumulated_voting_power) + contributionScoreNat;
+						if (
+							contributionScoreNat > maxNat64 or
+							newAccumulatedDonationsNat > maxNat64 or
+							newAvailableFundsNat > maxNat64 or
+							newAccumulatedScoreNat > maxNat64
+						) {
+							return #err("Donation would overflow Main Fund accounting");
+						};
+
+						switch (votingPowers.get(tempDonation.donorId)) {
+							case null {};
+							case (?existingPower) {
+								if (
+									Nat64.toNat(existingPower.totalPower) + contributionScoreNat >
+									maxNat64
+								) {
+									return #err("Donation would overflow contributor score");
+								};
+							};
+						};
+
+						// All external awaits and arithmetic validation are complete. Re-check
+						// and atomically mark the ledger block before mutating contribution
+						// state so concurrent confirmations cannot credit it twice.
+						if (Option.isSome(processedDonationBlocks.get(blockIndex))) {
+							donations.delete(blockIndex);
+							return #err("This block index has already been processed");
+						};
+						processedDonationBlocks.put(blockIndex, true);
+
 						// totalPower remains a normalized cumulative contribution score.
 						// Actual governance power is sqrt(totalPower), snapshotted per grant.
-						let contributionScore : Nat64 = tempDonation.amount * rate;
-						_accumulated_donations += tempDonation.amount;
-						_avaliable_funds += tempDonation.amount;
-						_accumulated_voting_power += contributionScore;
+						let contributionScore = Nat64.fromNat(contributionScoreNat);
+						_accumulated_donations := Nat64.fromNat(newAccumulatedDonationsNat);
+						_avaliable_funds := Nat64.fromNat(newAvailableFundsNat);
+						_accumulated_voting_power := Nat64.fromNat(newAccumulatedScoreNat);
 
 						let donation : Donation = {
 							donorId = tempDonation.donorId;
