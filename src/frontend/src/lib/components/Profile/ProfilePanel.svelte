@@ -1,7 +1,7 @@
 <script>
     import { onMount } from 'svelte';
     import { globalStore } from '$lib/store';
-    import { ICP_TOKEN_DECIMALS, VOTE_POWER_DECIMALS } from '$lib/constants';
+    import { ICP_TOKEN_DECIMALS } from '$lib/constants';
 
     let principal;
     let icpledger;
@@ -17,9 +17,9 @@
         }
 
         if (backend) {
-            const power = await backend.getVotingPower(principal);
-            if (power.length > 0) {
-                votingPower = Number(power[0].totalPower) / VOTE_POWER_DECIMALS;
+            if (typeof backend.getGovernancePower === "function") {
+                const power = await backend.getGovernancePower(principal);
+                votingPower = power.length > 0 ? Number(power[0]) : 0;
             } else {
                 votingPower = 0;
             }
