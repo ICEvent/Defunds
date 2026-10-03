@@ -11,6 +11,7 @@ import Int "mo:base/Int";
 import Option "mo:base/Option";
 import Hash "mo:base/Hash";
 import Blob "mo:base/Blob";
+import Char "mo:base/Char";
 
 import Hex "./hex";
 
