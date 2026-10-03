@@ -1239,6 +1239,20 @@ persistent actor Defunds{
 				if (grant.applicant != caller) {
 					return #err("Only grant applicant can claim");
 				};
+
+				// A completed payout is idempotent even after the Grant has moved
+				// from #approved to #released. This lets callers recover the ledger
+				// receipt after a client timeout or lost response.
+				switch (treasuryCommitments.get(grantId)) {
+					case (?existing) {
+						switch (existing.status) {
+							case (#paid(blockIndex)) { return #ok(blockIndex) };
+							case (_) {};
+						};
+					};
+					case null {};
+				};
+
 				if (grant.grantStatus != #approved) {
 					return #err("Grant must be approved to claim");
 				};
