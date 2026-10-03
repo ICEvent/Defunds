@@ -23,11 +23,9 @@
 
         });
 
-        if (backend && principal) {
-            const power = await backend.getVotingPower(principal);
-            if (power.length > 0) { 
-                votingPower = Number(power[0].totalPower)/VOTE_POWER_DECIMALS;
-            }
+        if (backend && principal && typeof backend.getGovernancePower === "function") {
+            const power = await backend.getGovernancePower(principal);
+            votingPower = power.length > 0 ? Number(power[0]) : 0;
         }
         if (icpledger && principal) {
             const icpbalance = await icpledger.icrc1_balance_of({
