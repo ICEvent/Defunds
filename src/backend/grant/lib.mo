@@ -91,12 +91,17 @@ module {
 			switch (grants.get(grantId)) {
 				case null { false };
 				case (?grant) {
-					let updatedGrant = {
-						grant with
-						grantStatus = #review;
+					switch (grant.grantStatus) {
+						case (#submitted) {
+							let updatedGrant = {
+								grant with
+								grantStatus = #review;
+							};
+							grants.put(grantId, updatedGrant);
+							true;
+						};
+						case (_) { false };
 					};
-					grants.put(grantId, updatedGrant);
-					true;
 				};
 			};
 		};
@@ -106,22 +111,27 @@ module {
 			switch (grants.get(grantId)) {
 				case null { false };
 				case (?grant) {
-					let votingStatus : VotingStatus = {
-						totalVotePower = 0;
-						approvalVotePower = 0;
-						rejectVotePower = 0;
-						votes = [];
-						startTime = Time.now();
-						endTime = Time.now() + 7 * 24 * 60 * 60 * 1_000_000_000; // 7 days in nanoseconds
-					};
+					switch (grant.grantStatus) {
+						case (#submitted or #review) {
+							let votingStatus : VotingStatus = {
+								totalVotePower = 0;
+								approvalVotePower = 0;
+								rejectVotePower = 0;
+								votes = [];
+								startTime = Time.now();
+								endTime = Time.now() + 7 * 24 * 60 * 60 * 1_000_000_000; // 7 days in nanoseconds
+							};
 
-					let updatedGrant = {
-						grant with
-						votingStatus = ?votingStatus;
-						grantStatus = #voting;
+							let updatedGrant = {
+								grant with
+								votingStatus = ?votingStatus;
+								grantStatus = #voting;
+							};
+							grants.put(grantId, updatedGrant);
+							true;
+						};
+						case (_) { false };
 					};
-					grants.put(grantId, updatedGrant);
-					true;
 				};
 			};
 		};
@@ -240,12 +250,26 @@ module {
 			switch (grants.get(grantId)) {
 				case null { false };
 				case (?grant) {
-					let updatedGrant = {
-						grant with
-						grantStatus = newStatus;
+					let allowed = switch (grant.grantStatus, newStatus) {
+						case (#submitted, #cancelled) { true };
+						case (#submitted, #rejected) { true };
+						case (#review, #cancelled) { true };
+						case (#review, #rejected) { true };
+						case (#voting, #cancelled) { true };
+						case (#voting, #rejected) { true };
+						case (#approved, #released) { true };
+						case (_) { false };
 					};
-					grants.put(grantId, updatedGrant);
-					true;
+					if (not allowed) {
+						false
+					} else {
+						let updatedGrant = {
+							grant with
+							grantStatus = newStatus;
+						};
+						grants.put(grantId, updatedGrant);
+						true;
+					};
 				};
 			};
 		};
