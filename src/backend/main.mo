@@ -406,6 +406,19 @@ persistent actor Defunds{
 		};
 	};
 
+	private func ensureGrantReleased(grantId : Nat) : Bool {
+		switch (grants.getGrant(grantId)) {
+			case null { false };
+			case (?grant) {
+				switch (grant.grantStatus) {
+					case (#released) { true };
+					case (#approved) { grants.changeGrantStatus(grantId, #released) };
+					case (_) { false };
+				};
+			};
+		};
+	};
+
 	private func markPaid(grantId : Nat, blockIndex : Nat64) {
 		switch (treasuryCommitments.get(grantId)) {
 			case null {};
@@ -1167,7 +1180,17 @@ persistent actor Defunds{
 				};
 
 				let commitment = switch (treasuryCommitments.get(grantId)) {
-					case (?existing) { existing };
+					case (?existing) {
+						switch (existing.status) {
+							case (#awaitingFunding) {
+								switch (await tryCommitApprovedGrant(grant)) {
+									case (#err(message)) { return #err(message) };
+									case (#ok(updated)) { updated };
+								};
+							};
+							case (_) { existing };
+						};
+					};
 					case null {
 						switch (await tryCommitApprovedGrant(grant)) {
 							case (#err(message)) { return #err(message) };
@@ -1220,8 +1243,8 @@ persistent actor Defunds{
 							let transferResult = await ICPLedger.transfer(transferArgs);
 							switch (transferResult) {
 								case (#Ok(blockIndex)) {
-									if (not grants.changeGrantStatus(grantId, #released)) {
-										return #err("Transfer succeeded but grant status could not be released");
+									if (not ensureGrantReleased(grantId)) {
+										return #err("Transfer succeeded but grant status could not be reconciled");
 									};
 									markPaid(grantId, blockIndex);
 									if (_avaliable_funds >= grant.amount) {
@@ -1230,8 +1253,8 @@ persistent actor Defunds{
 									#ok(blockIndex);
 								};
 								case (#Err(#TxDuplicate({ duplicate_of }))) {
-									if (not grants.changeGrantStatus(grantId, #released)) {
-										return #err("Transfer already succeeded but grant status could not be released");
+									if (not ensureGrantReleased(grantId)) {
+										return #err("Transfer already succeeded but grant status could not be reconciled");
 									};
 									markPaid(grantId, duplicate_of);
 									#ok(duplicate_of);
