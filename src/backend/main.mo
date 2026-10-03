@@ -1230,7 +1230,7 @@ persistent actor Defunds{
 		let maxNat64 : Nat = 18_446_744_073_709_551_615;
 		let cappedReservedNat = Nat.min(reservedNat, maxNat64);
 		let reserved = Nat64.fromNat(cappedReservedNat);
-		let available = if (reserved >= liveBalance.e8s) {
+		let available : Nat64 = if (reserved >= liveBalance.e8s) {
 			0
 		} else {
 			liveBalance.e8s - reserved
