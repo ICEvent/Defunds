@@ -380,18 +380,18 @@ persistent actor Defunds{
 		var crc : Nat32 = 0xFFFFFFFF;
 		let polynomial : Nat32 = 0xEDB88320;
 		for (byte in bytes.vals()) {
-			crc := Nat32.bitxor(crc, Nat32.fromNat(Nat8.toNat(byte)));
+			crc := crc ^ Nat32.fromNat(Nat8.toNat(byte));
 			var bit : Nat = 0;
 			while (bit < 8) {
-				if (Nat32.bitand(crc, 1) == 1) {
-					crc := Nat32.bitxor(Nat32.bitshiftRight(crc, 1), polynomial);
+				if ((crc & 1) == 1) {
+					crc := (crc >> 1) ^ polynomial;
 				} else {
-					crc := Nat32.bitshiftRight(crc, 1);
+					crc := crc >> 1;
 				};
 				bit += 1;
 			};
 		};
-		Nat32.bitxor(crc, 0xFFFFFFFF);
+		crc ^ 0xFFFFFFFF;
 	};
 
 	private func isValidIcpAccountIdentifier(value : Text) : Bool {
