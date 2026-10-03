@@ -41,6 +41,7 @@ persistent actor Defunds{
 		minVotePercentage : Nat;
 		minPowerPercentage : Nat;
 		approvalPercentage : Nat;
+		legacyRawWeighting : Bool;
 	};
 
 	type TreasuryCommitmentStatus = {
@@ -257,6 +258,7 @@ persistent actor Defunds{
 			minVotePercentage = minVotePercentage;
 			minPowerPercentage = minPowerPercentage;
 			approvalPercentage = approvalPercentage;
+			legacyRawWeighting = false;
 		};
 	};
 
@@ -271,6 +273,8 @@ persistent actor Defunds{
 				let historicalScore = contributionScoreAt(power, snapshot.createdAt);
 				if (historicalScore == 0) {
 					null
+				} else if (snapshot.legacyRawWeighting) {
+					?historicalScore
 				} else {
 					?integerSqrt(historicalScore)
 				};
@@ -382,18 +386,25 @@ persistent actor Defunds{
 		};
 	};
 
-	private func resetPayoutToCommitted(grantId : Nat) {
+	private func resetPayoutToCommitted(grantId : Nat, createdAt : Nat64) {
 		switch (treasuryCommitments.get(grantId)) {
 			case null {};
 			case (?existing) {
-				treasuryCommitments.put(
-					grantId,
-					{
-						existing with
-						status = #committed;
-						updatedAt = Time.now();
-					},
-				);
+				switch (existing.status) {
+					case (#paying({ createdAt = currentCreatedAt })) {
+						if (currentCreatedAt == createdAt) {
+							treasuryCommitments.put(
+								grantId,
+								{
+									existing with
+									status = #committed;
+									updatedAt = Time.now();
+								},
+							);
+						};
+					};
+					case (_) {};
+				};
 			};
 		};
 	};
@@ -402,14 +413,21 @@ persistent actor Defunds{
 		switch (treasuryCommitments.get(grantId)) {
 			case null {};
 			case (?existing) {
-				treasuryCommitments.put(
-					grantId,
-					{
-						existing with
-						status = #reconciliationRequired({ createdAt = createdAt });
-						updatedAt = Time.now();
-					},
-				);
+				switch (existing.status) {
+					case (#paying({ createdAt = currentCreatedAt })) {
+						if (currentCreatedAt == createdAt) {
+							treasuryCommitments.put(
+								grantId,
+								{
+									existing with
+									status = #reconciliationRequired({ createdAt = createdAt });
+									updatedAt = Time.now();
+								},
+							);
+						};
+					};
+					case (_) {};
+				};
 			};
 		};
 	};
@@ -555,12 +573,32 @@ persistent actor Defunds{
 				};
 
 				// Recompute liability after awaits so concurrent commit attempts cannot
-				// reserve the same balance.
+				// reserve the same balance. Then re-read the ledger balance immediately
+				// before committing because another payout may have completed while the
+				// first balance query was in flight.
 				let reservedNat = committedIcpLiability();
+				let freshBalance = await ICPLedger.account_balance({ account = treasuryAccount });
 				let requiredNat = Nat64.toNat(grant.amount) + Nat64.toNat(ICP_FEE);
-				let liveNat = Nat64.toNat(liveBalance.e8s);
+				let liveNat = Nat64.toNat(freshBalance.e8s);
 
-				if (reservedNat + requiredNat > liveNat) {
+				// One more same-grant check after the second await prevents a concurrent
+				// call from being downgraded or double-reserved.
+				switch (treasuryCommitments.get(grantId)) {
+					case (?current) {
+						switch (current.status) {
+							case (#committed) { return #ok(current) };
+							case (#paying(_)) { return #ok(current) };
+							case (#reconciliationRequired(_)) { return #ok(current) };
+							case (#paid(_)) { return #ok(current) };
+							case (#awaitingFunding) {};
+						};
+					};
+					case null {};
+				};
+
+				let refreshedReservedNat = committedIcpLiability();
+
+				if (refreshedReservedNat + requiredNat > liveNat) {
 					upsertAwaitingFunding(grant);
 					switch (treasuryCommitments.get(grantId)) {
 						case (?commitment) { #ok(commitment) };
@@ -700,9 +738,24 @@ persistent actor Defunds{
 				if (grantVoteSnapshots.get(grantId) == null) {
 					switch (grant.votingStatus) {
 						case (?status) {
+							let baseSnapshot = buildGrantVoteSnapshotAt(status.startTime);
+							var legacyTotalPower : Nat64 = 0;
+							var legacyEligibleVoters : Nat = 0;
+							for ((_, power) in votingPowers.entries()) {
+								let historicalScore = contributionScoreAt(power, status.startTime);
+								if (historicalScore > 0) {
+									legacyEligibleVoters += 1;
+									legacyTotalPower += historicalScore;
+								};
+							};
 							grantVoteSnapshots.put(
 								grantId,
-								buildGrantVoteSnapshotAt(status.startTime),
+								{
+									baseSnapshot with
+									eligibleVoterCount = legacyEligibleVoters;
+									totalVotingPower = legacyTotalPower;
+									legacyRawWeighting = true;
+								},
 							);
 						};
 						case null {};
@@ -1124,6 +1177,7 @@ persistent actor Defunds{
 		minVotePercentage : Nat;
 		minPowerPercentage : Nat;
 		approvalPercentage : Nat;
+		legacyRawWeighting : Bool;
 	} {
 		switch (grantVoteSnapshots.get(grantId)) {
 			case null { null };
@@ -1135,6 +1189,7 @@ persistent actor Defunds{
 					minVotePercentage = snapshot.minVotePercentage;
 					minPowerPercentage = snapshot.minPowerPercentage;
 					approvalPercentage = snapshot.approvalPercentage;
+					legacyRawWeighting = snapshot.legacyRawWeighting;
 				};
 			};
 		};
@@ -1426,15 +1481,15 @@ persistent actor Defunds{
 									#ok(duplicate_of);
 								};
 								case (#Err(#InsufficientFunds(_))) {
-									resetPayoutToCommitted(grantId);
+									resetPayoutToCommitted(grantId, payoutCreatedAt);
 									#err("Treasury ledger balance is insufficient; commitment remains reserved");
 								};
 								case (#Err(#BadFee(_))) {
-									resetPayoutToCommitted(grantId);
+									resetPayoutToCommitted(grantId, payoutCreatedAt);
 									#err("Ledger fee changed; payout can be retried after fee configuration is updated");
 								};
 								case (#Err(#TxCreatedInFuture)) {
-									resetPayoutToCommitted(grantId);
+									resetPayoutToCommitted(grantId, payoutCreatedAt);
 									#err("Ledger rejected payout timestamp as future; payout can be retried");
 								};
 								case (#Err(#TxTooOld(_))) {
@@ -1479,7 +1534,7 @@ persistent actor Defunds{
 								markPaid(grantId, blockIndex);
 							};
 							case null {
-								resetPayoutToCommitted(grantId);
+								resetPayoutToCommitted(grantId, payoutCreatedAt);
 							};
 						};
 						switch (treasuryCommitments.get(grantId)) {
