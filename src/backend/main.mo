@@ -7,6 +7,8 @@ import Time "mo:base/Time";
 import Buffer "mo:base/Buffer";
 import Result "mo:base/Result";
 import Nat64 "mo:base/Nat64";
+import Nat8 "mo:base/Nat8";
+import Nat32 "mo:base/Nat32";
 import Int "mo:base/Int";
 import Option "mo:base/Option";
 import Hash "mo:base/Hash";
@@ -374,6 +376,24 @@ persistent actor Defunds{
 		};
 	};
 
+	private func crc32(bytes : [Nat8]) : Nat32 {
+		var crc : Nat32 = 0xFFFFFFFF;
+		let polynomial : Nat32 = 0xEDB88320;
+		for (byte in bytes.vals()) {
+			crc := Nat32.bitxor(crc, Nat32.fromNat(Nat8.toNat(byte)));
+			var bit : Nat = 0;
+			while (bit < 8) {
+				if (Nat32.bitand(crc, 1) == 1) {
+					crc := Nat32.bitxor(Nat32.bitshiftRight(crc, 1), polynomial);
+				} else {
+					crc := Nat32.bitshiftRight(crc, 1);
+				};
+				bit += 1;
+			};
+		};
+		Nat32.bitxor(crc, 0xFFFFFFFF);
+	};
+
 	private func isValidIcpAccountIdentifier(value : Text) : Bool {
 		if (Text.size(value) != 64) {
 			return false;
@@ -387,7 +407,26 @@ persistent actor Defunds{
 				return false;
 			};
 		};
-		true;
+
+		let decoded = Hex.decode(value);
+		if (decoded.size() != 32) {
+			return false;
+		};
+
+		let checksum : Nat32 =
+			Nat32.fromNat(Nat8.toNat(decoded[0])) * 16_777_216 +
+			Nat32.fromNat(Nat8.toNat(decoded[1])) * 65_536 +
+			Nat32.fromNat(Nat8.toNat(decoded[2])) * 256 +
+			Nat32.fromNat(Nat8.toNat(decoded[3]));
+
+		let hash = Array.tabulate<Nat8>(
+			28,
+			func(index : Nat) : Nat8 {
+				decoded[index + 4];
+			},
+		);
+
+		checksum == crc32(hash);
 	};
 
 	private func committedIcpLiability() : Nat {
