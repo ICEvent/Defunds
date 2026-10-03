@@ -50,6 +50,7 @@
         if (status === "awaitingFunding") return "Approved · Awaiting Funding";
         if (status === "committed") return "Approved · Funds Reserved";
         if (status === "paying") return "Payment Processing";
+        if (status === "reconciliationRequired") return "Payment · Reconciliation Required";
         if (status === "paid") return "Paid";
         if (status === "released") return "Released";
         if (status === "approved") return "Approved";
@@ -264,7 +265,11 @@
                         </p>
                     {:else if treasuryStatus(application) === "paying"}
                         <p class="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-800">
-                            Payment has been submitted. Retrying is safe and will reconcile the same transfer.
+                            Payment has been submitted. Retrying is safe while the ledger deduplication window is active.
+                        </p>
+                    {:else if treasuryStatus(application) === "reconciliationRequired"}
+                        <p class="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                            The payout result is uncertain. Treasury reconciliation is required before another transfer can be attempted.
                         </p>
                     {/if}
                     {#if canClaim(application)}
@@ -470,6 +475,11 @@
     .status.paying {
         background: #dbeafe;
         color: #1e40af;
+    }
+
+    .status.reconciliationRequired {
+        background: #ffe4e6;
+        color: #9f1239;
     }
 
     .status.paid,
