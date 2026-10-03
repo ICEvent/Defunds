@@ -60,6 +60,7 @@ persistent actor Defunds{
 	};
 
 	transient let ICP_FEE : Nat64 = 10_000;
+	transient let ICP_TX_DEDUP_WINDOW_NANOS : Nat64 = 24 * 60 * 60 * 1_000_000_000;
 
 	var _stable_grantId = 1; // Unique ID for each grant
 	var _accumulated_donations : Nat64 = 0; // Accumulated donations
@@ -383,7 +384,37 @@ persistent actor Defunds{
 						#err("PAID:" # Nat64.toText(blockIndex))
 					};
 					case (#paying({ createdAt })) {
-						#ok(createdAt)
+						let nowInt = Time.now();
+						if (nowInt < 0) {
+							return #err("Invalid system time");
+						};
+						let nowNat = Int.abs(nowInt);
+						if (nowNat > 18_446_744_073_709_551_615) {
+							return #err("System time exceeds Nat64 range");
+						};
+						let now = Nat64.fromNat(nowNat);
+
+						// Reuse the original timestamp while the ledger can still
+						// deduplicate the transfer. Once the attempt is older than
+						// the deduplication window, rotate to a fresh attempt timestamp.
+						// This is safe because an actually accepted prior transfer would
+						// have returned success or duplicate within the old attempt window.
+						if (
+							now > createdAt and
+							now - createdAt > ICP_TX_DEDUP_WINDOW_NANOS
+						) {
+							treasuryCommitments.put(
+								grantId,
+								{
+									existing with
+									status = #paying({ createdAt = now });
+									updatedAt = nowInt;
+								},
+							);
+							#ok(now)
+						} else {
+							#ok(createdAt)
+						};
 					};
 					case (#committed) {
 						let nowInt = Time.now();
@@ -729,22 +760,32 @@ persistent actor Defunds{
 		} else if (Option.isSome(processedDonationBlocks.get(blockIndex))) {
 			#err("This block index has already been processed");
 		} else {
-			switch (donations.get(blockIndex)) {
-				case (?_) {
-					return #err("This block index is already pending confirmation");
-				};
-				case null {
-					let tempDonation : Donation = {
-						donorId = caller;
-						amount = amount;
-						currency = currency;
-						timestamp = Time.now();
-						blockIndex = blockIndex;
-						isConfirmed = false;
-					};
+			let tempDonation : Donation = {
+				donorId = caller;
+				amount = amount;
+				currency = currency;
+				timestamp = Time.now();
+				blockIndex = blockIndex;
+				isConfirmed = false;
+			};
 
+			switch (donations.get(blockIndex)) {
+				case null {
 					donations.put(blockIndex, tempDonation);
-					return #ok(1);
+					#ok(1);
+				};
+				case (?pending) {
+					if (pending.donorId == caller) {
+						donations.put(blockIndex, tempDonation);
+						#ok(1);
+					} else {
+						// Do not let an unverified pending record permanently squat
+						// a ledger index. The authenticated caller may replace it,
+						// but confirmation still succeeds only if the ledger sender
+						// matches this caller and destination/amount checks pass.
+						donations.put(blockIndex, tempDonation);
+						#ok(1);
+					};
 				};
 			};
 		};
