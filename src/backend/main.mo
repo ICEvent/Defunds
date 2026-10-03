@@ -115,6 +115,11 @@ persistent actor Defunds{
 		Nat.equal,
 		natHash,
 	);
+	transient var treasuryMutationVersion : Nat = 0;
+
+	private func bumpTreasuryVersion() {
+		treasuryMutationVersion += 1;
+	};
 
 	var upgradeConcilMembers : [Principal] = [];
 	transient var concilMembers = TrieMap.TrieMap<Principal, Bool>(Principal.equal, Principal.hash);
@@ -331,6 +336,7 @@ persistent actor Defunds{
 						updatedAt = now;
 					},
 				);
+				bumpTreasuryVersion();
 			};
 			case (?existing) {
 				switch (existing.status) {
@@ -348,6 +354,7 @@ persistent actor Defunds{
 								updatedAt = now;
 							},
 						);
+				bumpTreasuryVersion();
 					};
 				};
 			};
@@ -370,6 +377,7 @@ persistent actor Defunds{
 						updatedAt = now;
 					},
 				);
+				bumpTreasuryVersion();
 			};
 			case (?existing) {
 				treasuryCommitments.put(
@@ -382,6 +390,7 @@ persistent actor Defunds{
 						updatedAt = now;
 					},
 				);
+				bumpTreasuryVersion();
 			};
 		};
 	};
@@ -401,6 +410,7 @@ persistent actor Defunds{
 									updatedAt = Time.now();
 								},
 							);
+							bumpTreasuryVersion();
 						};
 					};
 					case (_) {};
@@ -424,6 +434,7 @@ persistent actor Defunds{
 									updatedAt = Time.now();
 								},
 							);
+							bumpTreasuryVersion();
 						};
 					};
 					case (_) {};
@@ -469,6 +480,7 @@ persistent actor Defunds{
 									updatedAt = nowInt;
 								},
 							);
+							bumpTreasuryVersion();
 							#err("Payout requires ledger reconciliation before retry")
 						} else {
 							#ok(createdAt)
@@ -495,6 +507,7 @@ persistent actor Defunds{
 								updatedAt = nowInt;
 							},
 						);
+						bumpTreasuryVersion();
 						#ok(createdAt);
 					};
 				};
@@ -527,6 +540,7 @@ persistent actor Defunds{
 						updatedAt = Time.now();
 					},
 				);
+				bumpTreasuryVersion();
 			};
 		};
 	};
@@ -556,33 +570,16 @@ persistent actor Defunds{
 					owner = Principal.fromActor(Defunds);
 					subaccount = null;
 				});
-				let liveBalance = await ICPLedger.account_balance({ account = treasuryAccount });
 
-				// Another call may have committed this same grant while we were awaiting
-				// the ledger. Never downgrade an already-reserved or paid commitment.
-				switch (treasuryCommitments.get(grantId)) {
-					case (?current) {
-						switch (current.status) {
-							case (#committed) { return #ok(current) };
-							case (#paying(_)) { return #ok(current) };
-							case (#paid(_)) { return #ok(current) };
-							case (#awaitingFunding) {};
-						};
-					};
-					case null {};
+				// Snapshot the local treasury version before querying the ledger. If a
+				// payout or reservation mutates treasury state while this query is in
+				// flight, discard the returned balance and retry from the top.
+				let versionBeforeBalance = treasuryMutationVersion;
+				let freshBalance = await ICPLedger.account_balance({ account = treasuryAccount });
+				if (treasuryMutationVersion != versionBeforeBalance) {
+					return await tryCommitApprovedGrant(grant);
 				};
 
-				// Recompute liability after awaits so concurrent commit attempts cannot
-				// reserve the same balance. Then re-read the ledger balance immediately
-				// before committing because another payout may have completed while the
-				// first balance query was in flight.
-				let reservedNat = committedIcpLiability();
-				let freshBalance = await ICPLedger.account_balance({ account = treasuryAccount });
-				let requiredNat = Nat64.toNat(grant.amount) + Nat64.toNat(ICP_FEE);
-				let liveNat = Nat64.toNat(freshBalance.e8s);
-
-				// One more same-grant check after the second await prevents a concurrent
-				// call from being downgraded or double-reserved.
 				switch (treasuryCommitments.get(grantId)) {
 					case (?current) {
 						switch (current.status) {
@@ -596,6 +593,8 @@ persistent actor Defunds{
 					case null {};
 				};
 
+				let requiredNat = Nat64.toNat(grant.amount) + Nat64.toNat(ICP_FEE);
+				let liveNat = Nat64.toNat(freshBalance.e8s);
 				let refreshedReservedNat = committedIcpLiability();
 
 				if (refreshedReservedNat + requiredNat > liveNat) {
@@ -1552,6 +1551,7 @@ persistent actor Defunds{
 															updatedAt = Time.now();
 														},
 													);
+													bumpTreasuryVersion();
 												};
 											};
 											case (_) {};
