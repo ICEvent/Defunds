@@ -1017,6 +1017,35 @@ persistent actor Defunds{
 		};
 	};
 
+	public shared func getMainFundIcpTreasuryState() : async {
+		balance : Nat64;
+		reserved : Nat64;
+		available : Nat64;
+	} {
+		let treasuryAccount = await ICPLedger.account_identifier({
+			owner = Principal.fromActor(Defunds);
+			subaccount = null;
+		});
+		let liveBalance = await ICPLedger.account_balance({ account = treasuryAccount });
+		let reservedNat = committedIcpLiability();
+		let maxNat64 : Nat = 18_446_744_073_709_551_615;
+		let reserved = if (reservedNat > maxNat64) {
+			18_446_744_073_709_551_615 : Nat64
+		} else {
+			Nat64.fromNat(reservedNat)
+		};
+		let available = if (reserved >= liveBalance.e8s) {
+			0
+		} else {
+			liveBalance.e8s - reserved
+		};
+		{
+			balance = liveBalance.e8s;
+			reserved = reserved;
+			available = available;
+		};
+	};
+
 	public query func getGrantTreasuryCommitment(grantId : Nat) : async ?TreasuryCommitment {
 		treasuryCommitments.get(grantId);
 	};
