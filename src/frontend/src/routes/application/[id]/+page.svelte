@@ -3,7 +3,6 @@
     import { onMount } from "svelte";
     import { globalStore } from "$lib/store";
     import { parseApplication } from "$lib/utils/grant.utils";
-    import { VOTE_POWER_DECIMALS } from "$lib/constants";
     import { showNotification } from "$lib/stores/notification";
     import { hideProgress, showProgress } from "$lib/stores/progress";
 
@@ -344,7 +343,7 @@
                                 </p>
                             </div>
 
-                            {#if isAuthed && application.applicant?.toString?.() === principal?.toString?.() && application.grantStatus === "approved"}
+                            {#if isAuthed && application.applicant?.toString?.() === principal?.toString?.() && application.grantStatus === "approved" && treasuryStatus !== "reconciliationRequired"}
                                 <button
                                     on:click={() => claimGrant(application.grantId)}
                                     class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
@@ -561,13 +560,13 @@
                                         {Number(
                                             application.votingStatus
                                                 .approvalVotePower,
-                                        ) / VOTE_POWER_DECIMALS}
+                                        ) }
                                     </span>
                                     <span class="text-red-600 font-medium">
                                         {Number(
                                             application.votingStatus
                                                 .rejectVotePower,
-                                        ) / VOTE_POWER_DECIMALS}
+                                        ) }
                                     </span>
                                 </div>
                                 <div class="progress-bar">
