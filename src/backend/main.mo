@@ -47,6 +47,7 @@ persistent actor Defunds{
 		#awaitingFunding;
 		#committed;
 		#paying : { createdAt : Nat64 };
+		#reconciliationRequired : { createdAt : Nat64 };
 		#paid : Nat64;
 	};
 
@@ -297,6 +298,14 @@ persistent actor Defunds{
 						case (_) {};
 					};
 				};
+				case (#reconciliationRequired(_)) {
+					switch (commitment.currency) {
+						case (#ICP) {
+							total += Nat64.toNat(commitment.amount) + Nat64.toNat(ICP_FEE);
+						};
+						case (_) {};
+					};
+				};
 				case (_) {};
 			};
 		};
@@ -323,6 +332,7 @@ persistent actor Defunds{
 				switch (existing.status) {
 					case (#paid(_)) {};
 					case (#paying(_)) {};
+					case (#reconciliationRequired(_)) {};
 					case (_) {
 						treasuryCommitments.put(
 							existing.grantId,
@@ -372,6 +382,38 @@ persistent actor Defunds{
 		};
 	};
 
+	private func resetPayoutToCommitted(grantId : Nat) {
+		switch (treasuryCommitments.get(grantId)) {
+			case null {};
+			case (?existing) {
+				treasuryCommitments.put(
+					grantId,
+					{
+						existing with
+						status = #committed;
+						updatedAt = Time.now();
+					},
+				);
+			};
+		};
+	};
+
+	private func requirePayoutReconciliation(grantId : Nat, createdAt : Nat64) {
+		switch (treasuryCommitments.get(grantId)) {
+			case null {};
+			case (?existing) {
+				treasuryCommitments.put(
+					grantId,
+					{
+						existing with
+						status = #reconciliationRequired({ createdAt = createdAt });
+						updatedAt = Time.now();
+					},
+				);
+			};
+		};
+	};
+
 	private func beginOrResumeIcpPayout(grantId : Nat) : Result.Result<Nat64, Text> {
 		switch (treasuryCommitments.get(grantId)) {
 			case null { #err("Treasury commitment not found") };
@@ -394,11 +436,9 @@ persistent actor Defunds{
 						};
 						let now = Nat64.fromNat(nowNat);
 
-						// Reuse the original timestamp while the ledger can still
-						// deduplicate the transfer. Once the attempt is older than
-						// the deduplication window, rotate to a fresh attempt timestamp.
-						// This is safe because an actually accepted prior transfer would
-						// have returned success or duplicate within the old attempt window.
+						// An old ambiguous attempt must never be silently resent with a
+						// fresh timestamp: the first transfer may have succeeded even if
+						// this canister never received the response.
 						if (
 							now > createdAt and
 							now - createdAt > ICP_TX_DEDUP_WINDOW_NANOS
@@ -407,14 +447,17 @@ persistent actor Defunds{
 								grantId,
 								{
 									existing with
-									status = #paying({ createdAt = now });
+									status = #reconciliationRequired({ createdAt = createdAt });
 									updatedAt = nowInt;
 								},
 							);
-							#ok(now)
+							#err("Payout requires ledger reconciliation before retry")
 						} else {
 							#ok(createdAt)
 						};
+					};
+					case (#reconciliationRequired(_)) {
+						#err("Payout requires ledger reconciliation before retry")
 					};
 					case (#committed) {
 						let nowInt = Time.now();
@@ -481,6 +524,7 @@ persistent actor Defunds{
 				switch (existing.status) {
 					case (#committed) { return #ok(existing) };
 					case (#paying(_)) { return #ok(existing) };
+					case (#reconciliationRequired(_)) { return #ok(existing) };
 					case (#paid(_)) { return #ok(existing) };
 					case (#awaitingFunding) {};
 				};
@@ -1327,6 +1371,9 @@ persistent actor Defunds{
 					};
 					case (#committed) {};
 					case (#paying(_)) {};
+					case (#reconciliationRequired(_)) {
+						return #err("Payout requires ledger reconciliation before retry");
+					};
 				};
 
 				switch (grant.currency) {
@@ -1378,16 +1425,70 @@ persistent actor Defunds{
 									markPaid(grantId, duplicate_of);
 									#ok(duplicate_of);
 								};
-								case (#Err(_)) {
-									#err("Transfer failed; treasury commitment remains reserved");
+								case (#Err(#InsufficientFunds(_))) {
+									resetPayoutToCommitted(grantId);
+									#err("Treasury ledger balance is insufficient; commitment remains reserved");
+								};
+								case (#Err(#BadFee(_))) {
+									resetPayoutToCommitted(grantId);
+									#err("Ledger fee changed; payout can be retried after fee configuration is updated");
+								};
+								case (#Err(#TxCreatedInFuture)) {
+									resetPayoutToCommitted(grantId);
+									#err("Ledger rejected payout timestamp as future; payout can be retried");
+								};
+								case (#Err(#TxTooOld(_))) {
+									requirePayoutReconciliation(grantId, payoutCreatedAt);
+									#err("Payout attempt is outside the ledger deduplication window and requires reconciliation");
 								};
 							};
 						} catch (_) {
-							#err("Transfer error; treasury commitment remains reserved");
+							requirePayoutReconciliation(grantId, payoutCreatedAt);
+							#err("Payout result is uncertain; ledger reconciliation is required before retry");
 						};
 					};
 					case (_) {
 						#err("This currency is not yet enabled for committed Main Fund payout");
+					};
+				};
+			};
+		};
+	};
+
+	public shared ({ caller }) func reconcileIcpGrantPayout(
+		grantId : Nat,
+		paidBlockIndex : ?Nat64,
+	) : async Result.Result<TreasuryCommitment, Text> {
+		if (Principal.isAnonymous(caller)) {
+			return #err("Anonymous users cannot reconcile payouts");
+		};
+		if (not canManageConcilMembers(caller)) {
+			return #err("Only controllers or council members can reconcile payouts");
+		};
+
+		switch (treasuryCommitments.get(grantId)) {
+			case null { #err("Treasury commitment not found") };
+			case (?existing) {
+				switch (existing.status) {
+					case (#reconciliationRequired(_)) {
+						switch (paidBlockIndex) {
+							case (?blockIndex) {
+								if (not ensureGrantReleased(grantId)) {
+									return #err("Could not reconcile grant status to released");
+								};
+								markPaid(grantId, blockIndex);
+							};
+							case null {
+								resetPayoutToCommitted(grantId);
+							};
+						};
+						switch (treasuryCommitments.get(grantId)) {
+							case (?updated) { #ok(updated) };
+							case null { #err("Treasury commitment disappeared during reconciliation") };
+						};
+					};
+					case (_) {
+						#err("Payout is not awaiting reconciliation");
 					};
 				};
 			};
