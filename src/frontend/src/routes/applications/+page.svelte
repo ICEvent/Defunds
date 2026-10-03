@@ -25,6 +25,7 @@
         if (status === "awaitingFunding") return "Approved · Awaiting Funding";
         if (status === "committed") return "Approved · Funds Reserved";
         if (status === "paying") return "Payment Processing";
+        if (status === "reconciliationRequired") return "Payment · Reconciliation Required";
         if (status === "paid") return "Paid";
         return application.grantStatus;
     }
@@ -238,6 +239,11 @@
     .status-badge.paying {
         background-color: #dbeafe;
         color: #1e40af;
+    }
+
+    .status-badge.reconciliationRequired {
+        background-color: #ffe4e6;
+        color: #9f1239;
     }
 
     .status-badge.paid {
