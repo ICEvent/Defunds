@@ -42,6 +42,21 @@ persistent actor Defunds{
 		approvalPercentage : Nat;
 	};
 
+	type TreasuryCommitmentStatus = {
+		#awaitingFunding;
+		#committed;
+		#paid : Nat64;
+	};
+
+	type TreasuryCommitment = {
+		grantId : Nat;
+		currency : Types.Currency;
+		amount : Nat64;
+		status : TreasuryCommitmentStatus;
+		createdAt : Int;
+		updatedAt : Int;
+	};
+
 	transient let ICP_FEE : Nat64 = 10_000;
 
 	var _stable_grantId = 1; // Unique ID for each grant
@@ -52,6 +67,7 @@ persistent actor Defunds{
 	var upgradeCredits : [(Principal, Nat)] = [];
 	var upgradeExchangeRates : [(Text, Nat64)] = [];
 	var upgradeGrantVoteSnapshots : [(Nat, GrantVoteSnapshot)] = [];
+	var upgradeTreasuryCommitments : [(Nat, TreasuryCommitment)] = [];
 	var upgradeProcessedDonationBlocks : [Nat64] = [];
 	var _stable_grants : [(Nat, Grant)] = [];
 	var upgradeDonations : [(Nat64, Donation)] = [];
@@ -84,6 +100,13 @@ persistent actor Defunds{
 	transient var grantVoteSnapshots = TrieMap.TrieMap<Nat, GrantVoteSnapshot>(Nat.equal, natHash);
 	grantVoteSnapshots := TrieMap.fromEntries<Nat, GrantVoteSnapshot>(
 		Iter.fromArray(upgradeGrantVoteSnapshots),
+		Nat.equal,
+		natHash,
+	);
+
+	transient var treasuryCommitments = TrieMap.TrieMap<Nat, TreasuryCommitment>(Nat.equal, natHash);
+	treasuryCommitments := TrieMap.fromEntries<Nat, TreasuryCommitment>(
+		Iter.fromArray(upgradeTreasuryCommitments),
 		Nat.equal,
 		natHash,
 	);
@@ -248,6 +271,163 @@ persistent actor Defunds{
 		};
 	};
 
+	private func committedIcpLiability() : Nat {
+		var total : Nat = 0;
+		for ((_, commitment) in treasuryCommitments.entries()) {
+			switch (commitment.status) {
+				case (#committed) {
+					switch (commitment.currency) {
+						case (#ICP) {
+							total += Nat64.toNat(commitment.amount) + Nat64.toNat(ICP_FEE);
+						};
+						case (_) {};
+					};
+				};
+				case (_) {};
+			};
+		};
+		total;
+	};
+
+	private func upsertAwaitingFunding(grant : Grant) {
+		let now = Time.now();
+		switch (treasuryCommitments.get(Nat.abs(grant.grantId))) {
+			case null {
+				treasuryCommitments.put(
+					Nat.abs(grant.grantId),
+					{
+						grantId = Nat.abs(grant.grantId);
+						currency = grant.currency;
+						amount = grant.amount;
+						status = #awaitingFunding;
+						createdAt = now;
+						updatedAt = now;
+					},
+				);
+			};
+			case (?existing) {
+				switch (existing.status) {
+					case (#paid(_)) {};
+					case (_) {
+						treasuryCommitments.put(
+							existing.grantId,
+							{
+								existing with
+								currency = grant.currency;
+								amount = grant.amount;
+								status = #awaitingFunding;
+								updatedAt = now;
+							},
+						);
+					};
+				};
+			};
+		};
+	};
+
+	private func markCommitted(grant : Grant) {
+		let grantId = Nat.abs(grant.grantId);
+		let now = Time.now();
+		switch (treasuryCommitments.get(grantId)) {
+			case null {
+				treasuryCommitments.put(
+					grantId,
+					{
+						grantId = grantId;
+						currency = grant.currency;
+						amount = grant.amount;
+						status = #committed;
+						createdAt = now;
+						updatedAt = now;
+					},
+				);
+			};
+			case (?existing) {
+				treasuryCommitments.put(
+					grantId,
+					{
+						existing with
+						currency = grant.currency;
+						amount = grant.amount;
+						status = #committed;
+						updatedAt = now;
+					},
+				);
+			};
+		};
+	};
+
+	private func markPaid(grantId : Nat, blockIndex : Nat64) {
+		switch (treasuryCommitments.get(grantId)) {
+			case null {};
+			case (?existing) {
+				treasuryCommitments.put(
+					grantId,
+					{
+						existing with
+						status = #paid(blockIndex);
+						updatedAt = Time.now();
+					},
+				);
+			};
+		};
+	};
+
+	private func tryCommitApprovedGrant(grant : Grant) : async Result.Result<TreasuryCommitment, Text> {
+		let grantId = Nat.abs(grant.grantId);
+		if (grant.grantStatus != #approved) {
+			return #err("Grant must be approved before funds can be committed");
+		};
+
+		switch (treasuryCommitments.get(grantId)) {
+			case (?existing) {
+				switch (existing.status) {
+					case (#committed) { return #ok(existing) };
+					case (#paid(_)) { return #ok(existing) };
+					case (#awaitingFunding) {};
+				};
+			};
+			case null {};
+		};
+
+		switch (grant.currency) {
+			case (#ICP) {
+				let treasuryAccount = await ICPLedger.account_identifier({
+					owner = Principal.fromActor(Defunds);
+					subaccount = null;
+				});
+				let liveBalance = await ICPLedger.account_balance({ account = treasuryAccount });
+
+				// Recompute liability after awaits so concurrent commit attempts cannot
+				// reserve the same balance.
+				let reservedNat = committedIcpLiability();
+				let requiredNat = Nat64.toNat(grant.amount) + Nat64.toNat(ICP_FEE);
+				let liveNat = Nat64.toNat(liveBalance.e8s);
+
+				if (reservedNat + requiredNat > liveNat) {
+					upsertAwaitingFunding(grant);
+					switch (treasuryCommitments.get(grantId)) {
+						case (?commitment) { #ok(commitment) };
+						case null { #err("Failed to record awaiting-funding commitment") };
+					};
+				} else {
+					markCommitted(grant);
+					switch (treasuryCommitments.get(grantId)) {
+						case (?commitment) { #ok(commitment) };
+						case null { #err("Failed to record treasury commitment") };
+					};
+				};
+			};
+			case (_) {
+				upsertAwaitingFunding(grant);
+				switch (treasuryCommitments.get(grantId)) {
+					case (?commitment) { #ok(commitment) };
+					case null { #err("Failed to record unsupported-currency commitment") };
+				};
+			};
+		};
+	};
+
 	private func isConcilMemberInternal(member : Principal) : Bool {
 		Option.isSome(concilMembers.get(member));
 	};
@@ -313,6 +493,7 @@ persistent actor Defunds{
 		upgradeCredits := Iter.toArray(donorCredits.entries());
 		upgradeExchangeRates := Iter.toArray(donorExchangeRates.entries());
 		upgradeGrantVoteSnapshots := Iter.toArray(grantVoteSnapshots.entries());
+		upgradeTreasuryCommitments := Iter.toArray(treasuryCommitments.entries());
 		upgradeProcessedDonationBlocks := Iter.toArray(processedDonationBlocks.keys());
 		upgradeDonations := Iter.toArray(donations.entries());
 
@@ -340,6 +521,12 @@ persistent actor Defunds{
 			natHash,
 		);
 		upgradeGrantVoteSnapshots := [];
+		treasuryCommitments := TrieMap.fromEntries<Nat, TreasuryCommitment>(
+			Iter.fromArray(upgradeTreasuryCommitments),
+			Nat.equal,
+			natHash,
+		);
+		upgradeTreasuryCommitments := [];
 		processedDonationBlocks := TrieMap.fromEntries<Nat64, Bool>(
 			Iter.map<Nat64, (Nat64, Bool)>(
 				Iter.fromArray(upgradeProcessedDonationBlocks),
@@ -767,6 +954,26 @@ persistent actor Defunds{
 		};
 	};
 
+	public query func getGrantTreasuryCommitment(grantId : Nat) : async ?TreasuryCommitment {
+		treasuryCommitments.get(grantId);
+	};
+
+	public query func getTreasuryCommitments() : async [TreasuryCommitment] {
+		Iter.toArray(treasuryCommitments.vals());
+	};
+
+	public shared ({ caller }) func commitApprovedGrant(grantId : Nat) : async Result.Result<TreasuryCommitment, Text> {
+		if (Principal.isAnonymous(caller)) {
+			return #err("Anonymous users cannot commit grant funds");
+		};
+		switch (grants.getGrant(grantId)) {
+			case null { #err("Grant not found") };
+			case (?grant) {
+				await tryCommitApprovedGrant(grant);
+			};
+		};
+	};
+
 	public shared ({ caller }) func startReview(grantId : Nat) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot start review");
@@ -873,6 +1080,14 @@ persistent actor Defunds{
 									};
 
 									if (grants.finalizeVoting(grantId, snapshot.approvalPercentage)) {
+										switch (grants.getGrant(grantId)) {
+											case (?finalGrant) {
+												if (finalGrant.grantStatus == #approved) {
+													ignore await tryCommitApprovedGrant(finalGrant);
+												};
+											};
+											case null {};
+										};
 										#ok(1);
 									} else {
 										#err("Failed to finalize voting");
@@ -888,89 +1103,80 @@ persistent actor Defunds{
 
 	public shared ({ caller }) func claimGrant(grantId : Nat) : async Result.Result<Nat64, Text> {
 		if (Principal.isAnonymous(caller)) {
-			#err("Anonymous users cannot claim grants");
-		} else {
-			switch (grants.getGrant(grantId)) {
-				case null { #err("Grant not found") };
-				case (?grant) {
-					if (grant.applicant != caller) {
-						#err("Only grant applicant can claim");
-					} else if (grant.grantStatus != #approved) {
-						#err("Grant must be approved to claim");
-					} else {
-						switch (grant.currency) {
-							case (#ICP) {
-								// Legacy ICP ledger transfer path
-								let transferArgs : ICPTypes.TransferArgs = {
-									memo = 0;
-									amount = { e8s = grant.amount };
-									fee = { e8s = ICP_FEE };
-									from_subaccount = null;
-									to = Blob.fromArray(Hex.decode(grant.recipient));
-									created_at_time = null;
-								};
+			return #err("Anonymous users cannot claim grants");
+		};
 
-								try {
-									let transferResult = await ICPLedger.transfer(transferArgs);
-									switch (transferResult) {
-										case (#Ok(blockIndex)) {
-											ignore grants.changeGrantStatus(grantId, #released);
-											_avaliable_funds -= grant.amount;
-											#ok(blockIndex);
-										};
-										case (#Err(_)) {
-											#err("Transfer failed");
-										};
-									};
-								} catch (_) {
-									#err("Transfer error");
-								};
-							};
-							case (_) {
-								// ICRC1 transfer path for ck* tokens and dynamic #ICRC(canisterId)
-								switch (getIcrcLedgerCanister(grant.currency)) {
-									case null {
-										#err("Unsupported token ledger for grant currency");
-									};
-									case (?ledgerCanister) {
-										let ledger = icrc1LedgerActor(ledgerCanister);
-										let recipientOwner = Principal.fromText(grant.recipient);
+		switch (grants.getGrant(grantId)) {
+			case null { #err("Grant not found") };
+			case (?grant) {
+				if (grant.applicant != caller) {
+					return #err("Only grant applicant can claim");
+				};
+				if (grant.grantStatus != #approved) {
+					return #err("Grant must be approved to claim");
+				};
 
-										let transferArgs : Icrc1TransferArg = {
-											from_subaccount = null;
-											to = {
-												owner = recipientOwner;
-												subaccount = null;
-											};
-											amount = Nat64.toNat(grant.amount);
-											fee = null;
-											memo = null;
-											created_at_time = null;
-										};
-
-										try {
-											let transferResult = await ledger.icrc1_transfer(transferArgs);
-											switch (transferResult) {
-												case (#Ok(blockIndexNat)) {
-													if (blockIndexNat > 18_446_744_073_709_551_615) {
-														#err("ICRC transfer succeeded but block index exceeds nat64 range");
-													} else {
-														ignore grants.changeGrantStatus(grantId, #released);
-														_avaliable_funds -= grant.amount;
-														#ok(Nat64.fromNat(blockIndexNat));
-													};
-												};
-												case (#Err(_)) {
-													#err("ICRC transfer failed");
-												};
-											};
-										} catch (_) {
-											#err("ICRC transfer error");
-										};
-									};
-								};
-							};
+				let commitment = switch (treasuryCommitments.get(grantId)) {
+					case (?existing) { existing };
+					case null {
+						switch (await tryCommitApprovedGrant(grant)) {
+							case (#err(message)) { return #err(message) };
+							case (#ok(created)) { created };
 						};
+					};
+				};
+
+				switch (commitment.status) {
+					case (#awaitingFunding) {
+						return #err("Grant is approved but awaiting treasury funding");
+					};
+					case (#paid(blockIndex)) {
+						return #ok(blockIndex);
+					};
+					case (#committed) {};
+				};
+
+				switch (grant.currency) {
+					case (#ICP) {
+						let transferArgs : ICPTypes.TransferArgs = {
+							memo = Nat64.fromNat(grantId);
+							amount = { e8s = grant.amount };
+							fee = { e8s = ICP_FEE };
+							from_subaccount = null;
+							to = Blob.fromArray(Hex.decode(grant.recipient));
+							created_at_time = ?{ timestamp_nanos = Nat64.fromNat(Int.abs(commitment.createdAt)) };
+						};
+
+						try {
+							let transferResult = await ICPLedger.transfer(transferArgs);
+							switch (transferResult) {
+								case (#Ok(blockIndex)) {
+									if (not grants.changeGrantStatus(grantId, #released)) {
+										return #err("Transfer succeeded but grant status could not be released");
+									};
+									markPaid(grantId, blockIndex);
+									if (_avaliable_funds >= grant.amount) {
+										_avaliable_funds -= grant.amount;
+									};
+									#ok(blockIndex);
+								};
+								case (#Err(#TxDuplicate({ duplicate_of }))) {
+									if (not grants.changeGrantStatus(grantId, #released)) {
+										return #err("Transfer already succeeded but grant status could not be released");
+									};
+									markPaid(grantId, duplicate_of);
+									#ok(duplicate_of);
+								};
+								case (#Err(_)) {
+									#err("Transfer failed; treasury commitment remains reserved");
+								};
+							};
+						} catch (_) {
+							#err("Transfer error; treasury commitment remains reserved");
+						};
+					};
+					case (_) {
+						#err("This currency is not yet enabled for committed Main Fund payout");
 					};
 				};
 			};
