@@ -28,6 +28,44 @@
 
     let showApplicationModal = false;
     let applications = [];
+    let treasuryState = null;
+
+    function variantKey(value) {
+        if (!value || typeof value !== "object") return "";
+        return Object.keys(value)[0] || "";
+    }
+
+    function treasuryStatus(application) {
+        const commitment = application.treasuryCommitment;
+        if (!commitment) {
+            return application.grantStatus === "approved"
+                ? "approved"
+                : application.grantStatus;
+        }
+        return variantKey(commitment.status);
+    }
+
+    function treasuryLabel(application) {
+        const status = treasuryStatus(application);
+        if (status === "awaitingFunding") return "Approved · Awaiting Funding";
+        if (status === "committed") return "Approved · Funds Reserved";
+        if (status === "paying") return "Payment Processing";
+        if (status === "paid") return "Paid";
+        if (status === "released") return "Released";
+        if (status === "approved") return "Approved";
+        return application.grantStatus;
+    }
+
+    function canClaim(application) {
+        const status = treasuryStatus(application);
+        return (
+            application.grantStatus === "approved" &&
+            (status === "committed" ||
+                status === "awaitingFunding" ||
+                status === "paying" ||
+                status === "approved")
+        );
+    }
     let formData = {
         title: "",
         description: "",
@@ -39,10 +77,38 @@
     };
 
     async function loadApplications() {
-        if (backend) {
-            let rapplications = await backend.getMyGrants();
-            applications = rapplications.map(parseApplication);
-            console.log(applications);
+        if (!backend) return;
+
+        const rapplications = await backend.getMyGrants();
+        const parsed = rapplications.map(parseApplication);
+
+        applications = await Promise.all(
+            parsed.map(async (application) => {
+                try {
+                    if (typeof backend.getGrantTreasuryCommitment !== "function") {
+                        return { ...application, treasuryCommitment: null };
+                    }
+                    const result = await backend.getGrantTreasuryCommitment(
+                        application.grantId,
+                    );
+                    return {
+                        ...application,
+                        treasuryCommitment:
+                            result && result.length > 0 ? result[0] : null,
+                    };
+                } catch (_) {
+                    return { ...application, treasuryCommitment: null };
+                }
+            }),
+        );
+
+        try {
+            treasuryState =
+                typeof backend.getMainFundIcpTreasuryState === "function"
+                    ? await backend.getMainFundIcpTreasuryState()
+                    : null;
+        } catch (_) {
+            treasuryState = null;
         }
     }
 
@@ -131,12 +197,35 @@
         </button>
     </div>
 
+    {#if treasuryState}
+        <div class="mx-5 mt-5 grid gap-3 sm:grid-cols-3">
+            <div class="rounded-xl border border-slate-200 bg-white p-4">
+                <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Treasury balance</div>
+                <div class="mt-1 text-lg font-semibold text-slate-900">
+                    {(Number(treasuryState.balance) / 100_000_000).toFixed(4)} ICP
+                </div>
+            </div>
+            <div class="rounded-xl border border-slate-200 bg-white p-4">
+                <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Reserved</div>
+                <div class="mt-1 text-lg font-semibold text-slate-900">
+                    {(Number(treasuryState.reserved) / 100_000_000).toFixed(4)} ICP
+                </div>
+            </div>
+            <div class="rounded-xl border border-slate-200 bg-white p-4">
+                <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Available</div>
+                <div class="mt-1 text-lg font-semibold text-slate-900">
+                    {(Number(treasuryState.available) / 100_000_000).toFixed(4)} ICP
+                </div>
+            </div>
+        </div>
+    {/if}
+
     <div class="applications-list">
         {#each applications as application}
             <div class="application-card">
                 <h3>{application.title}</h3>
-                <p class="status {application.grantStatus.toLowerCase()}">
-                    {application.grantStatus}
+                <p class="status {treasuryStatus(application)}">
+                    {treasuryLabel(application)}
                 </p>
                 <p class="status amount">
                     {application.amount}
@@ -165,14 +254,33 @@
                     </div>
                 {/if}
                 {#if application.grantStatus === "approved"}
-                    <div class="card-actions">
-                        <button
-                            class="claim-grant-btn"
-                            on:click={() => claimGrant(application.grantId)}
-                        >
-                            Claim Grant
-                        </button>
-                    </div>
+                    {#if treasuryStatus(application) === "awaitingFunding"}
+                        <p class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                            Community approved. Treasury funds are not yet available; Claim will retry the reservation.
+                        </p>
+                    {:else if treasuryStatus(application) === "committed"}
+                        <p class="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                            Funds are reserved for this grant and ready for payout.
+                        </p>
+                    {:else if treasuryStatus(application) === "paying"}
+                        <p class="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                            Payment has been submitted. Retrying is safe and will reconcile the same transfer.
+                        </p>
+                    {/if}
+                    {#if canClaim(application)}
+                        <div class="card-actions">
+                            <button
+                                class="claim-grant-btn"
+                                on:click={() => claimGrant(application.grantId)}
+                            >
+                                {treasuryStatus(application) === "awaitingFunding"
+                                    ? "Retry Funding"
+                                    : treasuryStatus(application) === "paying"
+                                      ? "Check Payment"
+                                      : "Claim Grant"}
+                            </button>
+                        </div>
+                    {/if}
                 {/if}
             </div>
         {/each}
@@ -348,9 +456,26 @@
         color: #6b21a8;
     }
 
-    .status.approved {
+    .status.approved,
+    .status.committed {
         background: #dcfce7;
         color: #166534;
+    }
+
+    .status.awaitingFunding {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .status.paying {
+        background: #dbeafe;
+        color: #1e40af;
+    }
+
+    .status.paid,
+    .status.released {
+        background: #ede9fe;
+        color: #5b21b6;
     }
 
     .status.rejected {
