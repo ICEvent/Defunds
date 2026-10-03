@@ -52,6 +52,7 @@ persistent actor Defunds{
 	var upgradeCredits : [(Principal, Nat)] = [];
 	var upgradeExchangeRates : [(Text, Nat64)] = [];
 	var upgradeGrantVoteSnapshots : [(Nat, GrantVoteSnapshot)] = [];
+	var upgradeProcessedDonationBlocks : [Nat64] = [];
 	var _stable_grants : [(Nat, Grant)] = [];
 	var upgradeDonations : [(Nat64, Donation)] = [];
 
@@ -71,6 +72,15 @@ persistent actor Defunds{
 	};
 
 	transient var donations = TrieMap.TrieMap<Nat64, Donation>(Nat64.equal, nat64Hash);
+	transient var processedDonationBlocks = TrieMap.TrieMap<Nat64, Bool>(Nat64.equal, nat64Hash);
+	processedDonationBlocks := TrieMap.fromEntries<Nat64, Bool>(
+		Iter.map<Nat64, (Nat64, Bool)>(
+			Iter.fromArray(upgradeProcessedDonationBlocks),
+			func(blockIndex) { (blockIndex, true) },
+		),
+		Nat64.equal,
+		nat64Hash,
+	);
 	transient var grantVoteSnapshots = TrieMap.TrieMap<Nat, GrantVoteSnapshot>(Nat.equal, natHash);
 	grantVoteSnapshots := TrieMap.fromEntries<Nat, GrantVoteSnapshot>(
 		Iter.fromArray(upgradeGrantVoteSnapshots),
@@ -303,6 +313,7 @@ persistent actor Defunds{
 		upgradeCredits := Iter.toArray(donorCredits.entries());
 		upgradeExchangeRates := Iter.toArray(donorExchangeRates.entries());
 		upgradeGrantVoteSnapshots := Iter.toArray(grantVoteSnapshots.entries());
+		upgradeProcessedDonationBlocks := Iter.toArray(processedDonationBlocks.keys());
 		upgradeDonations := Iter.toArray(donations.entries());
 
 		_stable_grants := grants.toStable();
@@ -329,6 +340,15 @@ persistent actor Defunds{
 			natHash,
 		);
 		upgradeGrantVoteSnapshots := [];
+		processedDonationBlocks := TrieMap.fromEntries<Nat64, Bool>(
+			Iter.map<Nat64, (Nat64, Bool)>(
+				Iter.fromArray(upgradeProcessedDonationBlocks),
+				func(blockIndex) { (blockIndex, true) },
+			),
+			Nat64.equal,
+			nat64Hash,
+		);
+		upgradeProcessedDonationBlocks := [];
 		donations := TrieMap.fromEntries<Nat64, Donation>(
 			Iter.fromArray(upgradeDonations),
 			Nat64.equal,
@@ -409,10 +429,12 @@ persistent actor Defunds{
 			#err("This donation verification path currently supports ICP only");
 		} else if (amount == 0) {
 			#err("Donation amount must be greater than zero");
+		} else if (Option.isSome(processedDonationBlocks.get(blockIndex))) {
+			#err("This block index has already been processed");
 		} else {
 			switch (donations.get(blockIndex)) {
 				case (?_) {
-					return #err("This block index has already been processed");
+					return #err("This block index is already pending confirmation");
 				};
 				case null {
 					let tempDonation : Donation = {
@@ -477,6 +499,15 @@ persistent actor Defunds{
 						if (not Blob.equal(transfer.to, expectedTo)) {
 							return #err("Donation was not sent to the Defunds treasury");
 						};
+
+						// All external awaits are complete. Re-check and atomically mark the
+						// ledger block before mutating contribution state so concurrent
+						// confirmations cannot credit the same transfer twice.
+						if (Option.isSome(processedDonationBlocks.get(blockIndex))) {
+							donations.delete(blockIndex);
+							return #err("This block index has already been processed");
+						};
+						processedDonationBlocks.put(blockIndex, true);
 
 						let currencyText = currencyToText(tempDonation.currency);
 						let rate : Nat64 = switch (donorExchangeRates.get(currencyText)) {
