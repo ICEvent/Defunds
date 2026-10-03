@@ -7,6 +7,7 @@ import Time "mo:base/Time";
 import Buffer "mo:base/Buffer";
 import Result "mo:base/Result";
 import Nat64 "mo:base/Nat64";
+import Int "mo:base/Int";
 import Option "mo:base/Option";
 import Hash "mo:base/Hash";
 import Blob "mo:base/Blob";
@@ -303,12 +304,12 @@ persistent actor Defunds{
 
 	private func upsertAwaitingFunding(grant : Grant) {
 		let now = Time.now();
-		switch (treasuryCommitments.get(Nat.abs(grant.grantId))) {
+		switch (treasuryCommitments.get(Int.abs(grant.grantId))) {
 			case null {
 				treasuryCommitments.put(
-					Nat.abs(grant.grantId),
+					Int.abs(grant.grantId),
 					{
-						grantId = Nat.abs(grant.grantId);
+						grantId = Int.abs(grant.grantId);
 						currency = grant.currency;
 						amount = grant.amount;
 						status = #awaitingFunding;
@@ -339,7 +340,7 @@ persistent actor Defunds{
 	};
 
 	private func markCommitted(grant : Grant) {
-		let grantId = Nat.abs(grant.grantId);
+		let grantId = Int.abs(grant.grantId);
 		let now = Time.now();
 		switch (treasuryCommitments.get(grantId)) {
 			case null {
@@ -439,7 +440,7 @@ persistent actor Defunds{
 	};
 
 	private func tryCommitApprovedGrant(grant : Grant) : async Result.Result<TreasuryCommitment, Text> {
-		let grantId = Nat.abs(grant.grantId);
+		let grantId = Int.abs(grant.grantId);
 		if (grant.grantStatus != #approved) {
 			return #err("Grant must be approved before funds can be committed");
 		};
@@ -463,6 +464,20 @@ persistent actor Defunds{
 					subaccount = null;
 				});
 				let liveBalance = await ICPLedger.account_balance({ account = treasuryAccount });
+
+				// Another call may have committed this same grant while we were awaiting
+				// the ledger. Never downgrade an already-reserved or paid commitment.
+				switch (treasuryCommitments.get(grantId)) {
+					case (?current) {
+						switch (current.status) {
+							case (#committed) { return #ok(current) };
+							case (#paying(_)) { return #ok(current) };
+							case (#paid(_)) { return #ok(current) };
+							case (#awaitingFunding) {};
+						};
+					};
+					case null {};
+				};
 
 				// Recompute liability after awaits so concurrent commit attempts cannot
 				// reserve the same balance.
@@ -606,7 +621,7 @@ persistent actor Defunds{
 		// startTime is used so donations made later do not enter the electorate.
 		for (grant in grants.getGrants().vals()) {
 			if (grant.grantStatus == #voting) {
-				let grantId = Nat.abs(grant.grantId);
+				let grantId = Int.abs(grant.grantId);
 				if (grantVoteSnapshots.get(grantId) == null) {
 					switch (grant.votingStatus) {
 						case (?status) {
@@ -1052,11 +1067,8 @@ persistent actor Defunds{
 		let liveBalance = await ICPLedger.account_balance({ account = treasuryAccount });
 		let reservedNat = committedIcpLiability();
 		let maxNat64 : Nat = 18_446_744_073_709_551_615;
-		let reserved = if (reservedNat > maxNat64) {
-			18_446_744_073_709_551_615 : Nat64
-		} else {
-			Nat64.fromNat(reservedNat)
-		};
+		let cappedReservedNat = Nat.min(reservedNat, maxNat64);
+		let reserved = Nat64.fromNat(cappedReservedNat);
 		let available = if (reserved >= liveBalance.e8s) {
 			0
 		} else {
