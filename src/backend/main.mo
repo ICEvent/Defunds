@@ -271,10 +271,10 @@ persistent actor Defunds{
 			case null { null };
 			case (?power) {
 				let historicalScore = contributionScoreAt(power, snapshot.createdAt);
-				if (historicalScore == 0) {
+				if (snapshot.legacyRawWeighting) {
+					if (power.totalPower == 0) { null } else { ?power.totalPower }
+				} else if (historicalScore == 0) {
 					null
-				} else if (snapshot.legacyRawWeighting) {
-					?historicalScore
 				} else {
 					?integerSqrt(historicalScore)
 				};
@@ -739,21 +739,12 @@ persistent actor Defunds{
 					switch (grant.votingStatus) {
 						case (?status) {
 							let baseSnapshot = buildGrantVoteSnapshotAt(status.startTime);
-							var legacyTotalPower : Nat64 = 0;
-							var legacyEligibleVoters : Nat = 0;
-							for ((_, power) in votingPowers.entries()) {
-								let historicalScore = contributionScoreAt(power, status.startTime);
-								if (historicalScore > 0) {
-									legacyEligibleVoters += 1;
-									legacyTotalPower += historicalScore;
-								};
-							};
 							grantVoteSnapshots.put(
 								grantId,
 								{
 									baseSnapshot with
-									eligibleVoterCount = legacyEligibleVoters;
-									totalVotingPower = legacyTotalPower;
+									eligibleVoterCount = votingPowers.size();
+									totalVotingPower = _accumulated_voting_power;
 									legacyRawWeighting = true;
 								},
 							);
@@ -1335,13 +1326,24 @@ persistent actor Defunds{
 								case null { #err("No voting status found") };
 								case (?status) {
 									let voterCount = status.votes.size();
-									if (voterCount * 100 < snapshot.eligibleVoterCount * snapshot.minVotePercentage) {
+									let eligibleVoterCount = if (snapshot.legacyRawWeighting) {
+										votingPowers.size()
+									} else {
+										snapshot.eligibleVoterCount
+									};
+									let eligibleVotingPower = if (snapshot.legacyRawWeighting) {
+										_accumulated_voting_power
+									} else {
+										snapshot.totalVotingPower
+									};
+
+									if (voterCount * 100 < eligibleVoterCount * snapshot.minVotePercentage) {
 										return #err("Insufficient voter participation");
 									};
 
 									if (
 										status.totalVotePower * 100 <
-										snapshot.totalVotingPower * Nat64.fromNat(snapshot.minPowerPercentage)
+										eligibleVotingPower * Nat64.fromNat(snapshot.minPowerPercentage)
 									) {
 										return #err("Insufficient voting power participation");
 									};
@@ -1525,7 +1527,7 @@ persistent actor Defunds{
 			case null { #err("Treasury commitment not found") };
 			case (?existing) {
 				switch (existing.status) {
-					case (#reconciliationRequired(_)) {
+					case (#reconciliationRequired({ createdAt })) {
 						switch (paidBlockIndex) {
 							case (?blockIndex) {
 								if (not ensureGrantReleased(grantId)) {
@@ -1534,7 +1536,29 @@ persistent actor Defunds{
 								markPaid(grantId, blockIndex);
 							};
 							case null {
-								resetPayoutToCommitted(grantId, payoutCreatedAt);
+								// Reconciliation is a privileged explicit decision that
+								// the old attempt did not settle. Return it to committed
+								// only if the same reconciliation attempt is still current.
+								switch (treasuryCommitments.get(grantId)) {
+									case (?current) {
+										switch (current.status) {
+											case (#reconciliationRequired({ createdAt = currentCreatedAt })) {
+												if (currentCreatedAt == createdAt) {
+													treasuryCommitments.put(
+														grantId,
+														{
+															current with
+															status = #committed;
+															updatedAt = Time.now();
+														},
+													);
+												};
+											};
+											case (_) {};
+										};
+									};
+									case null {};
+								};
 							};
 						};
 						switch (treasuryCommitments.get(grantId)) {
