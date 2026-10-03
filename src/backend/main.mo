@@ -33,6 +33,16 @@ persistent actor Defunds{
 	type Grant = GrantTypes.Grant;
 	type NewGrant = GrantTypes.NewGrant;
 
+	type GrantVoteSnapshot = {
+		eligibleVoters : [(Principal, Nat64)];
+		eligibleVoterCount : Nat;
+		totalVotingPower : Nat64;
+		createdAt : Int;
+		minVotePercentage : Nat;
+		minPowerPercentage : Nat;
+		approvalPercentage : Nat;
+	};
+
 	transient let ICP_FEE : Nat64 = 10_000;
 
 	var _stable_grantId = 1; // Unique ID for each grant
@@ -42,6 +52,7 @@ persistent actor Defunds{
 
 	var upgradeCredits : [(Principal, Nat)] = [];
 	var upgradeExchangeRates : [(Text, Nat64)] = [];
+	var upgradeGrantVoteSnapshots : [(Nat, GrantVoteSnapshot)] = [];
 	var _stable_grants : [(Nat, Grant)] = [];
 	var upgradeDonations : [(Nat64, Donation)] = [];
 
@@ -56,7 +67,17 @@ persistent actor Defunds{
 		Text.hash(Nat64.toText(n));
 	};
 
+	transient let natHash = func(n : Nat) : Hash.Hash {
+		Text.hash(Nat.toText(n));
+	};
+
 	transient var donations = TrieMap.TrieMap<Nat64, Donation>(Nat64.equal, nat64Hash);
+	transient var grantVoteSnapshots = TrieMap.TrieMap<Nat, GrantVoteSnapshot>(Nat.equal, natHash);
+	grantVoteSnapshots := TrieMap.fromEntries<Nat, GrantVoteSnapshot>(
+		Iter.fromArray(upgradeGrantVoteSnapshots),
+		Nat.equal,
+		natHash,
+	);
 
 	var upgradeConcilMembers : [Principal] = [];
 	transient var concilMembers = TrieMap.TrieMap<Principal, Bool>(Principal.equal, Principal.hash);
@@ -71,6 +92,7 @@ persistent actor Defunds{
 		query_blocks : shared query ICPTypes.GetBlocksArgs -> async ICPTypes.QueryBlocksResponse;
 		transfer : shared ICPTypes.TransferArgs -> async ICPTypes.Result_6;
 		account_balance : shared query ICPTypes.BinaryAccountBalanceArgs -> async ICPTypes.Tokens;
+		account_identifier : shared query ICPTypes.Account -> async Blob;
 
 	} = actor "ryjl3-tyaaa-aaaaa-aaaba-cai";
 
@@ -141,9 +163,65 @@ persistent actor Defunds{
 			case (#ICRC(token)) { token };
 		};
 	};
-	var minVotePercentage : Nat = 50; // 50% of total donors must vote
-	var minPowerPercentage : Nat = 50; // 50% of total voting power required
+	var minVotePercentage : Nat = 50; // minimum share of snapshotted contributors who must vote
+	var minPowerPercentage : Nat = 50; // minimum share of snapshotted governance power that must participate
+	var approvalPercentage : Nat = 50; // approval power must be strictly greater than this percentage of participating power
 	var maxAmountPercentage : Nat = 5; // 5% of total funds maximum
+
+	private func integerSqrt(value : Nat64) : Nat64 {
+		if (value < 2) {
+			return value;
+		};
+		var x0 = value / 2;
+		var x1 = (x0 + value / x0) / 2;
+		while (x1 < x0) {
+			x0 := x1;
+			x1 := (x0 + value / x0) / 2;
+		};
+		x0;
+	};
+
+	private func currentGovernancePower() : Nat64 {
+		var total : Nat64 = 0;
+		for ((_, power) in votingPowers.entries()) {
+			if (power.totalPower > 0) {
+				total += integerSqrt(power.totalPower);
+			};
+		};
+		total;
+	};
+
+	private func buildGrantVoteSnapshot() : GrantVoteSnapshot {
+		let voters = Buffer.Buffer<(Principal, Nat64)>(0);
+		var total : Nat64 = 0;
+		for ((principal, power) in votingPowers.entries()) {
+			if (power.totalPower > 0) {
+				let governancePower = integerSqrt(power.totalPower);
+				if (governancePower > 0) {
+					voters.add((principal, governancePower));
+					total += governancePower;
+				};
+			};
+		};
+		{
+			eligibleVoters = Buffer.toArray(voters);
+			eligibleVoterCount = voters.size();
+			totalVotingPower = total;
+			createdAt = Time.now();
+			minVotePercentage = minVotePercentage;
+			minPowerPercentage = minPowerPercentage;
+			approvalPercentage = approvalPercentage;
+		};
+	};
+
+	private func snapshotVotingPower(snapshot : GrantVoteSnapshot, voter : Principal) : ?Nat64 {
+		for ((principal, power) in snapshot.eligibleVoters.vals()) {
+			if (principal == voter) {
+				return ?power;
+			};
+		};
+		null;
+	};
 
 	private func isConcilMemberInternal(member : Principal) : Bool {
 		Option.isSome(concilMembers.get(member));
@@ -160,11 +238,39 @@ persistent actor Defunds{
 	) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot update policy");
-		} else if (Option.isNull(concilMembers.get(caller))) {
-			#err("Only council members can update policy");
+		} else if (not canManageConcilMembers(caller)) {
+			#err("Only controllers or council members can update policy");
+		} else if (newMinVote > 100 or newMinPower > 100 or newMaxAmount > 100) {
+			#err("Policy percentages must be between 0 and 100");
 		} else {
 			minVotePercentage := newMinVote;
 			minPowerPercentage := newMinPower;
+			maxAmountPercentage := newMaxAmount;
+			#ok(1);
+		};
+	};
+
+	public shared ({ caller }) func updateMainFundGovernancePolicy(
+		newMinVote : Nat,
+		newMinPower : Nat,
+		newApproval : Nat,
+		newMaxAmount : Nat,
+	) : async Result.Result<Nat, Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot update policy");
+		} else if (not canManageConcilMembers(caller)) {
+			#err("Only controllers or council members can update policy");
+		} else if (
+			newMinVote > 100 or
+			newMinPower > 100 or
+			newApproval >= 100 or
+			newMaxAmount > 100
+		) {
+			#err("Policy percentages are out of range");
+		} else {
+			minVotePercentage := newMinVote;
+			minPowerPercentage := newMinPower;
+			approvalPercentage := newApproval;
 			maxAmountPercentage := newMaxAmount;
 			#ok(1);
 		};
@@ -174,9 +280,14 @@ persistent actor Defunds{
 		(minVotePercentage, minPowerPercentage, maxAmountPercentage);
 	};
 
+	public query func getMainFundGovernancePolicy() : async (Nat, Nat, Nat, Nat) {
+		(minVotePercentage, minPowerPercentage, approvalPercentage, maxAmountPercentage);
+	};
+
 	system func preupgrade() {
 		upgradeCredits := Iter.toArray(donorCredits.entries());
 		upgradeExchangeRates := Iter.toArray(donorExchangeRates.entries());
+		upgradeGrantVoteSnapshots := Iter.toArray(grantVoteSnapshots.entries());
 		upgradeDonations := Iter.toArray(donations.entries());
 
 		_stable_grants := grants.toStable();
@@ -197,6 +308,12 @@ persistent actor Defunds{
 		upgradeExchangeRates := [];
 		upgradeVotingPowers := [];
 		upgradeConcilMembers := [];
+		grantVoteSnapshots := TrieMap.fromEntries<Nat, GrantVoteSnapshot>(
+			Iter.fromArray(upgradeGrantVoteSnapshots),
+			Nat.equal,
+			natHash,
+		);
+		upgradeGrantVoteSnapshots := [];
 		donations := TrieMap.fromEntries<Nat64, Donation>(
 			Iter.fromArray(upgradeDonations),
 			Nat64.equal,
@@ -208,6 +325,10 @@ persistent actor Defunds{
 	public shared ({ caller }) func updateExchangeRates(currency : Types.Currency, rate : Nat64) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("no permission for anonymous caller to set exchange rate");
+		} else if (not canManageConcilMembers(caller)) {
+			#err("Only controllers or council members can set exchange rates");
+		} else if (rate == 0) {
+			#err("Exchange rate must be greater than zero");
 		} else {
 			let currencyText = currencyToText(currency);
 			donorExchangeRates.put(currencyText, rate);
@@ -224,7 +345,7 @@ persistent actor Defunds{
 	};
 
 	public query func getTotalVotingPower() : async Nat64 {
-		return _accumulated_voting_power;
+		return currentGovernancePower();
 	};
 
 	public shared ({ caller }) func addConcilMember(member : Principal) : async Result.Result<Nat, Text> {
@@ -269,6 +390,10 @@ persistent actor Defunds{
 	public shared ({ caller }) func donate(amount : Nat64, currency : Types.Currency, blockIndex : Nat64) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("no permission for anonymous caller to donate");
+		} else if (currency != #ICP) {
+			#err("This donation verification path currently supports ICP only");
+		} else if (amount == 0) {
+			#err("Donation amount must be greater than zero");
 		} else {
 			switch (donations.get(blockIndex)) {
 				case (?_) {
@@ -291,18 +416,30 @@ persistent actor Defunds{
 		};
 	};
 
-	public shared func confirmDonation(blockIndex : Nat64) : async Result.Result<Nat, Text> {
+	public shared ({ caller }) func confirmDonation(blockIndex : Nat64) : async Result.Result<Nat, Text> {
+		if (Principal.isAnonymous(caller)) {
+			return #err("Anonymous users cannot confirm donations");
+		};
 		switch (donations.get(blockIndex)) {
 			case null { return #err("Donation not found") };
 			case (?tempDonation) {
+				if (tempDonation.donorId != caller) {
+					return #err("Only the recorded donor can confirm this donation");
+				};
 				if (tempDonation.isConfirmed) {
 					return #err("Donation already confirmed");
+				};
+				if (tempDonation.currency != #ICP) {
+					return #err("This donation verification path currently supports ICP only");
 				};
 
 				let queryResult = await ICPLedger.query_blocks({
 					start = blockIndex;
 					length = 1;
 				});
+				if (queryResult.blocks.size() == 0) {
+					return #err("Ledger block not found");
+				};
 
 				switch (queryResult.blocks[0].transaction.operation) {
 					case (?#Transfer(transfer)) {
@@ -310,21 +447,34 @@ persistent actor Defunds{
 							return #err("Amount mismatch");
 						};
 
-						//TODO: verify owner
-						// if (Principal.fromBlob(transfer.from) != caller) {
-						//     return #err("Caller does not match transaction sender");
-						// };
+						let expectedFrom = await ICPLedger.account_identifier({
+							owner = caller;
+							subaccount = null;
+						});
+						if (not Blob.equal(transfer.from, expectedFrom)) {
+							return #err("Donation sender does not match caller");
+						};
+
+						let expectedTo = await ICPLedger.account_identifier({
+							owner = Principal.fromActor(Defunds);
+							subaccount = null;
+						});
+						if (not Blob.equal(transfer.to, expectedTo)) {
+							return #err("Donation was not sent to the Defunds treasury");
+						};
 
 						let currencyText = currencyToText(tempDonation.currency);
 						let rate : Nat64 = switch (donorExchangeRates.get(currencyText)) {
 							case (null) 1;
-							case (?rate) rate;
+							case (?configuredRate) configuredRate;
 						};
 
-						let votePowerAmount : Nat64 = tempDonation.amount * rate;
+						// totalPower remains a normalized cumulative contribution score.
+						// Actual governance power is sqrt(totalPower), snapshotted per grant.
+						let contributionScore : Nat64 = tempDonation.amount * rate;
 						_accumulated_donations += tempDonation.amount;
 						_avaliable_funds += tempDonation.amount;
-						_accumulated_voting_power += votePowerAmount;
+						_accumulated_voting_power += contributionScore;
 
 						let donation : Donation = {
 							donorId = tempDonation.donorId;
@@ -336,19 +486,18 @@ persistent actor Defunds{
 						};
 
 						let powerChange : PowerChange = {
-							amount = votePowerAmount;
+							amount = contributionScore;
 							timestamp = Time.now();
 							source = donation;
 						};
 
-						// Update voting power
 						switch (votingPowers.get(tempDonation.donorId)) {
-							case (null) {
+							case null {
 								votingPowers.put(
 									tempDonation.donorId,
 									{
 										userId = tempDonation.donorId;
-										totalPower = votePowerAmount;
+										totalPower = contributionScore;
 										powerHistory = [powerChange];
 									},
 								);
@@ -360,7 +509,7 @@ persistent actor Defunds{
 									tempDonation.donorId,
 									{
 										userId = tempDonation.donorId;
-										totalPower = existingPower.totalPower + votePowerAmount;
+										totalPower = existingPower.totalPower + contributionScore;
 										powerHistory = Buffer.toArray(updatedHistory);
 									},
 								);
@@ -369,8 +518,7 @@ persistent actor Defunds{
 						donations.delete(blockIndex);
 						#ok(1);
 					};
-					case (_) { #err("Invalid transaction type") };
-
+					case (_) { #err("Ledger block is not an ICP transfer") };
 				};
 			};
 		};
@@ -508,6 +656,29 @@ persistent actor Defunds{
 		return donorCredits.get(Principal.fromText(donor));
 	};
 
+	public query func getGrantVotingSnapshot(grantId : Nat) : async ?{
+		eligibleVoterCount : Nat;
+		totalVotingPower : Nat64;
+		createdAt : Int;
+		minVotePercentage : Nat;
+		minPowerPercentage : Nat;
+		approvalPercentage : Nat;
+	} {
+		switch (grantVoteSnapshots.get(grantId)) {
+			case null { null };
+			case (?snapshot) {
+				?{
+					eligibleVoterCount = snapshot.eligibleVoterCount;
+					totalVotingPower = snapshot.totalVotingPower;
+					createdAt = snapshot.createdAt;
+					minVotePercentage = snapshot.minVotePercentage;
+					minPowerPercentage = snapshot.minPowerPercentage;
+					approvalPercentage = snapshot.approvalPercentage;
+				};
+			};
+		};
+	};
+
 	public shared ({ caller }) func startReview(grantId : Nat) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot start review");
@@ -526,10 +697,15 @@ persistent actor Defunds{
 	public shared ({ caller }) func startGrantVoting(grantId : Nat) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot start voting");
-		} else if (Option.isNull(concilMembers.get(caller))) {
-			#err("Only council members can start voting");
+		} else if (not canManageConcilMembers(caller)) {
+			#err("Only controllers or council members can start voting");
 		} else {
+			let snapshot = buildGrantVoteSnapshot();
+			if (snapshot.eligibleVoterCount == 0 or snapshot.totalVotingPower == 0) {
+				return #err("No eligible contributors are available for voting");
+			};
 			if (grants.startVoting(grantId)) {
+				grantVoteSnapshots.put(grantId, snapshot);
 				#ok(1);
 			} else {
 				#err("Failed to start voting for grant");
@@ -557,56 +733,63 @@ persistent actor Defunds{
 			return #err("Anonymous users cannot vote");
 		};
 
-		// First check and deduct voting power
-		switch (votingPowers.get(caller)) {
-			case (null) {
-				return #err("User does not have voting power");
+		switch (grantVoteSnapshots.get(grantId)) {
+			case null {
+				#err("Voting snapshot not found; restart voting for this grant");
 			};
-			case (?power) {
-				let votePowerAmount = power.totalPower;
-				if (votePowerAmount == 0) {
-					#err("Insufficient voting power");
-				} else {
-					let voteResult = grants.vote(grantId, caller, votePowerAmount, voteType);
-					if (voteResult) {
-						#ok(1);
-					} else {
-						#err("Insufficient voting power");
+			case (?snapshot) {
+				switch (snapshotVotingPower(snapshot, caller)) {
+					case null {
+						#err("Only contributors eligible when voting started may vote");
+					};
+					case (?votePowerAmount) {
+						if (votePowerAmount == 0) {
+							#err("Insufficient voting power");
+						} else {
+							let voteResult = grants.vote(grantId, caller, votePowerAmount, voteType);
+							if (voteResult) {
+								#ok(1);
+							} else {
+								#err("Vote could not be recorded");
+							};
+						};
 					};
 				};
-
 			};
-		}
-
+		};
 	};
 	// Finalize voting for a grant
 	public shared ({ caller }) func finalizeGrantVoting(grantId : Nat) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot finalize voting");
 		} else {
-			let totalFund = _accumulated_donations;
-			let totalDonors = votingPowers.size();
-			let totalVotingPower = _accumulated_voting_power;
+			switch (grantVoteSnapshots.get(grantId)) {
+				case null { #err("Voting snapshot not found for this grant") };
+				case (?snapshot) {
+					switch (grants.getGrant(grantId)) {
+						case null { #err("Grant not found") };
+						case (?grant) {
+							switch (grant.votingStatus) {
+								case null { #err("No voting status found") };
+								case (?status) {
+									let voterCount = status.votes.size();
+									if (voterCount * 100 < snapshot.eligibleVoterCount * snapshot.minVotePercentage) {
+										return #err("Insufficient voter participation");
+									};
 
-			switch (grants.getGrant(grantId)) {
-				case null { #err("Grant not found") };
-				case (?grant) {
-					switch (grant.votingStatus) {
-						case null { #err("No voting status found") };
-						case (?status) {
-							let voterCount = status.votes.size();
-							if (voterCount * 100 < totalDonors * minVotePercentage) {
-								return #err("Insufficient voter participation");
-							};
+									if (
+										status.totalVotePower * 100 <
+										snapshot.totalVotingPower * Nat64.fromNat(snapshot.minPowerPercentage)
+									) {
+										return #err("Insufficient voting power participation");
+									};
 
-							if (status.totalVotePower * 100 < totalVotingPower * Nat64.fromNat(minPowerPercentage)) {
-								return #err("Insufficient voting power participation");
-							};
-
-							if (grants.finalizeVoting(grantId, totalFund, Nat64.fromNat(totalDonors), totalVotingPower)) {
-								#ok(1);
-							} else {
-								#err("Failed to finalize voting");
+									if (grants.finalizeVoting(grantId, snapshot.approvalPercentage)) {
+										#ok(1);
+									} else {
+										#err("Failed to finalize voting");
+									};
+								};
 							};
 						};
 					};
