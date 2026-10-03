@@ -35,6 +35,7 @@ persistent actor Defunds{
 	type NewGrant = GrantTypes.NewGrant;
 
 	type GrantVoteSnapshot = {
+		eligibleVoters : [(Principal, Nat64)];
 		eligibleVoterCount : Nat;
 		totalVotingPower : Nat64;
 		createdAt : Int;
@@ -244,19 +245,22 @@ persistent actor Defunds{
 	};
 
 	private func buildGrantVoteSnapshotAt(snapshotAt : Int) : GrantVoteSnapshot {
+		let voters = Buffer.Buffer<(Principal, Nat64)>(0);
 		var eligibleVoterCount : Nat = 0;
 		var total : Nat64 = 0;
-		for ((_, power) in votingPowers.entries()) {
+		for ((principal, power) in votingPowers.entries()) {
 			let historicalScore = contributionScoreAt(power, snapshotAt);
 			if (historicalScore > 0) {
 				let governancePower = integerSqrt(historicalScore);
 				if (governancePower > 0) {
+					voters.add((principal, governancePower));
 					eligibleVoterCount += 1;
 					total += governancePower;
 				};
 			};
 		};
 		{
+			eligibleVoters = Buffer.toArray(voters);
 			eligibleVoterCount = eligibleVoterCount;
 			totalVotingPower = total;
 			createdAt = snapshotAt;
@@ -272,19 +276,37 @@ persistent actor Defunds{
 	};
 
 	private func snapshotVotingPower(snapshot : GrantVoteSnapshot, voter : Principal) : ?Nat64 {
-		switch (votingPowers.get(voter)) {
-			case null { null };
-			case (?power) {
-				let historicalScore = contributionScoreAt(power, snapshot.createdAt);
-				if (snapshot.legacyRawWeighting) {
-					if (power.totalPower == 0) { null } else { ?power.totalPower }
-				} else if (historicalScore == 0) {
-					null
-				} else {
-					?integerSqrt(historicalScore)
+		if (snapshot.legacyRawWeighting) {
+			switch (votingPowers.get(voter)) {
+				case null { null };
+				case (?power) {
+					if (power.totalPower == 0) { null } else { ?power.totalPower };
 				};
 			};
+		} else {
+			for ((principal, power) in snapshot.eligibleVoters.vals()) {
+				if (principal == voter) {
+					return ?power;
+				};
+			};
+			null;
 		};
+	};
+
+	private func isValidIcpAccountIdentifier(value : Text) : Bool {
+		if (Text.size(value) != 64) {
+			return false;
+		};
+		for (char in Text.toIter(value)) {
+			let n = Char.toNat32(char);
+			let isDigit = n >= 48 and n <= 57;
+			let isLowerHex = n >= 97 and n <= 102;
+			let isUpperHex = n >= 65 and n <= 70;
+			if (not (isDigit or isLowerHex or isUpperHex)) {
+				return false;
+			};
+		};
+		true;
 	};
 
 	private func committedIcpLiability() : Nat {
@@ -566,6 +588,9 @@ persistent actor Defunds{
 
 		switch (grant.currency) {
 			case (#ICP) {
+				if (not isValidIcpAccountIdentifier(grant.recipient)) {
+					return #err("Invalid ICP recipient account identifier");
+				};
 				let treasuryAccount = await ICPLedger.account_identifier({
 					owner = Principal.fromActor(Defunds);
 					subaccount = null;
@@ -742,6 +767,7 @@ persistent actor Defunds{
 								grantId,
 								{
 									baseSnapshot with
+									eligibleVoters = [];
 									eligibleVoterCount = votingPowers.size();
 									totalVotingPower = _accumulated_voting_power;
 									legacyRawWeighting = true;
@@ -1185,7 +1211,7 @@ persistent actor Defunds{
 		};
 	};
 
-	public shared func getMainFundIcpTreasuryState() : async {
+	private func readMainFundIcpTreasuryState() : async {
 		balance : Nat64;
 		reserved : Nat64;
 		available : Nat64;
@@ -1194,7 +1220,11 @@ persistent actor Defunds{
 			owner = Principal.fromActor(Defunds);
 			subaccount = null;
 		});
+		let versionBeforeBalance = treasuryMutationVersion;
 		let liveBalance = await ICPLedger.account_balance({ account = treasuryAccount });
+		if (treasuryMutationVersion != versionBeforeBalance) {
+			return await readMainFundIcpTreasuryState();
+		};
 		let reservedNat = committedIcpLiability();
 		let maxNat64 : Nat = 18_446_744_073_709_551_615;
 		let cappedReservedNat = Nat.min(reservedNat, maxNat64);
@@ -1209,6 +1239,14 @@ persistent actor Defunds{
 			reserved = reserved;
 			available = available;
 		};
+	};
+
+	public shared func getMainFundIcpTreasuryState() : async {
+		balance : Nat64;
+		reserved : Nat64;
+		available : Nat64;
+	} {
+		await readMainFundIcpTreasuryState();
 	};
 
 	public query func getGrantTreasuryCommitment(grantId : Nat) : async ?TreasuryCommitment {
@@ -1434,6 +1472,9 @@ persistent actor Defunds{
 
 				switch (grant.currency) {
 					case (#ICP) {
+						if (not isValidIcpAccountIdentifier(grant.recipient)) {
+							return #err("Invalid ICP recipient account identifier");
+						};
 						let payoutCreatedAt = switch (beginOrResumeIcpPayout(grantId)) {
 							case (#ok(timestamp)) { timestamp };
 							case (#err(message)) {
