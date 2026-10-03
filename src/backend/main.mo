@@ -234,8 +234,7 @@ persistent actor Defunds{
 		score;
 	};
 
-	private func buildGrantVoteSnapshot() : GrantVoteSnapshot {
-		let snapshotAt = Time.now();
+	private func buildGrantVoteSnapshotAt(snapshotAt : Int) : GrantVoteSnapshot {
 		var eligibleVoterCount : Nat = 0;
 		var total : Nat64 = 0;
 		for ((_, power) in votingPowers.entries()) {
@@ -256,6 +255,10 @@ persistent actor Defunds{
 			minPowerPercentage = minPowerPercentage;
 			approvalPercentage = approvalPercentage;
 		};
+	};
+
+	private func buildGrantVoteSnapshot() : GrantVoteSnapshot {
+		buildGrantVoteSnapshotAt(Time.now());
 	};
 
 	private func snapshotVotingPower(snapshot : GrantVoteSnapshot, voter : Principal) : ?Nat64 {
@@ -598,6 +601,26 @@ persistent actor Defunds{
 			Nat64.equal,
 			nat64Hash,
 		);
+		// Backfill immutable vote snapshots for grants that were already in
+		// #voting before Governance V2 was introduced. Their original voting
+		// startTime is used so donations made later do not enter the electorate.
+		for (grant in grants.getGrants().vals()) {
+			if (grant.grantStatus == #voting) {
+				let grantId = Nat.abs(grant.grantId);
+				if (grantVoteSnapshots.get(grantId) == null) {
+					switch (grant.votingStatus) {
+						case (?status) {
+							grantVoteSnapshots.put(
+								grantId,
+								buildGrantVoteSnapshotAt(status.startTime),
+							);
+						};
+						case null {};
+					};
+				};
+			};
+		};
+
 		// On the first upgrade that introduces the replay index, seed it from
 		// historical confirmed donations already retained in voting power history.
 		for ((_, power) in votingPowers.entries()) {
