@@ -9,6 +9,48 @@
     let backend = null;
     let applications = [];
 
+    function variantKey(value) {
+        if (!value || typeof value !== "object") return "";
+        return Object.keys(value)[0] || "";
+    }
+
+    function treasuryStatus(application) {
+        const commitment = application.treasuryCommitment;
+        if (!commitment) return application.grantStatus;
+        return variantKey(commitment.status) || application.grantStatus;
+    }
+
+    function treasuryLabel(application) {
+        const status = treasuryStatus(application);
+        if (status === "awaitingFunding") return "Approved · Awaiting Funding";
+        if (status === "committed") return "Approved · Funds Reserved";
+        if (status === "paying") return "Payment Processing";
+        if (status === "paid") return "Paid";
+        return application.grantStatus;
+    }
+
+    async function enrichTreasury(items) {
+        return await Promise.all(
+            items.map(async (application) => {
+                try {
+                    if (typeof backend?.getGrantTreasuryCommitment !== "function") {
+                        return { ...application, treasuryCommitment: null };
+                    }
+                    const result = await backend.getGrantTreasuryCommitment(
+                        application.grantId,
+                    );
+                    return {
+                        ...application,
+                        treasuryCommitment:
+                            result && result.length > 0 ? result[0] : null,
+                    };
+                } catch (_) {
+                    return { ...application, treasuryCommitment: null };
+                }
+            }),
+        );
+    }
+
     onMount(async () => {
 		const unsubscribe = globalStore.subscribe((store) => {
 			backend = store.backend;
@@ -19,7 +61,9 @@
 		if (backend) {
 			let rapplications = await backend.getGrants([], BigInt(page));
             console.log(rapplications);
-			applications = rapplications.map(parseApplication);
+			applications = await enrichTreasury(
+                rapplications.map(parseApplication),
+            );
 	
 		}
 	
@@ -38,7 +82,9 @@
         } else {
             applications = await backend.getGrants([], BigInt(page));
         }
-        applications = applications.map(parseApplication);
+        applications = await enrichTreasury(
+            applications.map(parseApplication),
+        );
     }
 
     $: {
@@ -125,9 +171,9 @@
                             </p>
                         </div>
                         <span
-                            class="status-badge {application.grantStatus.toLowerCase()}"
+                            class="status-badge {treasuryStatus(application)}"
                         >
-                            {application.grantStatus}
+                            {treasuryLabel(application)}
                         </span>
                     </div>
 
@@ -178,9 +224,25 @@
         color: #6b21a8;
     }
 
-    .status-badge.approved {
+    .status-badge.approved,
+    .status-badge.committed {
         background-color: #dcfce7;
         color: #166534;
+    }
+
+    .status-badge.awaitingFunding {
+        background-color: #fef3c7;
+        color: #92400e;
+    }
+
+    .status-badge.paying {
+        background-color: #dbeafe;
+        color: #1e40af;
+    }
+
+    .status-badge.paid {
+        background-color: #ede9fe;
+        color: #5b21b6;
     }
 
     .status-badge.rejected {
