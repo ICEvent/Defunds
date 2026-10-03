@@ -45,6 +45,7 @@ persistent actor Defunds{
 	type TreasuryCommitmentStatus = {
 		#awaitingFunding;
 		#committed;
+		#paying : { createdAt : Nat64 };
 		#paid : Nat64;
 	};
 
@@ -283,6 +284,14 @@ persistent actor Defunds{
 						case (_) {};
 					};
 				};
+				case (#paying(_)) {
+					switch (commitment.currency) {
+						case (#ICP) {
+							total += Nat64.toNat(commitment.amount) + Nat64.toNat(ICP_FEE);
+						};
+						case (_) {};
+					};
+				};
 				case (_) {};
 			};
 		};
@@ -308,6 +317,7 @@ persistent actor Defunds{
 			case (?existing) {
 				switch (existing.status) {
 					case (#paid(_)) {};
+					case (#paying(_)) {};
 					case (_) {
 						treasuryCommitments.put(
 							existing.grantId,
@@ -357,6 +367,45 @@ persistent actor Defunds{
 		};
 	};
 
+	private func beginOrResumeIcpPayout(grantId : Nat) : Result.Result<Nat64, Text> {
+		switch (treasuryCommitments.get(grantId)) {
+			case null { #err("Treasury commitment not found") };
+			case (?existing) {
+				switch (existing.status) {
+					case (#awaitingFunding) {
+						#err("Grant is approved but awaiting treasury funding")
+					};
+					case (#paid(blockIndex)) {
+						#err("PAID:" # Nat64.toText(blockIndex))
+					};
+					case (#paying({ createdAt })) {
+						#ok(createdAt)
+					};
+					case (#committed) {
+						let nowInt = Time.now();
+						if (nowInt < 0) {
+							return #err("Invalid system time");
+						};
+						let nowNat = Int.abs(nowInt);
+						if (nowNat > 18_446_744_073_709_551_615) {
+							return #err("System time exceeds Nat64 range");
+						};
+						let createdAt = Nat64.fromNat(nowNat);
+						treasuryCommitments.put(
+							grantId,
+							{
+								existing with
+								status = #paying({ createdAt = createdAt });
+								updatedAt = nowInt;
+							},
+						);
+						#ok(createdAt);
+					};
+				};
+			};
+		};
+	};
+
 	private func markPaid(grantId : Nat, blockIndex : Nat64) {
 		switch (treasuryCommitments.get(grantId)) {
 			case null {};
@@ -383,6 +432,7 @@ persistent actor Defunds{
 			case (?existing) {
 				switch (existing.status) {
 					case (#committed) { return #ok(existing) };
+					case (#paying(_)) { return #ok(existing) };
 					case (#paid(_)) { return #ok(existing) };
 					case (#awaitingFunding) {};
 				};
@@ -1134,17 +1184,36 @@ persistent actor Defunds{
 						return #ok(blockIndex);
 					};
 					case (#committed) {};
+					case (#paying(_)) {};
 				};
 
 				switch (grant.currency) {
 					case (#ICP) {
+						let payoutCreatedAt = switch (beginOrResumeIcpPayout(grantId)) {
+							case (#ok(timestamp)) { timestamp };
+							case (#err(message)) {
+								if (Text.startsWith(message, #text("PAID:"))) {
+									switch (treasuryCommitments.get(grantId)) {
+										case (?paidCommitment) {
+											switch (paidCommitment.status) {
+												case (#paid(blockIndex)) { return #ok(blockIndex) };
+												case (_) {};
+											};
+										};
+										case null {};
+									};
+								};
+								return #err(message);
+							};
+						};
+
 						let transferArgs : ICPTypes.TransferArgs = {
 							memo = Nat64.fromNat(grantId);
 							amount = { e8s = grant.amount };
 							fee = { e8s = ICP_FEE };
 							from_subaccount = null;
 							to = Blob.fromArray(Hex.decode(grant.recipient));
-							created_at_time = ?{ timestamp_nanos = Nat64.fromNat(Int.abs(commitment.createdAt)) };
+							created_at_time = ?{ timestamp_nanos = payoutCreatedAt };
 						};
 
 						try {
