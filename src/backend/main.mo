@@ -1522,7 +1522,12 @@ persistent actor Defunds{
 										switch (grants.getGrant(grantId)) {
 											case (?finalGrant) {
 												if (finalGrant.grantStatus == #approved) {
-													ignore await tryCommitApprovedGrant(finalGrant);
+													switch (finalGrant.currency) {
+														case (#ICP) {
+															ignore await tryCommitApprovedGrant(finalGrant);
+														};
+														case (_) {};
+													};
 												};
 											};
 											case null {};
@@ -1550,6 +1555,60 @@ persistent actor Defunds{
 			case (?grant) {
 				if (grant.applicant != caller) {
 					return #err("Only grant applicant can claim");
+				};
+
+				// Treasury Commitment V2 is currently ICP-only. Preserve the
+				// existing ICRC payout behavior for ckBTC/ckETH/ckUSDC and dynamic
+				// ICRC ledgers until currency-specific commitments are implemented.
+				switch (grant.currency) {
+					case (#ICP) {};
+					case (_) {
+						if (grant.grantStatus != #approved) {
+							return #err("Grant must be approved to claim");
+						};
+						switch (getIcrcLedgerCanister(grant.currency)) {
+							case null {
+								return #err("Unsupported token ledger for grant currency");
+							};
+							case (?ledgerCanister) {
+								let ledger = icrc1LedgerActor(ledgerCanister);
+								let recipientOwner = Principal.fromText(grant.recipient);
+								let transferArgs : Icrc1TransferArg = {
+									from_subaccount = null;
+									to = {
+										owner = recipientOwner;
+										subaccount = null;
+									};
+									amount = Nat64.toNat(grant.amount);
+									fee = null;
+									memo = null;
+									created_at_time = null;
+								};
+
+								try {
+									switch (await ledger.icrc1_transfer(transferArgs)) {
+										case (#Ok(blockIndexNat)) {
+											if (blockIndexNat > 18_446_744_073_709_551_615) {
+												return #err("ICRC transfer succeeded but block index exceeds nat64 range");
+											};
+											if (not ensureGrantReleased(grantId)) {
+												return #err("ICRC transfer succeeded but grant status could not be reconciled");
+											};
+											if (_avaliable_funds >= grant.amount) {
+												_avaliable_funds -= grant.amount;
+											};
+											return #ok(Nat64.fromNat(blockIndexNat));
+										};
+										case (#Err(_)) {
+											return #err("ICRC transfer failed");
+										};
+									};
+								} catch (_) {
+									return #err("ICRC transfer error");
+								};
+							};
+						};
+					};
 				};
 
 				// A completed payout is idempotent even after the Grant has moved
