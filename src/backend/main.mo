@@ -185,7 +185,11 @@ persistent actor Defunds{
 			case (#ckETH) { ?Principal.fromText("ss2fx-dyaaa-aaaar-qacoq-cai") };
 			case (#ckUSDC) { ?Principal.fromText("xevnm-gaaaa-aaaar-qafnq-cai") };
 			case (#ICRC(canisterText)) {
-				?Principal.fromText(canisterText);
+				if (canisterText == "ryjl3-tyaaa-aaaaa-aaaba-cai") {
+					null
+				} else {
+					?Principal.fromText(canisterText)
+				};
 			};
 		};
 	};
@@ -1211,6 +1215,14 @@ persistent actor Defunds{
 		if (Principal.isAnonymous(caller)) {
 			#err("no permission for anonymous caller to apply grant");
 		} else {
+			switch (application.currency) {
+				case (#ICRC(canisterText)) {
+					if (canisterText == "ryjl3-tyaaa-aaaaa-aaaba-cai") {
+						return #err("ICP ledger must use the #ICP currency so treasury commitments cannot be bypassed");
+					};
+				};
+				case (_) {};
+			};
 			let maxAllowedAmount = (_accumulated_donations * Nat64.fromNat(maxAmountPercentage)) / 100;
 			if (application.amount > maxAllowedAmount) {
 				#err("Requested amount exceeds maximum allowed amount");
@@ -1508,6 +1520,9 @@ persistent actor Defunds{
 									};
 
 									if (voterCount * 100 < eligibleVoterCount * snapshot.minVotePercentage) {
+										if (Time.now() > status.endTime) {
+											ignore grants.changeGrantStatus(grantId, #expired);
+										};
 										return #err("Insufficient voter participation");
 									};
 
@@ -1515,6 +1530,9 @@ persistent actor Defunds{
 										status.totalVotePower * 100 <
 										eligibleVotingPower * Nat64.fromNat(snapshot.minPowerPercentage)
 									) {
+										if (Time.now() > status.endTime) {
+											ignore grants.changeGrantStatus(grantId, #expired);
+										};
 										return #err("Insufficient voting power participation");
 									};
 
