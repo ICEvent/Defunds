@@ -185,10 +185,11 @@ persistent actor Defunds{
 			case (#ckETH) { ?Principal.fromText("ss2fx-dyaaa-aaaar-qacoq-cai") };
 			case (#ckUSDC) { ?Principal.fromText("xevnm-gaaaa-aaaar-qafnq-cai") };
 			case (#ICRC(canisterText)) {
-				if (canisterText == "ryjl3-tyaaa-aaaaa-aaaba-cai") {
+				let ledgerPrincipal = Principal.fromText(canisterText);
+				if (ledgerPrincipal == Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai")) {
 					null
 				} else {
-					?Principal.fromText(canisterText)
+					?ledgerPrincipal
 				};
 			};
 		};
@@ -1217,7 +1218,8 @@ persistent actor Defunds{
 		} else {
 			switch (application.currency) {
 				case (#ICRC(canisterText)) {
-					if (canisterText == "ryjl3-tyaaa-aaaaa-aaaba-cai") {
+					let ledgerPrincipal = Principal.fromText(canisterText);
+					if (ledgerPrincipal == Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai")) {
 						return #err("ICP ledger must use the #ICP currency so treasury commitments cannot be bypassed");
 					};
 				};
