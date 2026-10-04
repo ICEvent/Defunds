@@ -3,6 +3,7 @@
     import { onMount } from "svelte";
     import { globalStore } from "$lib/store";
     import { parseApplication } from "$lib/utils/grant.utils";
+    import { VOTE_POWER_DECIMALS } from "$lib/constants";
     import { showNotification } from "$lib/stores/notification";
     import { hideProgress, showProgress } from "$lib/stores/progress";
 
@@ -15,6 +16,7 @@
     let comments = [];
     let treasuryCommitment = null;
     let treasuryState = null;
+    let votingSnapshot = null;
     let activeTab = application?.votingStatus ? "voting" : "comments";
 
     function variantKey(value) {
@@ -107,6 +109,28 @@
         } catch (_) {
             treasuryState = null;
         }
+
+        try {
+            if (typeof backend.getGrantVotingSnapshot === "function") {
+                const snapshotResult =
+                    await backend.getGrantVotingSnapshot(grantId);
+                votingSnapshot =
+                    snapshotResult && snapshotResult.length > 0
+                        ? snapshotResult[0]
+                        : null;
+            } else {
+                votingSnapshot = null;
+            }
+        } catch (_) {
+            votingSnapshot = null;
+        }
+    }
+
+    function displayVotePower(value) {
+        const numeric = Number(value || 0);
+        return votingSnapshot?.legacyRawWeighting
+            ? numeric / VOTE_POWER_DECIMALS
+            : numeric;
     }
 
     async function startReview(grantId) {
@@ -595,7 +619,7 @@
                                                 >{vote.voterId.toString()}</code
                                             >
                                             <span class="vote-power"
-                                                >{Number(vote.votePower)} Power</span
+                                                >{displayVotePower(vote.votePower)} Power</span
                                             >
                                             <span
                                                 class="vote-time text-xs text-gray-400"
