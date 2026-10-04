@@ -581,16 +581,16 @@
                                 </div>
                                 <div class="flex justify-between text-sm mb-2">
                                     <span class="text-green-600 font-medium">
-                                        {Number(
+                                        {displayVotePower(
                                             application.votingStatus
                                                 .approvalVotePower,
-                                        ) }
+                                        )}
                                     </span>
                                     <span class="text-red-600 font-medium">
-                                        {Number(
+                                        {displayVotePower(
                                             application.votingStatus
                                                 .rejectVotePower,
-                                        ) }
+                                        )}
                                     </span>
                                 </div>
                                 <div class="progress-bar">
