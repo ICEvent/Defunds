@@ -114,6 +114,7 @@ module {
 					let canStart = switch (grant.grantStatus) {
 						case (#submitted) { true };
 						case (#review) { true };
+						case (#expired) { true };
 						case (_) { false };
 					};
 					if (not canStart) {
@@ -261,6 +262,7 @@ module {
 						case (#review, #rejected) { true };
 						case (#voting, #cancelled) { true };
 						case (#voting, #rejected) { true };
+						case (#voting, #expired) { true };
 						case (#approved, #released) { true };
 						case (_) { false };
 					};
