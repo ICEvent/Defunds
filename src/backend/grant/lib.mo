@@ -91,12 +91,17 @@ module {
 			switch (grants.get(grantId)) {
 				case null { false };
 				case (?grant) {
-					let updatedGrant = {
-						grant with
-						grantStatus = #review;
+					switch (grant.grantStatus) {
+						case (#submitted) {
+							let updatedGrant = {
+								grant with
+								grantStatus = #review;
+							};
+							grants.put(grantId, updatedGrant);
+							true;
+						};
+						case (_) { false };
 					};
-					grants.put(grantId, updatedGrant);
-					true;
 				};
 			};
 		};
@@ -106,22 +111,32 @@ module {
 			switch (grants.get(grantId)) {
 				case null { false };
 				case (?grant) {
-					let votingStatus : VotingStatus = {
-						totalVotePower = 0;
-						approvalVotePower = 0;
-						rejectVotePower = 0;
-						votes = [];
-						startTime = Time.now();
-						endTime = Time.now() + 7 * 24 * 60 * 60 * 1_000_000_000; // 7 days in nanoseconds
+					let canStart = switch (grant.grantStatus) {
+						case (#submitted) { true };
+						case (#review) { true };
+						case (#expired) { true };
+						case (_) { false };
 					};
+					if (not canStart) {
+						false
+					} else {
+						let votingStatus : VotingStatus = {
+							totalVotePower = 0;
+							approvalVotePower = 0;
+							rejectVotePower = 0;
+							votes = [];
+							startTime = Time.now();
+							endTime = Time.now() + 7 * 24 * 60 * 60 * 1_000_000_000; // 7 days in nanoseconds
+						};
 
-					let updatedGrant = {
-						grant with
-						votingStatus = ?votingStatus;
-						grantStatus = #voting;
+						let updatedGrant = {
+							grant with
+							votingStatus = ?votingStatus;
+							grantStatus = #voting;
+						};
+						grants.put(grantId, updatedGrant);
+						true;
 					};
-					grants.put(grantId, updatedGrant);
-					true;
 				};
 			};
 		};
@@ -199,56 +214,37 @@ module {
 			};
 		};
 
-		public func calculateMinVotes(grantAmount : Nat64, totalFund : Nat64, totalDonors : Nat64) : Nat64 {
-			let ratio = grantAmount / totalFund;
-			let minVotes = (ratio * totalDonors) + 1;
-			minVotes;
-		};
-		public func calculateMinVotingPower(grantAmount : Nat64, totalFund : Nat64, totalVotingPower : Nat64) : Nat64 {
-			let ratio = grantAmount / totalFund;
-			let minPower = (ratio * totalVotingPower) + 1;
-			minPower;
-		};
-		// Check if voting has ended and finalize the grant status
-		public func finalizeVoting(grantId : Nat, totalFund : Nat64, totalDonors : Nat64, totalVotingPower : Nat64) : Bool {
+		// Finalize against the immutable policy snapshot enforced by the backend.
+		// Quorum and eligible voting power are checked before this function is called.
+		public func finalizeVoting(grantId : Nat, approvalPercentage : Nat) : Bool {
 			switch (grants.get(grantId)) {
 				case null { false };
 				case (?grant) {
 					switch (grant.votingStatus) {
 						case null { false };
 						case (?status) {
-							//check if voting has ended
-							if (Time.now() <= status.endTime) { return false };
+							if (Time.now() <= status.endTime) {
+								return false;
+							};
 
-							//check minimal requirement: votes and voting power
-							let totalVotes = status.votes.size();
-							let totalPower = status.approvalVotePower + status.rejectVotePower;
-							let requiredVotes = calculateMinVotes(grant.amount, totalFund, totalDonors);
-							let requiredPower = calculateMinVotingPower(grant.amount, totalFund, totalVotingPower);
-
-							if (Nat64.fromNat(totalVotes) < requiredVotes or totalPower < requiredPower) {
-								let updatedGrant = {
-									grant with
-									grantStatus = #rejected
-								};
+							let participatingPower = status.approvalVotePower + status.rejectVotePower;
+							if (participatingPower == 0) {
+								let updatedGrant = { grant with grantStatus = #rejected };
 								grants.put(grantId, updatedGrant);
 								return true;
 							};
 
-							//check if the grant is approved or rejected
-							let newStatus = if (status.approvalVotePower > status.rejectVotePower) {
-								#approved;
-							} else {
-								#rejected;
-							};
+							let approved = (
+								status.approvalVotePower * 100 >
+								participatingPower * Nat64.fromNat(approvalPercentage)
+							);
 
 							let updatedGrant = {
 								grant with
-								grantStatus = newStatus
+								grantStatus = if (approved) { #approved } else { #rejected };
 							};
 							grants.put(grantId, updatedGrant);
 							true;
-
 						};
 					};
 				};
@@ -259,12 +255,27 @@ module {
 			switch (grants.get(grantId)) {
 				case null { false };
 				case (?grant) {
-					let updatedGrant = {
-						grant with
-						grantStatus = newStatus;
+					let allowed = switch (grant.grantStatus, newStatus) {
+						case (#submitted, #cancelled) { true };
+						case (#submitted, #rejected) { true };
+						case (#review, #cancelled) { true };
+						case (#review, #rejected) { true };
+						case (#voting, #cancelled) { true };
+						case (#voting, #rejected) { true };
+						case (#voting, #expired) { true };
+						case (#approved, #released) { true };
+						case (_) { false };
 					};
-					grants.put(grantId, updatedGrant);
-					true;
+					if (not allowed) {
+						false
+					} else {
+						let updatedGrant = {
+							grant with
+							grantStatus = newStatus;
+						};
+						grants.put(grantId, updatedGrant);
+						true;
+					};
 				};
 			};
 		};

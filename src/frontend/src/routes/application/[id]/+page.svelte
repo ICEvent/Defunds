@@ -14,7 +14,34 @@
     let grantId;
     let commentContent = "";
     let comments = [];
+    let treasuryCommitment = null;
+    let treasuryState = null;
+    let votingSnapshot = null;
     let activeTab = application?.votingStatus ? "voting" : "comments";
+
+    function variantKey(value) {
+        if (!value || typeof value !== "object") return "";
+        return Object.keys(value)[0] || "";
+    }
+
+    $: treasuryStatus = treasuryCommitment
+        ? variantKey(treasuryCommitment.status)
+        : application?.grantStatus === "approved"
+          ? "approved"
+          : application?.grantStatus || "";
+
+    $: treasuryLabel =
+        treasuryStatus === "awaitingFunding"
+            ? "Approved · Awaiting Funding"
+            : treasuryStatus === "committed"
+              ? "Approved · Funds Reserved"
+              : treasuryStatus === "paying"
+                ? "Payment Processing"
+                : treasuryStatus === "reconciliationRequired"
+                  ? "Payment · Reconciliation Required"
+                  : treasuryStatus === "paid"
+                  ? "Paid"
+                  : application?.grantStatus || "";
 
     $: {
         if (application) {
@@ -51,13 +78,59 @@
     });
 
     async function loadApplication(grantId) {
-        if (backend) {
-            let result = await backend.getGrant(grantId);
-            if (result.length > 0) {
-                application = parseApplication(result[0]);
-                comments = application.comments;
-            }
+        if (!backend) return;
+
+        const result = await backend.getGrant(grantId);
+        if (result.length > 0) {
+            application = parseApplication(result[0]);
+            comments = application.comments;
         }
+
+        try {
+            if (typeof backend.getGrantTreasuryCommitment === "function") {
+                const commitmentResult =
+                    await backend.getGrantTreasuryCommitment(grantId);
+                treasuryCommitment =
+                    commitmentResult && commitmentResult.length > 0
+                        ? commitmentResult[0]
+                        : null;
+            } else {
+                treasuryCommitment = null;
+            }
+        } catch (_) {
+            treasuryCommitment = null;
+        }
+
+        try {
+            treasuryState =
+                typeof backend.getMainFundIcpTreasuryState === "function"
+                    ? await backend.getMainFundIcpTreasuryState()
+                    : null;
+        } catch (_) {
+            treasuryState = null;
+        }
+
+        try {
+            if (typeof backend.getGrantVotingSnapshot === "function") {
+                const snapshotResult =
+                    await backend.getGrantVotingSnapshot(grantId);
+                votingSnapshot =
+                    snapshotResult && snapshotResult.length > 0
+                        ? snapshotResult[0]
+                        : null;
+            } else {
+                votingSnapshot = null;
+            }
+        } catch (_) {
+            votingSnapshot = null;
+        }
+    }
+
+    function displayVotePower(value) {
+        const numeric = Number(value || 0);
+        return votingSnapshot?.legacyRawWeighting
+            ? numeric / VOTE_POWER_DECIMALS
+            : numeric;
     }
 
     async function startReview(grantId) {
@@ -172,6 +245,29 @@
         }
     }
 
+    async function claimGrant(grantId) {
+        if (!backend) return;
+        showProgress();
+        try {
+            const result = await backend.claimGrant(grantId);
+            if (result.ok !== undefined) {
+                showNotification("Grant payout reconciled successfully.", "success");
+                await loadApplication(grantId);
+            } else {
+                showNotification(result.err, "error");
+                await loadApplication(grantId);
+            }
+        } catch (error) {
+            showNotification(
+                "Error claiming grant: " + error.message,
+                "error",
+            );
+            await loadApplication(grantId);
+        } finally {
+            hideProgress();
+        }
+    }
+
     async function addComment(grantId) {
         if (backend && commentContent.trim() !== "") {
             showProgress();
@@ -208,9 +304,9 @@
                     {application.title}
                 </h1>
                 <div class="flex items-center gap-4 mb-2 mt-2">
-                    <span class="status {application.grantStatus.toLowerCase()}"
-                        >{application.grantStatus}</span
-                    >
+                    <span class="status {treasuryStatus}">
+                        {treasuryLabel}
+                    </span>
 
                     <span class="text-sm text-gray-400">
                         {new Date(
@@ -246,6 +342,69 @@
                         </p>
                     </div>
                 </div>
+
+                {#if application.grantStatus === "approved" || treasuryStatus === "paid"}
+                    <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <h3 class="text-sm font-semibold text-slate-700">
+                                    Treasury settlement
+                                </h3>
+                                <p class="mt-1 text-sm text-slate-600">
+                                    {#if treasuryStatus === "awaitingFunding"}
+                                        Governance approved this grant, but the treasury does not yet have enough unreserved ICP.
+                                    {:else if treasuryStatus === "committed"}
+                                        The requested amount and transfer fee are reserved for this grant.
+                                    {:else if treasuryStatus === "paying"}
+                                        A payout attempt is in progress within the ledger deduplication window.
+                                    {:else if treasuryStatus === "reconciliationRequired"}
+                                        The prior payout result is uncertain. A controller or council member must reconcile the ledger result before retrying.
+                                    {:else if treasuryStatus === "paid"}
+                                        The payout has been confirmed on the ledger.
+                                    {:else}
+                                        Governance approved this grant. Treasury commitment will be created before payout.
+                                    {/if}
+                                </p>
+                            </div>
+
+                            {#if isAuthed && application.applicant?.toString?.() === principal?.toString?.() && application.grantStatus === "approved" && treasuryStatus !== "reconciliationRequired"}
+                                <button
+                                    on:click={() => claimGrant(application.grantId)}
+                                    class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+                                >
+                                    {treasuryStatus === "awaitingFunding"
+                                        ? "Retry Funding"
+                                        : treasuryStatus === "paying"
+                                          ? "Check Payment"
+                                          : "Claim Grant"}
+                                </button>
+                            {/if}
+                        </div>
+
+                        {#if treasuryState && application.currency === "ICP"}
+                            <div class="mt-4 grid gap-3 sm:grid-cols-3">
+                                <div class="rounded-lg bg-white p-3">
+                                    <div class="text-xs uppercase tracking-wide text-slate-500">Balance</div>
+                                    <div class="mt-1 font-semibold text-slate-900">
+                                        {(Number(treasuryState.balance) / 100_000_000).toFixed(4)} ICP
+                                    </div>
+                                </div>
+                                <div class="rounded-lg bg-white p-3">
+                                    <div class="text-xs uppercase tracking-wide text-slate-500">Reserved</div>
+                                    <div class="mt-1 font-semibold text-slate-900">
+                                        {(Number(treasuryState.reserved) / 100_000_000).toFixed(4)} ICP
+                                    </div>
+                                </div>
+                                <div class="rounded-lg bg-white p-3">
+                                    <div class="text-xs uppercase tracking-wide text-slate-500">Available</div>
+                                    <div class="mt-1 font-semibold text-slate-900">
+                                        {(Number(treasuryState.available) / 100_000_000).toFixed(4)} ICP
+                                    </div>
+                                </div>
+                            </div>
+                        {/if}
+                    </div>
+                {/if}
 
                 <!-- Description -->
                 <div class="bg-gray-50 p-4 rounded-lg">
@@ -422,16 +581,16 @@
                                 </div>
                                 <div class="flex justify-between text-sm mb-2">
                                     <span class="text-green-600 font-medium">
-                                        {Number(
+                                        {displayVotePower(
                                             application.votingStatus
                                                 .approvalVotePower,
-                                        ) / VOTE_POWER_DECIMALS}
+                                        )}
                                     </span>
                                     <span class="text-red-600 font-medium">
-                                        {Number(
+                                        {displayVotePower(
                                             application.votingStatus
                                                 .rejectVotePower,
-                                        ) / VOTE_POWER_DECIMALS}
+                                        )}
                                     </span>
                                 </div>
                                 <div class="progress-bar">
@@ -460,8 +619,7 @@
                                                 >{vote.voterId.toString()}</code
                                             >
                                             <span class="vote-power"
-                                                >{Number(vote.votePower) /
-                                                    VOTE_POWER_DECIMALS} Power</span
+                                                >{displayVotePower(vote.votePower)} Power</span
                                             >
                                             <span
                                                 class="vote-time text-xs text-gray-400"
@@ -551,9 +709,31 @@
         color: #6b21a8;
     }
 
-    .status.approved {
+    .status.approved,
+    .status.committed {
         background: #dcfce7;
         color: #166534;
+    }
+
+    .status.awaitingFunding {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .status.paying {
+        background: #dbeafe;
+        color: #1e40af;
+    }
+
+    .status.reconciliationRequired {
+        background: #ffe4e6;
+        color: #9f1239;
+    }
+
+    .status.paid,
+    .status.released {
+        background: #ede9fe;
+        color: #5b21b6;
     }
 
     .status.rejected {

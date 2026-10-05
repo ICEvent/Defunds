@@ -7,9 +7,13 @@ import Time "mo:base/Time";
 import Buffer "mo:base/Buffer";
 import Result "mo:base/Result";
 import Nat64 "mo:base/Nat64";
+import Nat8 "mo:base/Nat8";
+import Nat32 "mo:base/Nat32";
+import Int "mo:base/Int";
 import Option "mo:base/Option";
 import Hash "mo:base/Hash";
 import Blob "mo:base/Blob";
+import Char "mo:base/Char";
 
 import Hex "./hex";
 
@@ -33,7 +37,36 @@ persistent actor Defunds{
 	type Grant = GrantTypes.Grant;
 	type NewGrant = GrantTypes.NewGrant;
 
+	type GrantVoteSnapshot = {
+		eligibleVoters : [(Principal, Nat64)];
+		eligibleVoterCount : Nat;
+		totalVotingPower : Nat64;
+		createdAt : Int;
+		minVotePercentage : Nat;
+		minPowerPercentage : Nat;
+		approvalPercentage : Nat;
+		legacyRawWeighting : Bool;
+	};
+
+	type TreasuryCommitmentStatus = {
+		#awaitingFunding;
+		#committed;
+		#paying : { createdAt : Nat64 };
+		#reconciliationRequired : { createdAt : Nat64 };
+		#paid : Nat64;
+	};
+
+	type TreasuryCommitment = {
+		grantId : Nat;
+		currency : Types.Currency;
+		amount : Nat64;
+		status : TreasuryCommitmentStatus;
+		createdAt : Int;
+		updatedAt : Int;
+	};
+
 	transient let ICP_FEE : Nat64 = 10_000;
+	transient let ICP_TX_DEDUP_WINDOW_NANOS : Nat64 = 24 * 60 * 60 * 1_000_000_000;
 
 	var _stable_grantId = 1; // Unique ID for each grant
 	var _accumulated_donations : Nat64 = 0; // Accumulated donations
@@ -42,6 +75,9 @@ persistent actor Defunds{
 
 	var upgradeCredits : [(Principal, Nat)] = [];
 	var upgradeExchangeRates : [(Text, Nat64)] = [];
+	var upgradeGrantVoteSnapshots : [(Nat, GrantVoteSnapshot)] = [];
+	var upgradeTreasuryCommitments : [(Nat, TreasuryCommitment)] = [];
+	var upgradeProcessedDonationBlocks : [Nat64] = [];
 	var _stable_grants : [(Nat, Grant)] = [];
 	var upgradeDonations : [(Nat64, Donation)] = [];
 
@@ -56,7 +92,38 @@ persistent actor Defunds{
 		Text.hash(Nat64.toText(n));
 	};
 
+	transient let natHash = func(n : Nat) : Hash.Hash {
+		Text.hash(Nat.toText(n));
+	};
+
 	transient var donations = TrieMap.TrieMap<Nat64, Donation>(Nat64.equal, nat64Hash);
+	transient var processedDonationBlocks = TrieMap.TrieMap<Nat64, Bool>(Nat64.equal, nat64Hash);
+	processedDonationBlocks := TrieMap.fromEntries<Nat64, Bool>(
+		Iter.map<Nat64, (Nat64, Bool)>(
+			Iter.fromArray(upgradeProcessedDonationBlocks),
+			func(blockIndex) { (blockIndex, true) },
+		),
+		Nat64.equal,
+		nat64Hash,
+	);
+	transient var grantVoteSnapshots = TrieMap.TrieMap<Nat, GrantVoteSnapshot>(Nat.equal, natHash);
+	grantVoteSnapshots := TrieMap.fromEntries<Nat, GrantVoteSnapshot>(
+		Iter.fromArray(upgradeGrantVoteSnapshots),
+		Nat.equal,
+		natHash,
+	);
+
+	transient var treasuryCommitments = TrieMap.TrieMap<Nat, TreasuryCommitment>(Nat.equal, natHash);
+	treasuryCommitments := TrieMap.fromEntries<Nat, TreasuryCommitment>(
+		Iter.fromArray(upgradeTreasuryCommitments),
+		Nat.equal,
+		natHash,
+	);
+	transient var treasuryMutationVersion : Nat = 0;
+
+	private func bumpTreasuryVersion() {
+		treasuryMutationVersion += 1;
+	};
 
 	var upgradeConcilMembers : [Principal] = [];
 	transient var concilMembers = TrieMap.TrieMap<Principal, Bool>(Principal.equal, Principal.hash);
@@ -71,6 +138,7 @@ persistent actor Defunds{
 		query_blocks : shared query ICPTypes.GetBlocksArgs -> async ICPTypes.QueryBlocksResponse;
 		transfer : shared ICPTypes.TransferArgs -> async ICPTypes.Result_6;
 		account_balance : shared query ICPTypes.BinaryAccountBalanceArgs -> async ICPTypes.Tokens;
+		account_identifier : shared query ICPTypes.Account -> async Blob;
 
 	} = actor "ryjl3-tyaaa-aaaaa-aaaba-cai";
 
@@ -117,7 +185,12 @@ persistent actor Defunds{
 			case (#ckETH) { ?Principal.fromText("ss2fx-dyaaa-aaaar-qacoq-cai") };
 			case (#ckUSDC) { ?Principal.fromText("xevnm-gaaaa-aaaar-qafnq-cai") };
 			case (#ICRC(canisterText)) {
-				?Principal.fromText(canisterText);
+				let ledgerPrincipal = Principal.fromText(canisterText);
+				if (ledgerPrincipal == Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai")) {
+					null
+				} else {
+					?ledgerPrincipal
+				};
 			};
 		};
 	};
@@ -141,9 +214,562 @@ persistent actor Defunds{
 			case (#ICRC(token)) { token };
 		};
 	};
-	var minVotePercentage : Nat = 50; // 50% of total donors must vote
-	var minPowerPercentage : Nat = 50; // 50% of total voting power required
+	var minVotePercentage : Nat = 50; // minimum share of snapshotted contributors who must vote
+	var minPowerPercentage : Nat = 50; // minimum share of snapshotted governance power that must participate
+	var approvalPercentage : Nat = 50; // approval power must be strictly greater than this percentage of participating power
 	var maxAmountPercentage : Nat = 5; // 5% of total funds maximum
+
+	private func integerSqrt(value : Nat64) : Nat64 {
+		if (value < 2) {
+			return value;
+		};
+		var x0 = value / 2;
+		var x1 = (x0 + value / x0) / 2;
+		while (x1 < x0) {
+			x0 := x1;
+			x1 := (x0 + value / x0) / 2;
+		};
+		x0;
+	};
+
+	private func currentGovernancePower() : Nat64 {
+		var total : Nat64 = 0;
+		for ((_, power) in votingPowers.entries()) {
+			if (power.totalPower > 0) {
+				total += integerSqrt(power.totalPower);
+			};
+		};
+		total;
+	};
+
+	private func contributionScoreAt(power : VotingPower, snapshotAt : Int) : Nat64 {
+		var score : Nat64 = 0;
+		for (change in power.powerHistory.vals()) {
+			if (change.timestamp <= snapshotAt) {
+				score += change.amount;
+			};
+		};
+		score;
+	};
+
+	private func buildGrantVoteSnapshotAt(snapshotAt : Int) : GrantVoteSnapshot {
+		let voters = Buffer.Buffer<(Principal, Nat64)>(0);
+		var eligibleVoterCount : Nat = 0;
+		var total : Nat64 = 0;
+		for ((principal, power) in votingPowers.entries()) {
+			let historicalScore = contributionScoreAt(power, snapshotAt);
+			if (historicalScore > 0) {
+				let governancePower = integerSqrt(historicalScore);
+				if (governancePower > 0) {
+					voters.add((principal, governancePower));
+					eligibleVoterCount += 1;
+					total += governancePower;
+				};
+			};
+		};
+		{
+			eligibleVoters = Buffer.toArray(voters);
+			eligibleVoterCount = eligibleVoterCount;
+			totalVotingPower = total;
+			createdAt = snapshotAt;
+			minVotePercentage = minVotePercentage;
+			minPowerPercentage = minPowerPercentage;
+			approvalPercentage = approvalPercentage;
+			legacyRawWeighting = false;
+		};
+	};
+
+	private func buildGrantVoteSnapshot() : GrantVoteSnapshot {
+		buildGrantVoteSnapshotAt(Time.now());
+	};
+
+	private func snapshotVotingPower(snapshot : GrantVoteSnapshot, voter : Principal) : ?Nat64 {
+		if (snapshot.legacyRawWeighting) {
+			switch (votingPowers.get(voter)) {
+				case null { null };
+				case (?power) {
+					if (power.totalPower == 0) { null } else { ?power.totalPower };
+				};
+			};
+		} else {
+			for ((principal, power) in snapshot.eligibleVoters.vals()) {
+				if (principal == voter) {
+					return ?power;
+				};
+			};
+			null;
+		};
+	};
+
+	private func getIcpBlock(blockIndex : Nat64) : async ?ICPTypes.CandidBlock {
+		let response = await ICPLedger.query_blocks({
+			start = blockIndex;
+			length = 1;
+		});
+
+		if (
+			response.blocks.size() > 0 and
+			response.first_block_index == blockIndex
+		) {
+			return ?response.blocks[0];
+		};
+
+		for (range in response.archived_blocks.vals()) {
+			if (
+				blockIndex >= range.start and
+				blockIndex < range.start + range.length
+			) {
+				switch (await range.callback({ start = blockIndex; length = 1 })) {
+					case (#Ok(blockRange)) {
+						if (blockRange.blocks.size() > 0) {
+							return ?blockRange.blocks[0];
+						};
+					};
+					case (#Err(_)) {};
+				};
+			};
+		};
+		null;
+	};
+
+	private func verifyIcpPayoutBlock(
+		grantId : Nat,
+		grant : Grant,
+		commitment : TreasuryCommitment,
+		blockIndex : Nat64,
+		attemptCreatedAt : Nat64,
+	) : async Result.Result<(), Text> {
+		if (not isValidIcpAccountIdentifier(grant.recipient)) {
+			return #err("Invalid ICP recipient account identifier");
+		};
+
+		let expectedTreasury = await ICPLedger.account_identifier({
+			owner = Principal.fromActor(Defunds);
+			subaccount = null;
+		});
+		let expectedRecipient = Blob.fromArray(Hex.decode(grant.recipient));
+
+		switch (await getIcpBlock(blockIndex)) {
+			case null { #err("ICP payout block was not found") };
+			case (?block) {
+				let tx = block.transaction;
+				if (tx.memo != Nat64.fromNat(grantId)) {
+					return #err("ICP payout block memo does not match grant");
+				};
+				if (tx.created_at_time.timestamp_nanos != attemptCreatedAt) {
+					return #err("ICP payout block timestamp does not match payout attempt");
+				};
+				switch (tx.operation) {
+					case (?#Transfer(transfer)) {
+						if (transfer.from != expectedTreasury) {
+							return #err("ICP payout block sender does not match treasury");
+						};
+						if (transfer.to != expectedRecipient) {
+							return #err("ICP payout block recipient does not match grant");
+						};
+						if (transfer.amount.e8s != commitment.amount) {
+							return #err("ICP payout block amount does not match commitment");
+						};
+						if (transfer.fee.e8s != ICP_FEE) {
+							return #err("ICP payout block fee does not match expected fee");
+						};
+						#ok(());
+					};
+					case (_) { #err("ICP payout block is not a transfer") };
+				};
+			};
+		};
+	};
+
+	private func crc32(bytes : [Nat8]) : Nat32 {
+		var crc : Nat32 = 0xFFFFFFFF;
+		let polynomial : Nat32 = 0xEDB88320;
+		for (byte in bytes.vals()) {
+			crc := crc ^ Nat32.fromNat(Nat8.toNat(byte));
+			var bit : Nat = 0;
+			while (bit < 8) {
+				if ((crc & 1) == 1) {
+					crc := (crc >> 1) ^ polynomial;
+				} else {
+					crc := crc >> 1;
+				};
+				bit += 1;
+			};
+		};
+		crc ^ 0xFFFFFFFF;
+	};
+
+	private func isValidIcpAccountIdentifier(value : Text) : Bool {
+		if (Text.size(value) != 64) {
+			return false;
+		};
+		for (char in Text.toIter(value)) {
+			let n = Char.toNat32(char);
+			let isDigit = n >= 48 and n <= 57;
+			let isLowerHex = n >= 97 and n <= 102;
+			let isUpperHex = n >= 65 and n <= 70;
+			if (not (isDigit or isLowerHex or isUpperHex)) {
+				return false;
+			};
+		};
+
+		let decoded = Hex.decode(value);
+		if (decoded.size() != 32) {
+			return false;
+		};
+
+		let checksum : Nat32 =
+			Nat32.fromNat(Nat8.toNat(decoded[0])) * 16_777_216 +
+			Nat32.fromNat(Nat8.toNat(decoded[1])) * 65_536 +
+			Nat32.fromNat(Nat8.toNat(decoded[2])) * 256 +
+			Nat32.fromNat(Nat8.toNat(decoded[3]));
+
+		let hash = Array.tabulate<Nat8>(
+			28,
+			func(index : Nat) : Nat8 {
+				decoded[index + 4];
+			},
+		);
+
+		checksum == crc32(hash);
+	};
+
+	private func committedIcpLiability() : Nat {
+		var total : Nat = 0;
+		for ((_, commitment) in treasuryCommitments.entries()) {
+			switch (commitment.status) {
+				case (#committed) {
+					switch (commitment.currency) {
+						case (#ICP) {
+							total += Nat64.toNat(commitment.amount) + Nat64.toNat(ICP_FEE);
+						};
+						case (_) {};
+					};
+				};
+				case (#paying(_)) {
+					switch (commitment.currency) {
+						case (#ICP) {
+							total += Nat64.toNat(commitment.amount) + Nat64.toNat(ICP_FEE);
+						};
+						case (_) {};
+					};
+				};
+				case (#reconciliationRequired(_)) {
+					switch (commitment.currency) {
+						case (#ICP) {
+							total += Nat64.toNat(commitment.amount) + Nat64.toNat(ICP_FEE);
+						};
+						case (_) {};
+					};
+				};
+				case (_) {};
+			};
+		};
+		total;
+	};
+
+	private func upsertAwaitingFunding(grant : Grant) {
+		let now = Time.now();
+		switch (treasuryCommitments.get(Int.abs(grant.grantId))) {
+			case null {
+				treasuryCommitments.put(
+					Int.abs(grant.grantId),
+					{
+						grantId = Int.abs(grant.grantId);
+						currency = grant.currency;
+						amount = grant.amount;
+						status = #awaitingFunding;
+						createdAt = now;
+						updatedAt = now;
+					},
+				);
+				bumpTreasuryVersion();
+			};
+			case (?existing) {
+				switch (existing.status) {
+					case (#paid(_)) {};
+					case (#paying(_)) {};
+					case (#reconciliationRequired(_)) {};
+					case (_) {
+						treasuryCommitments.put(
+							existing.grantId,
+							{
+								existing with
+								currency = grant.currency;
+								amount = grant.amount;
+								status = #awaitingFunding;
+								updatedAt = now;
+							},
+						);
+				bumpTreasuryVersion();
+					};
+				};
+			};
+		};
+	};
+
+	private func markCommitted(grant : Grant) {
+		let grantId = Int.abs(grant.grantId);
+		let now = Time.now();
+		switch (treasuryCommitments.get(grantId)) {
+			case null {
+				treasuryCommitments.put(
+					grantId,
+					{
+						grantId = grantId;
+						currency = grant.currency;
+						amount = grant.amount;
+						status = #committed;
+						createdAt = now;
+						updatedAt = now;
+					},
+				);
+				bumpTreasuryVersion();
+			};
+			case (?existing) {
+				treasuryCommitments.put(
+					grantId,
+					{
+						existing with
+						currency = grant.currency;
+						amount = grant.amount;
+						status = #committed;
+						updatedAt = now;
+					},
+				);
+				bumpTreasuryVersion();
+			};
+		};
+	};
+
+	private func resetPayoutToCommitted(grantId : Nat, createdAt : Nat64) {
+		switch (treasuryCommitments.get(grantId)) {
+			case null {};
+			case (?existing) {
+				switch (existing.status) {
+					case (#paying({ createdAt = currentCreatedAt })) {
+						if (currentCreatedAt == createdAt) {
+							treasuryCommitments.put(
+								grantId,
+								{
+									existing with
+									status = #committed;
+									updatedAt = Time.now();
+								},
+							);
+							bumpTreasuryVersion();
+						};
+					};
+					case (_) {};
+				};
+			};
+		};
+	};
+
+	private func requirePayoutReconciliation(grantId : Nat, createdAt : Nat64) {
+		switch (treasuryCommitments.get(grantId)) {
+			case null {};
+			case (?existing) {
+				switch (existing.status) {
+					case (#paying({ createdAt = currentCreatedAt })) {
+						if (currentCreatedAt == createdAt) {
+							treasuryCommitments.put(
+								grantId,
+								{
+									existing with
+									status = #reconciliationRequired({ createdAt = createdAt });
+									updatedAt = Time.now();
+								},
+							);
+							bumpTreasuryVersion();
+						};
+					};
+					case (_) {};
+				};
+			};
+		};
+	};
+
+	private func beginOrResumeIcpPayout(grantId : Nat) : Result.Result<Nat64, Text> {
+		switch (treasuryCommitments.get(grantId)) {
+			case null { #err("Treasury commitment not found") };
+			case (?existing) {
+				switch (existing.status) {
+					case (#awaitingFunding) {
+						#err("Grant is approved but awaiting treasury funding")
+					};
+					case (#paid(blockIndex)) {
+						#err("PAID:" # Nat64.toText(blockIndex))
+					};
+					case (#paying({ createdAt })) {
+						let nowInt = Time.now();
+						if (nowInt < 0) {
+							return #err("Invalid system time");
+						};
+						let nowNat = Int.abs(nowInt);
+						if (nowNat > 18_446_744_073_709_551_615) {
+							return #err("System time exceeds Nat64 range");
+						};
+						let now = Nat64.fromNat(nowNat);
+
+						// An old ambiguous attempt must never be silently resent with a
+						// fresh timestamp: the first transfer may have succeeded even if
+						// this canister never received the response.
+						if (
+							now > createdAt and
+							now - createdAt > ICP_TX_DEDUP_WINDOW_NANOS
+						) {
+							treasuryCommitments.put(
+								grantId,
+								{
+									existing with
+									status = #reconciliationRequired({ createdAt = createdAt });
+									updatedAt = nowInt;
+								},
+							);
+							bumpTreasuryVersion();
+							#err("Payout requires ledger reconciliation before retry")
+						} else {
+							#ok(createdAt)
+						};
+					};
+					case (#reconciliationRequired(_)) {
+						#err("Payout requires ledger reconciliation before retry")
+					};
+					case (#committed) {
+						let nowInt = Time.now();
+						if (nowInt < 0) {
+							return #err("Invalid system time");
+						};
+						let nowNat = Int.abs(nowInt);
+						if (nowNat > 18_446_744_073_709_551_615) {
+							return #err("System time exceeds Nat64 range");
+						};
+						let createdAt = Nat64.fromNat(nowNat);
+						treasuryCommitments.put(
+							grantId,
+							{
+								existing with
+								status = #paying({ createdAt = createdAt });
+								updatedAt = nowInt;
+							},
+						);
+						bumpTreasuryVersion();
+						#ok(createdAt);
+					};
+				};
+			};
+		};
+	};
+
+	private func ensureGrantReleased(grantId : Nat) : Bool {
+		switch (grants.getGrant(grantId)) {
+			case null { false };
+			case (?grant) {
+				switch (grant.grantStatus) {
+					case (#released) { true };
+					case (#approved) { grants.changeGrantStatus(grantId, #released) };
+					case (_) { false };
+				};
+			};
+		};
+	};
+
+	private func markPaid(grantId : Nat, blockIndex : Nat64) {
+		switch (treasuryCommitments.get(grantId)) {
+			case null {};
+			case (?existing) {
+				treasuryCommitments.put(
+					grantId,
+					{
+						existing with
+						status = #paid(blockIndex);
+						updatedAt = Time.now();
+					},
+				);
+				bumpTreasuryVersion();
+			};
+		};
+	};
+
+	private func tryCommitApprovedGrant(grant : Grant) : async Result.Result<TreasuryCommitment, Text> {
+		let grantId = Int.abs(grant.grantId);
+		if (grant.grantStatus != #approved) {
+			return #err("Grant must be approved before funds can be committed");
+		};
+
+		switch (treasuryCommitments.get(grantId)) {
+			case (?existing) {
+				switch (existing.status) {
+					case (#committed) { return #ok(existing) };
+					case (#paying(_)) { return #ok(existing) };
+					case (#reconciliationRequired(_)) { return #ok(existing) };
+					case (#paid(_)) { return #ok(existing) };
+					case (#awaitingFunding) {};
+				};
+			};
+			case null {};
+		};
+
+		switch (grant.currency) {
+			case (#ICP) {
+				if (not isValidIcpAccountIdentifier(grant.recipient)) {
+					return #err("Invalid ICP recipient account identifier");
+				};
+				let treasuryAccount = await ICPLedger.account_identifier({
+					owner = Principal.fromActor(Defunds);
+					subaccount = null;
+				});
+
+				// Snapshot the local treasury version before querying the ledger. If a
+				// payout or reservation mutates treasury state while this query is in
+				// flight, discard the returned balance and retry from the top.
+				let versionBeforeBalance = treasuryMutationVersion;
+				let freshBalance = await ICPLedger.account_balance({ account = treasuryAccount });
+				if (treasuryMutationVersion != versionBeforeBalance) {
+					return await tryCommitApprovedGrant(grant);
+				};
+
+				switch (treasuryCommitments.get(grantId)) {
+					case (?current) {
+						switch (current.status) {
+							case (#committed) { return #ok(current) };
+							case (#paying(_)) { return #ok(current) };
+							case (#reconciliationRequired(_)) { return #ok(current) };
+							case (#paid(_)) { return #ok(current) };
+							case (#awaitingFunding) {};
+						};
+					};
+					case null {};
+				};
+
+				let requiredNat = Nat64.toNat(grant.amount) + Nat64.toNat(ICP_FEE);
+				let liveNat = Nat64.toNat(freshBalance.e8s);
+				let refreshedReservedNat = committedIcpLiability();
+
+				if (refreshedReservedNat + requiredNat > liveNat) {
+					upsertAwaitingFunding(grant);
+					switch (treasuryCommitments.get(grantId)) {
+						case (?commitment) { #ok(commitment) };
+						case null { #err("Failed to record awaiting-funding commitment") };
+					};
+				} else {
+					markCommitted(grant);
+					switch (treasuryCommitments.get(grantId)) {
+						case (?commitment) { #ok(commitment) };
+						case null { #err("Failed to record treasury commitment") };
+					};
+				};
+			};
+			case (_) {
+				upsertAwaitingFunding(grant);
+				switch (treasuryCommitments.get(grantId)) {
+					case (?commitment) { #ok(commitment) };
+					case null { #err("Failed to record unsupported-currency commitment") };
+				};
+			};
+		};
+	};
 
 	private func isConcilMemberInternal(member : Principal) : Bool {
 		Option.isSome(concilMembers.get(member));
@@ -160,11 +786,39 @@ persistent actor Defunds{
 	) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot update policy");
-		} else if (Option.isNull(concilMembers.get(caller))) {
-			#err("Only council members can update policy");
+		} else if (not canManageConcilMembers(caller)) {
+			#err("Only controllers or council members can update policy");
+		} else if (newMinVote > 100 or newMinPower > 100 or newMaxAmount > 100) {
+			#err("Policy percentages must be between 0 and 100");
 		} else {
 			minVotePercentage := newMinVote;
 			minPowerPercentage := newMinPower;
+			maxAmountPercentage := newMaxAmount;
+			#ok(1);
+		};
+	};
+
+	public shared ({ caller }) func updateMainFundGovernancePolicy(
+		newMinVote : Nat,
+		newMinPower : Nat,
+		newApproval : Nat,
+		newMaxAmount : Nat,
+	) : async Result.Result<Nat, Text> {
+		if (Principal.isAnonymous(caller)) {
+			#err("Anonymous users cannot update policy");
+		} else if (not canManageConcilMembers(caller)) {
+			#err("Only controllers or council members can update policy");
+		} else if (
+			newMinVote > 100 or
+			newMinPower > 100 or
+			newApproval >= 100 or
+			newMaxAmount > 100
+		) {
+			#err("Policy percentages are out of range");
+		} else {
+			minVotePercentage := newMinVote;
+			minPowerPercentage := newMinPower;
+			approvalPercentage := newApproval;
 			maxAmountPercentage := newMaxAmount;
 			#ok(1);
 		};
@@ -174,9 +828,16 @@ persistent actor Defunds{
 		(minVotePercentage, minPowerPercentage, maxAmountPercentage);
 	};
 
+	public query func getMainFundGovernancePolicy() : async (Nat, Nat, Nat, Nat) {
+		(minVotePercentage, minPowerPercentage, approvalPercentage, maxAmountPercentage);
+	};
+
 	system func preupgrade() {
 		upgradeCredits := Iter.toArray(donorCredits.entries());
 		upgradeExchangeRates := Iter.toArray(donorExchangeRates.entries());
+		upgradeGrantVoteSnapshots := Iter.toArray(grantVoteSnapshots.entries());
+		upgradeTreasuryCommitments := Iter.toArray(treasuryCommitments.entries());
+		upgradeProcessedDonationBlocks := Iter.toArray(processedDonationBlocks.keys());
 		upgradeDonations := Iter.toArray(donations.entries());
 
 		_stable_grants := grants.toStable();
@@ -197,6 +858,63 @@ persistent actor Defunds{
 		upgradeExchangeRates := [];
 		upgradeVotingPowers := [];
 		upgradeConcilMembers := [];
+		grantVoteSnapshots := TrieMap.fromEntries<Nat, GrantVoteSnapshot>(
+			Iter.fromArray(upgradeGrantVoteSnapshots),
+			Nat.equal,
+			natHash,
+		);
+		upgradeGrantVoteSnapshots := [];
+		treasuryCommitments := TrieMap.fromEntries<Nat, TreasuryCommitment>(
+			Iter.fromArray(upgradeTreasuryCommitments),
+			Nat.equal,
+			natHash,
+		);
+		upgradeTreasuryCommitments := [];
+		processedDonationBlocks := TrieMap.fromEntries<Nat64, Bool>(
+			Iter.map<Nat64, (Nat64, Bool)>(
+				Iter.fromArray(upgradeProcessedDonationBlocks),
+				func(blockIndex) { (blockIndex, true) },
+			),
+			Nat64.equal,
+			nat64Hash,
+		);
+		// Backfill immutable vote snapshots for grants that were already in
+		// #voting before Governance V2 was introduced. Their original voting
+		// startTime is used so donations made later do not enter the electorate.
+		for (grant in grants.getGrants().vals()) {
+			if (grant.grantStatus == #voting) {
+				let grantId = Int.abs(grant.grantId);
+				if (grantVoteSnapshots.get(grantId) == null) {
+					switch (grant.votingStatus) {
+						case (?status) {
+							let baseSnapshot = buildGrantVoteSnapshotAt(status.startTime);
+							grantVoteSnapshots.put(
+								grantId,
+								{
+									baseSnapshot with
+									eligibleVoters = [];
+									eligibleVoterCount = votingPowers.size();
+									totalVotingPower = _accumulated_voting_power;
+									legacyRawWeighting = true;
+								},
+							);
+						};
+						case null {};
+					};
+				};
+			};
+		};
+
+		// On the first upgrade that introduces the replay index, seed it from
+		// historical confirmed donations already retained in voting power history.
+		for ((_, power) in votingPowers.entries()) {
+			for (change in power.powerHistory.vals()) {
+				if (change.source.isConfirmed) {
+					processedDonationBlocks.put(change.source.blockIndex, true);
+				};
+			};
+		};
+		upgradeProcessedDonationBlocks := [];
 		donations := TrieMap.fromEntries<Nat64, Donation>(
 			Iter.fromArray(upgradeDonations),
 			Nat64.equal,
@@ -208,6 +926,10 @@ persistent actor Defunds{
 	public shared ({ caller }) func updateExchangeRates(currency : Types.Currency, rate : Nat64) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("no permission for anonymous caller to set exchange rate");
+		} else if (not canManageConcilMembers(caller)) {
+			#err("Only controllers or council members can set exchange rates");
+		} else if (rate == 0) {
+			#err("Exchange rate must be greater than zero");
 		} else {
 			let currencyText = currencyToText(currency);
 			donorExchangeRates.put(currencyText, rate);
@@ -224,7 +946,7 @@ persistent actor Defunds{
 	};
 
 	public query func getTotalVotingPower() : async Nat64 {
-		return _accumulated_voting_power;
+		return currentGovernancePower();
 	};
 
 	public shared ({ caller }) func addConcilMember(member : Principal) : async Result.Result<Nat, Text> {
@@ -269,40 +991,68 @@ persistent actor Defunds{
 	public shared ({ caller }) func donate(amount : Nat64, currency : Types.Currency, blockIndex : Nat64) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("no permission for anonymous caller to donate");
+		} else if (currency != #ICP) {
+			#err("This donation verification path currently supports ICP only");
+		} else if (amount == 0) {
+			#err("Donation amount must be greater than zero");
+		} else if (Option.isSome(processedDonationBlocks.get(blockIndex))) {
+			#err("This block index has already been processed");
 		} else {
-			switch (donations.get(blockIndex)) {
-				case (?_) {
-					return #err("This block index has already been processed");
-				};
-				case null {
-					let tempDonation : Donation = {
-						donorId = caller;
-						amount = amount;
-						currency = currency;
-						timestamp = Time.now();
-						blockIndex = blockIndex;
-						isConfirmed = false;
-					};
+			let tempDonation : Donation = {
+				donorId = caller;
+				amount = amount;
+				currency = currency;
+				timestamp = Time.now();
+				blockIndex = blockIndex;
+				isConfirmed = false;
+			};
 
+			switch (donations.get(blockIndex)) {
+				case null {
 					donations.put(blockIndex, tempDonation);
-					return #ok(1);
+					#ok(1);
+				};
+				case (?pending) {
+					if (pending.donorId == caller) {
+						donations.put(blockIndex, tempDonation);
+						#ok(1);
+					} else {
+						// Do not let an unverified pending record permanently squat
+						// a ledger index. The authenticated caller may replace it,
+						// but confirmation still succeeds only if the ledger sender
+						// matches this caller and destination/amount checks pass.
+						donations.put(blockIndex, tempDonation);
+						#ok(1);
+					};
 				};
 			};
 		};
 	};
 
-	public shared func confirmDonation(blockIndex : Nat64) : async Result.Result<Nat, Text> {
+	public shared ({ caller }) func confirmDonation(blockIndex : Nat64) : async Result.Result<Nat, Text> {
+		if (Principal.isAnonymous(caller)) {
+			return #err("Anonymous users cannot confirm donations");
+		};
 		switch (donations.get(blockIndex)) {
 			case null { return #err("Donation not found") };
 			case (?tempDonation) {
+				if (tempDonation.donorId != caller) {
+					return #err("Only the recorded donor can confirm this donation");
+				};
 				if (tempDonation.isConfirmed) {
 					return #err("Donation already confirmed");
+				};
+				if (tempDonation.currency != #ICP) {
+					return #err("This donation verification path currently supports ICP only");
 				};
 
 				let queryResult = await ICPLedger.query_blocks({
 					start = blockIndex;
 					length = 1;
 				});
+				if (queryResult.blocks.size() == 0) {
+					return #err("Ledger block not found");
+				};
 
 				switch (queryResult.blocks[0].transaction.operation) {
 					case (?#Transfer(transfer)) {
@@ -310,21 +1060,76 @@ persistent actor Defunds{
 							return #err("Amount mismatch");
 						};
 
-						//TODO: verify owner
-						// if (Principal.fromBlob(transfer.from) != caller) {
-						//     return #err("Caller does not match transaction sender");
-						// };
+						let expectedFrom = await ICPLedger.account_identifier({
+							owner = caller;
+							subaccount = null;
+						});
+						if (not Blob.equal(transfer.from, expectedFrom)) {
+							return #err("Donation sender does not match caller");
+						};
+
+						let expectedTo = await ICPLedger.account_identifier({
+							owner = Principal.fromActor(Defunds);
+							subaccount = null;
+						});
+						if (not Blob.equal(transfer.to, expectedTo)) {
+							return #err("Donation was not sent to the Defunds treasury");
+						};
 
 						let currencyText = currencyToText(tempDonation.currency);
 						let rate : Nat64 = switch (donorExchangeRates.get(currencyText)) {
 							case (null) 1;
-							case (?rate) rate;
+							case (?configuredRate) configuredRate;
 						};
 
-						let votePowerAmount : Nat64 = tempDonation.amount * rate;
-						_accumulated_donations += tempDonation.amount;
-						_avaliable_funds += tempDonation.amount;
-						_accumulated_voting_power += votePowerAmount;
+						// Validate all Nat64 arithmetic before marking the ledger block as
+						// processed. A rejected overflow must remain retryable after policy
+						// or accounting remediation.
+						let maxNat64 : Nat = 18_446_744_073_709_551_615;
+						let contributionScoreNat =
+							Nat64.toNat(tempDonation.amount) * Nat64.toNat(rate);
+						let newAccumulatedDonationsNat =
+							Nat64.toNat(_accumulated_donations) + Nat64.toNat(tempDonation.amount);
+						let newAvailableFundsNat =
+							Nat64.toNat(_avaliable_funds) + Nat64.toNat(tempDonation.amount);
+						let newAccumulatedScoreNat =
+							Nat64.toNat(_accumulated_voting_power) + contributionScoreNat;
+						if (
+							contributionScoreNat > maxNat64 or
+							newAccumulatedDonationsNat > maxNat64 or
+							newAvailableFundsNat > maxNat64 or
+							newAccumulatedScoreNat > maxNat64
+						) {
+							return #err("Donation would overflow Main Fund accounting");
+						};
+
+						switch (votingPowers.get(tempDonation.donorId)) {
+							case null {};
+							case (?existingPower) {
+								if (
+									Nat64.toNat(existingPower.totalPower) + contributionScoreNat >
+									maxNat64
+								) {
+									return #err("Donation would overflow contributor score");
+								};
+							};
+						};
+
+						// All external awaits and arithmetic validation are complete. Re-check
+						// and atomically mark the ledger block before mutating contribution
+						// state so concurrent confirmations cannot credit it twice.
+						if (Option.isSome(processedDonationBlocks.get(blockIndex))) {
+							donations.delete(blockIndex);
+							return #err("This block index has already been processed");
+						};
+						processedDonationBlocks.put(blockIndex, true);
+
+						// totalPower remains a normalized cumulative contribution score.
+						// Actual governance power is sqrt(totalPower), snapshotted per grant.
+						let contributionScore = Nat64.fromNat(contributionScoreNat);
+						_accumulated_donations := Nat64.fromNat(newAccumulatedDonationsNat);
+						_avaliable_funds := Nat64.fromNat(newAvailableFundsNat);
+						_accumulated_voting_power := Nat64.fromNat(newAccumulatedScoreNat);
 
 						let donation : Donation = {
 							donorId = tempDonation.donorId;
@@ -336,19 +1141,18 @@ persistent actor Defunds{
 						};
 
 						let powerChange : PowerChange = {
-							amount = votePowerAmount;
+							amount = contributionScore;
 							timestamp = Time.now();
 							source = donation;
 						};
 
-						// Update voting power
 						switch (votingPowers.get(tempDonation.donorId)) {
-							case (null) {
+							case null {
 								votingPowers.put(
 									tempDonation.donorId,
 									{
 										userId = tempDonation.donorId;
-										totalPower = votePowerAmount;
+										totalPower = contributionScore;
 										powerHistory = [powerChange];
 									},
 								);
@@ -360,7 +1164,7 @@ persistent actor Defunds{
 									tempDonation.donorId,
 									{
 										userId = tempDonation.donorId;
-										totalPower = existingPower.totalPower + votePowerAmount;
+										totalPower = existingPower.totalPower + contributionScore;
 										powerHistory = Buffer.toArray(updatedHistory);
 									},
 								);
@@ -369,8 +1173,7 @@ persistent actor Defunds{
 						donations.delete(blockIndex);
 						#ok(1);
 					};
-					case (_) { #err("Invalid transaction type") };
-
+					case (_) { #err("Ledger block is not an ICP transfer") };
 				};
 			};
 		};
@@ -413,6 +1216,15 @@ persistent actor Defunds{
 		if (Principal.isAnonymous(caller)) {
 			#err("no permission for anonymous caller to apply grant");
 		} else {
+			switch (application.currency) {
+				case (#ICRC(canisterText)) {
+					let ledgerPrincipal = Principal.fromText(canisterText);
+					if (ledgerPrincipal == Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai")) {
+						return #err("ICP ledger must use the #ICP currency so treasury commitments cannot be bypassed");
+					};
+				};
+				case (_) {};
+			};
 			let maxAllowedAmount = (_accumulated_donations * Nat64.fromNat(maxAmountPercentage)) / 100;
 			if (application.amount > maxAllowedAmount) {
 				#err("Requested amount exceeds maximum allowed amount");
@@ -504,8 +1316,104 @@ persistent actor Defunds{
 		votingPowers.get(userId);
 	};
 
+	public query func getGovernancePower(userId : Principal) : async ?Nat64 {
+		switch (votingPowers.get(userId)) {
+			case null { null };
+			case (?power) {
+				if (power.totalPower == 0) {
+					null
+				} else {
+					?integerSqrt(power.totalPower)
+				};
+			};
+		};
+	};
+
 	public query func getDonorCredit(donor : Text) : async ?Nat {
 		return donorCredits.get(Principal.fromText(donor));
+	};
+
+	public query func getGrantVotingSnapshot(grantId : Nat) : async ?{
+		eligibleVoterCount : Nat;
+		totalVotingPower : Nat64;
+		createdAt : Int;
+		minVotePercentage : Nat;
+		minPowerPercentage : Nat;
+		approvalPercentage : Nat;
+		legacyRawWeighting : Bool;
+	} {
+		switch (grantVoteSnapshots.get(grantId)) {
+			case null { null };
+			case (?snapshot) {
+				?{
+					eligibleVoterCount = snapshot.eligibleVoterCount;
+					totalVotingPower = snapshot.totalVotingPower;
+					createdAt = snapshot.createdAt;
+					minVotePercentage = snapshot.minVotePercentage;
+					minPowerPercentage = snapshot.minPowerPercentage;
+					approvalPercentage = snapshot.approvalPercentage;
+					legacyRawWeighting = snapshot.legacyRawWeighting;
+				};
+			};
+		};
+	};
+
+	private func readMainFundIcpTreasuryState() : async {
+		balance : Nat64;
+		reserved : Nat64;
+		available : Nat64;
+	} {
+		let treasuryAccount = await ICPLedger.account_identifier({
+			owner = Principal.fromActor(Defunds);
+			subaccount = null;
+		});
+		let versionBeforeBalance = treasuryMutationVersion;
+		let liveBalance = await ICPLedger.account_balance({ account = treasuryAccount });
+		if (treasuryMutationVersion != versionBeforeBalance) {
+			return await readMainFundIcpTreasuryState();
+		};
+		let reservedNat = committedIcpLiability();
+		let maxNat64 : Nat = 18_446_744_073_709_551_615;
+		let cappedReservedNat = Nat.min(reservedNat, maxNat64);
+		let reserved = Nat64.fromNat(cappedReservedNat);
+		let available : Nat64 = if (reserved >= liveBalance.e8s) {
+			0
+		} else {
+			liveBalance.e8s - reserved
+		};
+		{
+			balance = liveBalance.e8s;
+			reserved = reserved;
+			available = available;
+		};
+	};
+
+	public shared func getMainFundIcpTreasuryState() : async {
+		balance : Nat64;
+		reserved : Nat64;
+		available : Nat64;
+	} {
+		await readMainFundIcpTreasuryState();
+	};
+
+	public query func getGrantTreasuryCommitment(grantId : Nat) : async ?TreasuryCommitment {
+		treasuryCommitments.get(grantId);
+	};
+
+	public query func getTreasuryCommitments() : async [TreasuryCommitment] {
+		Iter.toArray(treasuryCommitments.vals());
+	};
+
+	public shared ({ caller }) func commitApprovedGrant(grantId : Nat) : async Result.Result<TreasuryCommitment, Text> {
+		if (Principal.isAnonymous(caller)) {
+			return #err("Anonymous users cannot commit grant funds");
+		};
+		switch (grants.getGrant(grantId)) {
+			case null { #err("Grant not found") };
+			case (?grant) {
+				await tryCommitApprovedGrant(grant);
+			};
+		};
 	};
 
 	public shared ({ caller }) func startReview(grantId : Nat) : async Result.Result<Nat, Text> {
@@ -526,10 +1434,15 @@ persistent actor Defunds{
 	public shared ({ caller }) func startGrantVoting(grantId : Nat) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot start voting");
-		} else if (Option.isNull(concilMembers.get(caller))) {
-			#err("Only council members can start voting");
+		} else if (not canManageConcilMembers(caller)) {
+			#err("Only controllers or council members can start voting");
 		} else {
+			let snapshot = buildGrantVoteSnapshot();
+			if (snapshot.eligibleVoterCount == 0 or snapshot.totalVotingPower == 0) {
+				return #err("No eligible contributors are available for voting");
+			};
 			if (grants.startVoting(grantId)) {
+				grantVoteSnapshots.put(grantId, snapshot);
 				#ok(1);
 			} else {
 				#err("Failed to start voting for grant");
@@ -557,56 +1470,93 @@ persistent actor Defunds{
 			return #err("Anonymous users cannot vote");
 		};
 
-		// First check and deduct voting power
-		switch (votingPowers.get(caller)) {
-			case (null) {
-				return #err("User does not have voting power");
+		switch (grantVoteSnapshots.get(grantId)) {
+			case null {
+				#err("Voting snapshot not found; restart voting for this grant");
 			};
-			case (?power) {
-				let votePowerAmount = power.totalPower;
-				if (votePowerAmount == 0) {
-					#err("Insufficient voting power");
-				} else {
-					let voteResult = grants.vote(grantId, caller, votePowerAmount, voteType);
-					if (voteResult) {
-						#ok(1);
-					} else {
-						#err("Insufficient voting power");
+			case (?snapshot) {
+				switch (snapshotVotingPower(snapshot, caller)) {
+					case null {
+						#err("Only contributors eligible when voting started may vote");
+					};
+					case (?votePowerAmount) {
+						if (votePowerAmount == 0) {
+							#err("Insufficient voting power");
+						} else {
+							let voteResult = grants.vote(grantId, caller, votePowerAmount, voteType);
+							if (voteResult) {
+								#ok(1);
+							} else {
+								#err("Vote could not be recorded");
+							};
+						};
 					};
 				};
-
 			};
-		}
-
+		};
 	};
 	// Finalize voting for a grant
 	public shared ({ caller }) func finalizeGrantVoting(grantId : Nat) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot finalize voting");
 		} else {
-			let totalFund = _accumulated_donations;
-			let totalDonors = votingPowers.size();
-			let totalVotingPower = _accumulated_voting_power;
+			switch (grantVoteSnapshots.get(grantId)) {
+				case null { #err("Voting snapshot not found for this grant") };
+				case (?snapshot) {
+					switch (grants.getGrant(grantId)) {
+						case null { #err("Grant not found") };
+						case (?grant) {
+							switch (grant.votingStatus) {
+								case null { #err("No voting status found") };
+								case (?status) {
+									let voterCount = status.votes.size();
+									let eligibleVoterCount = if (snapshot.legacyRawWeighting) {
+										votingPowers.size()
+									} else {
+										snapshot.eligibleVoterCount
+									};
+									let eligibleVotingPower = if (snapshot.legacyRawWeighting) {
+										_accumulated_voting_power
+									} else {
+										snapshot.totalVotingPower
+									};
 
-			switch (grants.getGrant(grantId)) {
-				case null { #err("Grant not found") };
-				case (?grant) {
-					switch (grant.votingStatus) {
-						case null { #err("No voting status found") };
-						case (?status) {
-							let voterCount = status.votes.size();
-							if (voterCount * 100 < totalDonors * minVotePercentage) {
-								return #err("Insufficient voter participation");
-							};
+									if (voterCount * 100 < eligibleVoterCount * snapshot.minVotePercentage) {
+										if (Time.now() > status.endTime) {
+											ignore grants.changeGrantStatus(grantId, #expired);
+										};
+										return #err("Insufficient voter participation");
+									};
 
-							if (status.totalVotePower * 100 < totalVotingPower * Nat64.fromNat(minPowerPercentage)) {
-								return #err("Insufficient voting power participation");
-							};
+									if (
+										status.totalVotePower * 100 <
+										eligibleVotingPower * Nat64.fromNat(snapshot.minPowerPercentage)
+									) {
+										if (Time.now() > status.endTime) {
+											ignore grants.changeGrantStatus(grantId, #expired);
+										};
+										return #err("Insufficient voting power participation");
+									};
 
-							if (grants.finalizeVoting(grantId, totalFund, Nat64.fromNat(totalDonors), totalVotingPower)) {
-								#ok(1);
-							} else {
-								#err("Failed to finalize voting");
+									if (grants.finalizeVoting(grantId, snapshot.approvalPercentage)) {
+										switch (grants.getGrant(grantId)) {
+											case (?finalGrant) {
+												if (finalGrant.grantStatus == #approved) {
+													switch (finalGrant.currency) {
+														case (#ICP) {
+															ignore await tryCommitApprovedGrant(finalGrant);
+														};
+														case (_) {};
+													};
+												};
+											};
+											case null {};
+										};
+										#ok(1);
+									} else {
+										#err("Failed to finalize voting");
+									};
+								};
 							};
 						};
 					};
@@ -617,89 +1567,299 @@ persistent actor Defunds{
 
 	public shared ({ caller }) func claimGrant(grantId : Nat) : async Result.Result<Nat64, Text> {
 		if (Principal.isAnonymous(caller)) {
-			#err("Anonymous users cannot claim grants");
-		} else {
-			switch (grants.getGrant(grantId)) {
-				case null { #err("Grant not found") };
-				case (?grant) {
-					if (grant.applicant != caller) {
-						#err("Only grant applicant can claim");
-					} else if (grant.grantStatus != #approved) {
-						#err("Grant must be approved to claim");
-					} else {
-						switch (grant.currency) {
-							case (#ICP) {
-								// Legacy ICP ledger transfer path
-								let transferArgs : ICPTypes.TransferArgs = {
-									memo = 0;
-									amount = { e8s = grant.amount };
-									fee = { e8s = ICP_FEE };
+			return #err("Anonymous users cannot claim grants");
+		};
+
+		switch (grants.getGrant(grantId)) {
+			case null { #err("Grant not found") };
+			case (?grant) {
+				if (grant.applicant != caller) {
+					return #err("Only grant applicant can claim");
+				};
+
+				// Treasury Commitment V2 is currently ICP-only. Preserve the
+				// existing ICRC payout behavior for ckBTC/ckETH/ckUSDC and dynamic
+				// ICRC ledgers until currency-specific commitments are implemented.
+				switch (grant.currency) {
+					case (#ICP) {};
+					case (_) {
+						if (grant.grantStatus != #approved) {
+							return #err("Grant must be approved to claim");
+						};
+						switch (getIcrcLedgerCanister(grant.currency)) {
+							case null {
+								return #err("Unsupported token ledger for grant currency");
+							};
+							case (?ledgerCanister) {
+								let ledger = icrc1LedgerActor(ledgerCanister);
+								let recipientOwner = Principal.fromText(grant.recipient);
+								let transferArgs : Icrc1TransferArg = {
 									from_subaccount = null;
-									to = Blob.fromArray(Hex.decode(grant.recipient));
+									to = {
+										owner = recipientOwner;
+										subaccount = null;
+									};
+									amount = Nat64.toNat(grant.amount);
+									fee = null;
+									memo = null;
 									created_at_time = null;
 								};
 
 								try {
-									let transferResult = await ICPLedger.transfer(transferArgs);
-									switch (transferResult) {
-										case (#Ok(blockIndex)) {
-											ignore grants.changeGrantStatus(grantId, #released);
-											_avaliable_funds -= grant.amount;
-											#ok(blockIndex);
+									switch (await ledger.icrc1_transfer(transferArgs)) {
+										case (#Ok(blockIndexNat)) {
+											if (blockIndexNat > 18_446_744_073_709_551_615) {
+												return #err("ICRC transfer succeeded but block index exceeds nat64 range");
+											};
+											if (not ensureGrantReleased(grantId)) {
+												return #err("ICRC transfer succeeded but grant status could not be reconciled");
+											};
+											if (_avaliable_funds >= grant.amount) {
+												_avaliable_funds -= grant.amount;
+											};
+											return #ok(Nat64.fromNat(blockIndexNat));
 										};
 										case (#Err(_)) {
-											#err("Transfer failed");
+											return #err("ICRC transfer failed");
 										};
 									};
 								} catch (_) {
-									#err("Transfer error");
-								};
-							};
-							case (_) {
-								// ICRC1 transfer path for ck* tokens and dynamic #ICRC(canisterId)
-								switch (getIcrcLedgerCanister(grant.currency)) {
-									case null {
-										#err("Unsupported token ledger for grant currency");
-									};
-									case (?ledgerCanister) {
-										let ledger = icrc1LedgerActor(ledgerCanister);
-										let recipientOwner = Principal.fromText(grant.recipient);
-
-										let transferArgs : Icrc1TransferArg = {
-											from_subaccount = null;
-											to = {
-												owner = recipientOwner;
-												subaccount = null;
-											};
-											amount = Nat64.toNat(grant.amount);
-											fee = null;
-											memo = null;
-											created_at_time = null;
-										};
-
-										try {
-											let transferResult = await ledger.icrc1_transfer(transferArgs);
-											switch (transferResult) {
-												case (#Ok(blockIndexNat)) {
-													if (blockIndexNat > 18_446_744_073_709_551_615) {
-														#err("ICRC transfer succeeded but block index exceeds nat64 range");
-													} else {
-														ignore grants.changeGrantStatus(grantId, #released);
-														_avaliable_funds -= grant.amount;
-														#ok(Nat64.fromNat(blockIndexNat));
-													};
-												};
-												case (#Err(_)) {
-													#err("ICRC transfer failed");
-												};
-											};
-										} catch (_) {
-											#err("ICRC transfer error");
-										};
-									};
+									return #err("ICRC transfer error");
 								};
 							};
 						};
+					};
+				};
+
+				// A completed payout is idempotent even after the Grant has moved
+				// from #approved to #released. This lets callers recover the ledger
+				// receipt after a client timeout or lost response.
+				switch (treasuryCommitments.get(grantId)) {
+					case (?existing) {
+						switch (existing.status) {
+							case (#paid(blockIndex)) { return #ok(blockIndex) };
+							case (_) {};
+						};
+					};
+					case null {};
+				};
+
+				if (grant.grantStatus != #approved) {
+					return #err("Grant must be approved to claim");
+				};
+
+				let commitment = switch (treasuryCommitments.get(grantId)) {
+					case (?existing) {
+						switch (existing.status) {
+							case (#awaitingFunding) {
+								switch (await tryCommitApprovedGrant(grant)) {
+									case (#err(message)) { return #err(message) };
+									case (#ok(updated)) { updated };
+								};
+							};
+							case (_) { existing };
+						};
+					};
+					case null {
+						switch (await tryCommitApprovedGrant(grant)) {
+							case (#err(message)) { return #err(message) };
+							case (#ok(created)) { created };
+						};
+					};
+				};
+
+				switch (commitment.status) {
+					case (#awaitingFunding) {
+						return #err("Grant is approved but awaiting treasury funding");
+					};
+					case (#paid(blockIndex)) {
+						return #ok(blockIndex);
+					};
+					case (#committed) {};
+					case (#paying(_)) {};
+					case (#reconciliationRequired(_)) {
+						return #err("Payout requires ledger reconciliation before retry");
+					};
+				};
+
+				switch (grant.currency) {
+					case (#ICP) {
+						if (not isValidIcpAccountIdentifier(grant.recipient)) {
+							return #err("Invalid ICP recipient account identifier");
+						};
+						let payoutCreatedAt = switch (beginOrResumeIcpPayout(grantId)) {
+							case (#ok(timestamp)) { timestamp };
+							case (#err(message)) {
+								if (Text.startsWith(message, #text("PAID:"))) {
+									switch (treasuryCommitments.get(grantId)) {
+										case (?paidCommitment) {
+											switch (paidCommitment.status) {
+												case (#paid(blockIndex)) { return #ok(blockIndex) };
+												case (_) {};
+											};
+										};
+										case null {};
+									};
+								};
+								return #err(message);
+							};
+						};
+
+						let transferArgs : ICPTypes.TransferArgs = {
+							memo = Nat64.fromNat(grantId);
+							amount = { e8s = grant.amount };
+							fee = { e8s = ICP_FEE };
+							from_subaccount = null;
+							to = Blob.fromArray(Hex.decode(grant.recipient));
+							created_at_time = ?{ timestamp_nanos = payoutCreatedAt };
+						};
+
+						try {
+							let transferResult = await ICPLedger.transfer(transferArgs);
+							switch (transferResult) {
+								case (#Ok(blockIndex)) {
+									if (not ensureGrantReleased(grantId)) {
+										return #err("Transfer succeeded but grant status could not be reconciled");
+									};
+									markPaid(grantId, blockIndex);
+									if (_avaliable_funds >= grant.amount) {
+										_avaliable_funds -= grant.amount;
+									};
+									#ok(blockIndex);
+								};
+								case (#Err(#TxDuplicate({ duplicate_of }))) {
+									if (not ensureGrantReleased(grantId)) {
+										return #err("Transfer already succeeded but grant status could not be reconciled");
+									};
+									markPaid(grantId, duplicate_of);
+									#ok(duplicate_of);
+								};
+								case (#Err(#InsufficientFunds(_))) {
+									resetPayoutToCommitted(grantId, payoutCreatedAt);
+									#err("Treasury ledger balance is insufficient; commitment remains reserved");
+								};
+								case (#Err(#BadFee(_))) {
+									resetPayoutToCommitted(grantId, payoutCreatedAt);
+									#err("Ledger fee changed; payout can be retried after fee configuration is updated");
+								};
+								case (#Err(#TxCreatedInFuture)) {
+									resetPayoutToCommitted(grantId, payoutCreatedAt);
+									#err("Ledger rejected payout timestamp as future; payout can be retried");
+								};
+								case (#Err(#TxTooOld(_))) {
+									requirePayoutReconciliation(grantId, payoutCreatedAt);
+									#err("Payout attempt is outside the ledger deduplication window and requires reconciliation");
+								};
+							};
+						} catch (_) {
+							requirePayoutReconciliation(grantId, payoutCreatedAt);
+							#err("Payout result is uncertain; ledger reconciliation is required before retry");
+						};
+					};
+					case (_) {
+						#err("This currency is not yet enabled for committed Main Fund payout");
+					};
+				};
+			};
+		};
+	};
+
+	public shared ({ caller }) func reconcileIcpGrantPayout(
+		grantId : Nat,
+		paidBlockIndex : ?Nat64,
+	) : async Result.Result<TreasuryCommitment, Text> {
+		if (Principal.isAnonymous(caller)) {
+			return #err("Anonymous users cannot reconcile payouts");
+		};
+		if (not canManageConcilMembers(caller)) {
+			return #err("Only controllers or council members can reconcile payouts");
+		};
+
+		switch (treasuryCommitments.get(grantId)) {
+			case null { #err("Treasury commitment not found") };
+			case (?existing) {
+				switch (existing.status) {
+					case (#reconciliationRequired({ createdAt })) {
+						switch (paidBlockIndex) {
+							case (?blockIndex) {
+								switch (grants.getGrant(grantId)) {
+									case null { return #err("Grant not found") };
+									case (?grant) {
+										switch (
+											await verifyIcpPayoutBlock(
+												grantId,
+												grant,
+												existing,
+												blockIndex,
+												createdAt,
+											)
+										) {
+											case (#err(message)) { return #err(message) };
+											case (#ok(())) {};
+										};
+									};
+								};
+
+								// Re-check the same reconciliation attempt after all
+								// ledger awaits before making irreversible state changes.
+								switch (treasuryCommitments.get(grantId)) {
+									case (?current) {
+										switch (current.status) {
+											case (#reconciliationRequired({ createdAt = currentCreatedAt })) {
+												if (currentCreatedAt != createdAt) {
+													return #err("Payout reconciliation state changed during verification");
+												};
+											};
+											case (#paid(existingBlock)) {
+												return #ok(current);
+											};
+											case (_) {
+												return #err("Payout is no longer awaiting reconciliation");
+											};
+										};
+									};
+									case null { return #err("Treasury commitment disappeared during reconciliation") };
+								};
+
+								if (not ensureGrantReleased(grantId)) {
+									return #err("Could not reconcile grant status to released");
+								};
+								markPaid(grantId, blockIndex);
+							};
+							case null {
+								// Reconciliation is a privileged explicit decision that
+								// the old attempt did not settle. Return it to committed
+								// only if the same reconciliation attempt is still current.
+								switch (treasuryCommitments.get(grantId)) {
+									case (?current) {
+										switch (current.status) {
+											case (#reconciliationRequired({ createdAt = currentCreatedAt })) {
+												if (currentCreatedAt == createdAt) {
+													treasuryCommitments.put(
+														grantId,
+														{
+															current with
+															status = #committed;
+															updatedAt = Time.now();
+														},
+													);
+													bumpTreasuryVersion();
+												};
+											};
+											case (_) {};
+										};
+									};
+									case null {};
+								};
+							};
+						};
+						switch (treasuryCommitments.get(grantId)) {
+							case (?updated) { #ok(updated) };
+							case null { #err("Treasury commitment disappeared during reconciliation") };
+						};
+					};
+					case (_) {
+						#err("Payout is not awaiting reconciliation");
 					};
 				};
 			};

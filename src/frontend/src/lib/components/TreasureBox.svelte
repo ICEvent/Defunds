@@ -11,7 +11,6 @@
 		getTokenNameByID,
 		ICP_LEDGER_CANISTER_ID,
 		ICP_TOKEN_DECIMALS,
-		VOTE_POWER_DECIMALS,
 	} from "$lib/constants";
 	import DonationForm from "$lib/components/Donation/DonationForm.svelte";
 	import Dialog from "$lib/components/common/Dialog.svelte";
@@ -67,7 +66,7 @@
 			Your Fund, You Decide
 		</h1>
 		<div class="mb-8 text-sm text-slate-400">
-			All Time Total Voting Power: {Number(totalVotingPower)/VOTE_POWER_DECIMALS}
+			Current Total Governance Power: {Number(totalVotingPower)}
 			
 		</div>
 		<div class="relative inline-block">
