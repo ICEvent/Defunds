@@ -1607,10 +1607,14 @@ persistent actor Defunds{
 						// Check before grant status: a successful retry after a
 						// lost response must return the original ledger receipt.
 						switch (icrcPayouts.get(grantId)) {
-							case (?#paid(blockIndex)) { return #ok(blockIndex) };
-							case (?#paying(_)) { return #err("ICRC payout is in flight; do not retry") };
-							case (?#reconciliationRequired(_)) {
-								return #err("ICRC payout requires ledger reconciliation before retry");
+							case (?status) {
+								switch (status) {
+									case (#paid(blockIndex)) { return #ok(blockIndex) };
+									case (#paying(_)) { return #err("ICRC payout is in flight; do not retry") };
+									case (#reconciliationRequired(_)) {
+										return #err("ICRC payout requires ledger reconciliation before retry");
+									};
+								};
 							};
 							case null {};
 						};
@@ -1632,7 +1636,7 @@ persistent actor Defunds{
 									to = { owner = recipientOwner; subaccount = null };
 									amount = Nat64.toNat(grant.amount);
 									fee = null;
-									memo = ?Blob.fromArray(Blob.toArray(Text.encodeUtf8("grant:" # Nat.toText(grantId))));
+									memo = ?Text.encodeUtf8("grant:" # Nat.toText(grantId));
 									created_at_time = ?createdAt;
 								};
 								let ledger = icrc1LedgerActor(ledgerCanister);
