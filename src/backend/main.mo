@@ -65,6 +65,14 @@ persistent actor Defunds{
 		updatedAt : Int;
 	};
 
+	// Separate ICRC payout receipt/lock; legacy ICP commitments and Grant
+	// stable records remain unchanged. Ambiguous ledger responses fail closed.
+	type IcrcPayoutStatus = {
+		#paying : Nat64;
+		#reconciliationRequired : Nat64;
+		#paid : Nat64;
+	};
+
 	transient let ICP_FEE : Nat64 = 10_000;
 	transient let ICP_TX_DEDUP_WINDOW_NANOS : Nat64 = 24 * 60 * 60 * 1_000_000_000;
 
@@ -77,6 +85,7 @@ persistent actor Defunds{
 	var upgradeExchangeRates : [(Text, Nat64)] = [];
 	var upgradeGrantVoteSnapshots : [(Nat, GrantVoteSnapshot)] = [];
 	var upgradeTreasuryCommitments : [(Nat, TreasuryCommitment)] = [];
+	var upgradeIcrcPayouts : [(Nat, IcrcPayoutStatus)] = [];
 	var upgradeProcessedDonationBlocks : [Nat64] = [];
 	var _stable_grants : [(Nat, Grant)] = [];
 	var upgradeDonations : [(Nat64, Donation)] = [];
@@ -116,6 +125,12 @@ persistent actor Defunds{
 	transient var treasuryCommitments = TrieMap.TrieMap<Nat, TreasuryCommitment>(Nat.equal, natHash);
 	treasuryCommitments := TrieMap.fromEntries<Nat, TreasuryCommitment>(
 		Iter.fromArray(upgradeTreasuryCommitments),
+		Nat.equal,
+		natHash,
+	);
+	transient var icrcPayouts = TrieMap.TrieMap<Nat, IcrcPayoutStatus>(Nat.equal, natHash);
+	icrcPayouts := TrieMap.fromEntries<Nat, IcrcPayoutStatus>(
+		Iter.fromArray(upgradeIcrcPayouts),
 		Nat.equal,
 		natHash,
 	);
@@ -837,6 +852,7 @@ persistent actor Defunds{
 		upgradeExchangeRates := Iter.toArray(donorExchangeRates.entries());
 		upgradeGrantVoteSnapshots := Iter.toArray(grantVoteSnapshots.entries());
 		upgradeTreasuryCommitments := Iter.toArray(treasuryCommitments.entries());
+		upgradeIcrcPayouts := Iter.toArray(icrcPayouts.entries());
 		upgradeProcessedDonationBlocks := Iter.toArray(processedDonationBlocks.keys());
 		upgradeDonations := Iter.toArray(donations.entries());
 
@@ -870,6 +886,12 @@ persistent actor Defunds{
 			natHash,
 		);
 		upgradeTreasuryCommitments := [];
+		icrcPayouts := TrieMap.fromEntries<Nat, IcrcPayoutStatus>(
+			Iter.fromArray(upgradeIcrcPayouts),
+			Nat.equal,
+			natHash,
+		);
+		upgradeIcrcPayouts := [];
 		processedDonationBlocks := TrieMap.fromEntries<Nat64, Bool>(
 			Iter.map<Nat64, (Nat64, Bool)>(
 				Iter.fromArray(upgradeProcessedDonationBlocks),
@@ -1577,54 +1599,91 @@ persistent actor Defunds{
 					return #err("Only grant applicant can claim");
 				};
 
-				// Treasury Commitment V2 is currently ICP-only. Preserve the
-				// existing ICRC payout behavior for ckBTC/ckETH/ckUSDC and dynamic
-				// ICRC ledgers until currency-specific commitments are implemented.
+				// Keep the existing ICP commitment mechanism. All ICRC grants
+				// now acquire a durable per-grant lock before the ledger await.
 				switch (grant.currency) {
 					case (#ICP) {};
 					case (_) {
+						// Check before grant status: a successful retry after a
+						// lost response must return the original ledger receipt.
+						switch (icrcPayouts.get(grantId)) {
+							case (?#paid(blockIndex)) { return #ok(blockIndex) };
+							case (?#paying(_)) { return #err("ICRC payout is in flight; do not retry") };
+							case (?#reconciliationRequired(_)) {
+								return #err("ICRC payout requires ledger reconciliation before retry");
+							};
+							case null {};
+						};
 						if (grant.grantStatus != #approved) {
 							return #err("Grant must be approved to claim");
 						};
 						switch (getIcrcLedgerCanister(grant.currency)) {
-							case null {
-								return #err("Unsupported token ledger for grant currency");
-							};
+							case null { return #err("Unsupported token ledger for grant currency") };
 							case (?ledgerCanister) {
-								let ledger = icrc1LedgerActor(ledgerCanister);
+								// Validate inputs before taking the payout lock.
 								let recipientOwner = Principal.fromText(grant.recipient);
+								let nowInt = Time.now();
+								if (nowInt < 0 or Int.abs(nowInt) > 18_446_744_073_709_551_615) {
+									return #err("Invalid ICRC payout timestamp");
+								};
+								let createdAt = Nat64.fromNat(Int.abs(nowInt));
 								let transferArgs : Icrc1TransferArg = {
 									from_subaccount = null;
-									to = {
-										owner = recipientOwner;
-										subaccount = null;
-									};
+									to = { owner = recipientOwner; subaccount = null };
 									amount = Nat64.toNat(grant.amount);
 									fee = null;
-									memo = null;
-									created_at_time = null;
+									memo = ?Blob.fromArray(Blob.toArray(Text.encodeUtf8("grant:" # Nat.toText(grantId))));
+									created_at_time = ?createdAt;
 								};
+								let ledger = icrc1LedgerActor(ledgerCanister);
+								icrcPayouts.put(grantId, #paying(createdAt));
 
 								try {
 									switch (await ledger.icrc1_transfer(transferArgs)) {
 										case (#Ok(blockIndexNat)) {
 											if (blockIndexNat > 18_446_744_073_709_551_615) {
-												return #err("ICRC transfer succeeded but block index exceeds nat64 range");
+												icrcPayouts.put(grantId, #reconciliationRequired(createdAt));
+												return #err("ICRC transfer succeeded; block index needs reconciliation");
 											};
+											let blockIndex = Nat64.fromNat(blockIndexNat);
+											// Save the receipt first; a later state error must
+											// never permit a second on-chain payment.
+											icrcPayouts.put(grantId, #paid(blockIndex));
 											if (not ensureGrantReleased(grantId)) {
 												return #err("ICRC transfer succeeded but grant status could not be reconciled");
 											};
 											if (_avaliable_funds >= grant.amount) {
 												_avaliable_funds -= grant.amount;
 											};
-											return #ok(Nat64.fromNat(blockIndexNat));
+											return #ok(blockIndex);
+										};
+										case (#Err(#Duplicate({ duplicate_of }))) {
+											if (duplicate_of > 18_446_744_073_709_551_615) {
+												icrcPayouts.put(grantId, #reconciliationRequired(createdAt));
+												return #err("ICRC duplicate block index needs reconciliation");
+											};
+											let blockIndex = Nat64.fromNat(duplicate_of);
+											icrcPayouts.put(grantId, #paid(blockIndex));
+											if (not ensureGrantReleased(grantId)) {
+												return #err("ICRC duplicate transfer succeeded but grant status could not be reconciled");
+											};
+											if (_avaliable_funds >= grant.amount) {
+												_avaliable_funds -= grant.amount;
+											};
+											return #ok(blockIndex);
 										};
 										case (#Err(_)) {
-											return #err("ICRC transfer failed");
+											// A definitive ledger rejection did not transfer
+											// funds. Allow a new, explicit retry.
+											ignore icrcPayouts.remove(grantId);
+											return #err("ICRC transfer rejected by ledger");
 										};
 									};
 								} catch (_) {
-									return #err("ICRC transfer error");
+									// A network rejection is ambiguous. Never issue
+									// another transfer without manual reconciliation.
+									icrcPayouts.put(grantId, #reconciliationRequired(createdAt));
+									return #err("ICRC transfer outcome unknown; manual reconciliation required");
 								};
 							};
 						};
