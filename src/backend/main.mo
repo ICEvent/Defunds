@@ -23,6 +23,7 @@ import Bool "mo:base/Bool";
 
 import ICPTypes "./icptypes";
 import GrantTypes "./grant/types";
+import Icrc3PayoutProof "./Icrc3PayoutProof";
 import Grants "./grant";
 
 import GroupTypes "./group/types";
@@ -191,6 +192,82 @@ persistent actor Defunds{
 		icrc1_transfer : shared Icrc1TransferArg -> async Icrc1TransferResult;
 	} {
 		actor (Principal.toText(canisterId));
+	};
+
+	type Icrc3BlocksArg = { start : Nat; length : Nat };
+	type Icrc3BlocksResult = {
+		log_length : Nat;
+		blocks : [{ id : Nat; block : Icrc3PayoutProof.Value }];
+		archived_blocks : [{
+			args : [Icrc3BlocksArg];
+			callback : shared query [Icrc3BlocksArg] -> async Icrc3BlocksResult;
+		}];
+	};
+
+	private func icrc3LedgerActor(canisterId : Principal) : actor {
+		icrc3_get_blocks : shared query [Icrc3BlocksArg] -> async Icrc3BlocksResult;
+	} {
+		actor (Principal.toText(canisterId));
+	};
+
+	private func verifyIcrcPayoutBlock(
+		grantId : Nat,
+		grant : Grant,
+		blockIndex : Nat64,
+		attemptCreatedAt : Nat64,
+	) : async Result.Result<(), Text> {
+		let ledgerId = switch (getIcrcLedgerCanister(grant.currency)) {
+			case null return #err("ICRC ledger not available");
+			case (?principal) principal;
+		};
+		let recipient = Principal.fromText(grant.recipient);
+		let ledger = icrc3LedgerActor(ledgerId);
+		let args : [Icrc3BlocksArg] = [{
+			start = Nat64.toNat(blockIndex);
+			length = 1;
+		}];
+		let response = await ledger.icrc3_get_blocks(args);
+		let desired : Nat = Nat64.toNat(blockIndex);
+
+		func matchingBlock(result : Icrc3BlocksResult) : ?Icrc3PayoutProof.Value {
+			for (entry in result.blocks.vals()) {
+				if (entry.id == desired) return ?entry.block;
+			};
+			null
+		};
+
+		let proof = switch (matchingBlock(response)) {
+			case (?value) ?value;
+			case null {
+				var archived : ?Icrc3PayoutProof.Value = null;
+				for (range in response.archived_blocks.vals()) {
+					for (section in range.args.vals()) {
+						if (desired >= section.start and desired - section.start < section.length) {
+							let page = await range.callback(args);
+							archived := matchingBlock(page);
+						};
+					};
+				};
+				archived
+			};
+		};
+		switch (proof) {
+			case null #err("ICRC-3 ledger block not found; keep payout locked");
+			case (?block) {
+				if (Icrc3PayoutProof.isGrantTransfer(
+					block,
+					Principal.toBlob(Principal.fromActor(Defunds)),
+					Principal.toBlob(recipient),
+					Nat64.toNat(grant.amount),
+					Text.encodeUtf8("grant:" # Nat.toText(grantId)),
+					Nat64.toNat(attemptCreatedAt),
+				)) {
+					#ok(())
+				} else {
+					#err("ICRC-3 block does not match treasury, grant, memo, timestamp, or amount")
+				}
+			};
+		}
 	};
 
 	private func getIcrcLedgerCanister(currency : Types.Currency) : ?Principal {
@@ -1617,6 +1694,72 @@ persistent actor Defunds{
 				#ok(blockIndex)
 			};
 		};
+	};
+
+	// Operators can confirm an ambiguous payment only with an actual ledger
+	// block that matches this canister's unique ICRC-1 transfer arguments.
+	// Unknown/absent blocks do not prove non-payment and never unlock a retry.
+	public shared ({ caller }) func reconcileIcrcGrantPayout(
+		grantId : Nat,
+		paidBlockIndex : Nat64,
+	) : async Result.Result<Nat64, Text> {
+		if (Principal.isAnonymous(caller) or not canManageConcilMembers(caller)) {
+			return #err("Only controllers or council members can reconcile ICRC payouts");
+		};
+		let original = switch (grants.getGrant(grantId)) {
+			case null return #err("Grant not found");
+			case (?value) value;
+		};
+		let expectedCreatedAt = switch (icrcPayouts.get(grantId)) {
+			case null return #err("No ICRC payout attempt found");
+			case (?status) {
+				switch (status) {
+					case (#paying(createdAt)) createdAt;
+					case (#reconciliationRequired(createdAt)) createdAt;
+					case (#paid(recordedBlock)) {
+						return settleIcrcPayout(grantId, original.amount, recordedBlock);
+					};
+				};
+			};
+		};
+		switch (try {
+			await verifyIcrcPayoutBlock(grantId, original, paidBlockIndex, expectedCreatedAt)
+		} catch (_) {
+			#err("ICRC-3 ledger lookup failed; payout remains locked")
+		}) {
+			case (#err(message)) return #err(message);
+			case (#ok(())) {};
+		};
+		// Ledger reads are awaits; another payout/reconciliation may have
+		// advanced the state. Never overwrite or rebind that newer outcome.
+		switch (icrcPayouts.get(grantId)) {
+			case null return #err("Payout attempt disappeared during reconciliation");
+			case (?status) {
+				switch (status) {
+					case (#paid(existingBlock)) {
+						if (existingBlock != paidBlockIndex) return #err("A different ICRC receipt is already recorded");
+						return settleIcrcPayout(grantId, original.amount, existingBlock);
+					};
+					case (#paying(createdAt)) {
+						if (createdAt != expectedCreatedAt) return #err("ICRC payout attempt changed");
+					};
+					case (#reconciliationRequired(createdAt)) {
+						if (createdAt != expectedCreatedAt) return #err("ICRC payout attempt changed");
+					};
+				};
+			};
+		};
+		let currentGrant = switch (grants.getGrant(grantId)) {
+			case null return #err("Grant disappeared during reconciliation");
+			case (?value) value;
+		};
+		if (
+			currentGrant.currency != original.currency or
+			currentGrant.amount != original.amount or
+			currentGrant.recipient != original.recipient
+		) return #err("Grant payment details changed during reconciliation");
+		icrcPayouts.put(grantId, #paid(paidBlockIndex));
+		settleIcrcPayout(grantId, original.amount, paidBlockIndex)
 	};
 
 	public shared ({ caller }) func claimGrant(grantId : Nat) : async Result.Result<Nat64, Text> {
