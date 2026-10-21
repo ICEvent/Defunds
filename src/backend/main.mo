@@ -1587,6 +1587,29 @@ persistent actor Defunds{
 		};
 	};
 
+	// Finish local Grant bookkeeping after a durable ICRC receipt. The receipt
+	// is never cleared; the Grant transition and accounting have no awaits.
+	private func settleIcrcPayout(grantId : Nat, amount : Nat64, blockIndex : Nat64) : Result.Result<Nat64, Text> {
+		switch (grants.getGrant(grantId)) {
+			case null { #err("ICRC payment recorded but Grant missing; reconcile locally") };
+			case (?current) {
+				switch (current.grantStatus) {
+					case (#approved) {
+						if (not ensureGrantReleased(grantId)) {
+							return #err("ICRC payment recorded but Grant release failed");
+						};
+						if (_avaliable_funds >= amount) {
+							_avaliable_funds -= amount;
+						};
+					};
+					case (#released) {};
+					case (_) { return #err("ICRC payment recorded but Grant status incompatible") };
+				};
+				#ok(blockIndex)
+			};
+		};
+	};
+
 	public shared ({ caller }) func claimGrant(grantId : Nat) : async Result.Result<Nat64, Text> {
 		if (Principal.isAnonymous(caller)) {
 			return #err("Anonymous users cannot claim grants");
@@ -1609,7 +1632,7 @@ persistent actor Defunds{
 						switch (icrcPayouts.get(grantId)) {
 							case (?status) {
 								switch (status) {
-									case (#paid(blockIndex)) { return #ok(blockIndex) };
+									case (#paid(blockIndex)) { return settleIcrcPayout(grantId, grant.amount, blockIndex) };
 									case (#paying(_)) { return #err("ICRC payout is in flight; do not retry") };
 									case (#reconciliationRequired(_)) {
 										return #err("ICRC payout requires ledger reconciliation before retry");
@@ -1653,13 +1676,7 @@ persistent actor Defunds{
 											// Save the receipt first; a later state error must
 											// never permit a second on-chain payment.
 											icrcPayouts.put(grantId, #paid(blockIndex));
-											if (not ensureGrantReleased(grantId)) {
-												return #err("ICRC transfer succeeded but grant status could not be reconciled");
-											};
-											if (_avaliable_funds >= grant.amount) {
-												_avaliable_funds -= grant.amount;
-											};
-											return #ok(blockIndex);
+											return settleIcrcPayout(grantId, grant.amount, blockIndex);
 										};
 										case (#Err(#Duplicate({ duplicate_of }))) {
 											if (duplicate_of > 18_446_744_073_709_551_615) {
@@ -1668,13 +1685,7 @@ persistent actor Defunds{
 											};
 											let blockIndex = Nat64.fromNat(duplicate_of);
 											icrcPayouts.put(grantId, #paid(blockIndex));
-											if (not ensureGrantReleased(grantId)) {
-												return #err("ICRC duplicate transfer succeeded but grant status could not be reconciled");
-											};
-											if (_avaliable_funds >= grant.amount) {
-												_avaliable_funds -= grant.amount;
-											};
-											return #ok(blockIndex);
+											return settleIcrcPayout(grantId, grant.amount, blockIndex);
 										};
 										case (#Err(_)) {
 											// A definitive ledger rejection did not transfer
