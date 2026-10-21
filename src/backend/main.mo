@@ -1589,6 +1589,15 @@ persistent actor Defunds{
 
 	// Finish local Grant bookkeeping after a durable ICRC receipt. The receipt
 	// is never cleared; the Grant transition and accounting have no awaits.
+	// Expose only to trusted treasury operators. This is diagnostic only:
+	// ambiguous payouts must never be silently unlocked or paid twice.
+	public query ({ caller }) func getIcrcGrantPayoutState(grantId : Nat) : async Result.Result<?IcrcPayoutStatus, Text> {
+		if (Principal.isAnonymous(caller) or not canManageConcilMembers(caller)) {
+			return #err("Only controllers or council members can inspect ICRC payouts");
+		};
+		#ok(icrcPayouts.get(grantId))
+	};
+
 	private func settleIcrcPayout(grantId : Nat, amount : Nat64, blockIndex : Nat64) : Result.Result<Nat64, Text> {
 		switch (grants.getGrant(grantId)) {
 			case null { #err("ICRC payment recorded but Grant missing; reconcile locally") };
