@@ -28,14 +28,14 @@ module {
 
   private func natEquals(value : ?Value, expected : Nat) : Bool {
     switch (value) {
-      case (?#Nat(valueNat)) valueNat == expected;
+      case (?(#Nat(valueNat))) valueNat == expected;
       case (_) false;
     }
   };
 
   private func blobEquals(value : ?Value, expected : Blob) : Bool {
     switch (value) {
-      case (?#Blob(valueBlob)) Blob.equal(valueBlob, expected);
+      case (?(#Blob(valueBlob))) Blob.equal(valueBlob, expected);
       case (_) false;
     }
   };
@@ -56,7 +56,7 @@ module {
 
   private func accountEquals(value : ?Value, owner : Blob) : Bool {
     switch (value) {
-      case (?#Array(parts)) {
+      case (?(#Array(parts))) {
         if (parts.size() < 1 or parts.size() > 2) return false;
         if (not blobEquals(?parts[0], owner)) return false;
         if (parts.size() == 2 and not defaultSubaccount(parts[1])) return false;
@@ -81,13 +81,13 @@ module {
       case null return false;
     };
     switch (field(block, "btype")) {
-      case (?#Text(op)) {
+      case (?(#Text(op))) {
         if (op != "1xfer") return false;
       };
       case null {
         // Older ICRC-1 Ledgers use tx.op instead of btype.
         switch (field(transaction, "op")) {
-          case (?#Text("xfer")) {};
+          case (?(#Text("xfer"))) {};
           case (_) return false;
         }
       };
