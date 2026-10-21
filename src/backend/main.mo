@@ -1725,7 +1725,7 @@ persistent actor Defunds{
 		// A concurrent ICRC transfer reply must not remove this payout lock
 		// while the operator awaits proof from the ledger and its archives.
 		switch (icrcPayouts.get(grantId)) {
-			case (?#paying(currentAt)) {
+			case (?(#paying(currentAt))) {
 				if (currentAt != expectedCreatedAt) return #err("ICRC payout attempt changed");
 				icrcPayouts.put(grantId, #reconciliationRequired(currentAt));
 			};
@@ -1875,7 +1875,7 @@ persistent actor Defunds{
 											// this exact attempt. Do not clear that lock
 											// while an operator verifies a block.
 											switch (icrcPayouts.get(grantId)) {
-												case (?#paying(currentAt)) {
+												case (?(#paying(currentAt))) {
 													if (currentAt == createdAt) {
 														ignore icrcPayouts.remove(grantId);
 													};
