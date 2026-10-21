@@ -1722,6 +1722,15 @@ persistent actor Defunds{
 				};
 			};
 		};
+		// A concurrent ICRC transfer reply must not remove this payout lock
+		// while the operator awaits proof from the ledger and its archives.
+		switch (icrcPayouts.get(grantId)) {
+			case (?#paying(currentAt)) {
+				if (currentAt != expectedCreatedAt) return #err("ICRC payout attempt changed");
+				icrcPayouts.put(grantId, #reconciliationRequired(currentAt));
+			};
+			case (_) {};
+		};
 		switch (try {
 			await verifyIcrcPayoutBlock(grantId, original, paidBlockIndex, expectedCreatedAt)
 		} catch (_) {
@@ -1818,7 +1827,27 @@ persistent actor Defunds{
 								icrcPayouts.put(grantId, #paying(createdAt));
 
 								try {
-									switch (await ledger.icrc1_transfer(transferArgs)) {
+									let transferResult = await ledger.icrc1_transfer(transferArgs);
+									// Reconciliation may have completed while the ledger
+									// call was in flight. Never overwrite a recorded
+									// receipt, or mutate a newer payout attempt.
+									switch (icrcPayouts.get(grantId)) {
+										case null { return #err("ICRC payout state changed during transfer") };
+										case (?current) {
+											switch (current) {
+												case (#paid(blockIndex)) {
+													return settleIcrcPayout(grantId, grant.amount, blockIndex);
+												};
+												case (#paying(currentAt)) {
+													if (currentAt != createdAt) return #err("ICRC payout attempt changed");
+												};
+												case (#reconciliationRequired(currentAt)) {
+													if (currentAt != createdAt) return #err("ICRC payout attempt changed");
+												};
+											};
+										};
+									};
+									switch (transferResult) {
 										case (#Ok(blockIndexNat)) {
 											if (blockIndexNat > 18_446_744_073_709_551_615) {
 												icrcPayouts.put(grantId, #reconciliationRequired(createdAt));
@@ -1842,13 +1871,39 @@ persistent actor Defunds{
 										case (#Err(_)) {
 											// A definitive ledger rejection did not transfer
 											// funds. Allow a new, explicit retry.
-											ignore icrcPayouts.remove(grantId);
+											// A privileged reconciliation may have locked
+											// this exact attempt. Do not clear that lock
+											// while an operator verifies a block.
+											switch (icrcPayouts.get(grantId)) {
+												case (?#paying(currentAt)) {
+													if (currentAt == createdAt) {
+														ignore icrcPayouts.remove(grantId);
+													};
+												};
+												case (_) {};
+											};
 											return #err("ICRC transfer rejected by ledger");
 										};
 									};
 								} catch (_) {
-									// A network rejection is ambiguous. Never issue
-									// another transfer without manual reconciliation.
+									// A network rejection is ambiguous. A concurrent
+									// operator may already have verified a receipt.
+									switch (icrcPayouts.get(grantId)) {
+										case null { return #err("ICRC payout state disappeared after ledger call") };
+										case (?current) {
+											switch (current) {
+												case (#paid(blockIndex)) {
+													return settleIcrcPayout(grantId, grant.amount, blockIndex);
+												};
+												case (#paying(currentAt)) {
+													if (currentAt != createdAt) return #err("ICRC payout attempt changed");
+												};
+												case (#reconciliationRequired(currentAt)) {
+													if (currentAt != createdAt) return #err("ICRC payout attempt changed");
+												};
+											};
+										};
+									};
 									icrcPayouts.put(grantId, #reconciliationRequired(createdAt));
 									return #err("ICRC transfer outcome unknown; manual reconciliation required");
 								};
