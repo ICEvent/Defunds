@@ -1,6 +1,5 @@
 import Blob "mo:base/Blob";
 import Nat8 "mo:base/Nat8";
-import Text "mo:base/Text";
 
 // ICRC-3's lossless generic block value. Do not decode a ledger block into a
 // narrower record: doing so could ignore security-relevant fields.
