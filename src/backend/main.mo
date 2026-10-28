@@ -1057,6 +1057,25 @@ persistent actor Defunds{
 		Iter.toArray(donorExchangeRates.entries());
 	};
 
+	// Currency-specific totals are derived from confirmed contribution history.
+	// Legacy getTotalDonations() and _avaliable_funds remain ICP-only.
+	public query func getMainFundDonationTotalsByCurrency() : async [(Text, Nat)] {
+		let totals = TrieMap.TrieMap<Text, Nat>(Text.equal, Text.hash);
+		for ((_, power) in votingPowers.entries()) {
+			for (change in power.powerHistory.vals()) {
+				if (change.source.isConfirmed) {
+					let label = currencyToText(change.source.currency);
+					let previous = switch (totals.get(label)) {
+						case null 0;
+						case (?n) n;
+					};
+					totals.put(label, previous + Nat64.toNat(change.source.amount));
+				};
+			};
+		};
+		Iter.toArray(totals.entries())
+	};
+
 	public query func getTotalDonations() : async Nat64 {
 		return _accumulated_donations;
 	};
