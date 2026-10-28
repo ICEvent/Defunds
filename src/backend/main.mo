@@ -1043,6 +1043,16 @@ persistent actor Defunds{
 		};
 	};
 
+	// Explicit ledger-specific rate prevents a user-supplied currency label from
+	// changing the valuation of an otherwise valid ledger transaction.
+	public shared ({ caller }) func setIcrcLedgerGovernanceRate(ledgerId : Principal, rate : Nat64) : async Result.Result<(), Text> {
+		if (Principal.isAnonymous(caller) or not canManageConcilMembers(caller)) return #err("Only controller/council may configure rates");
+		if (rate == 0) return #err("Rate must be positive");
+		if (ledgerId == Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai")) return #err("ICP ledger is not ICRC donation ledger");
+		donorExchangeRates.put(Principal.toText(ledgerId), rate);
+		#ok(())
+	};
+
 	public query func getExchangeRates() : async [(Text, Nat64)] {
 		Iter.toArray(donorExchangeRates.entries());
 	};
