@@ -1177,6 +1177,14 @@ persistent actor Defunds{
 		let metadataLedger : actor { icrc1_decimals : shared query () -> async Nat8 } = actor (Principal.toText(ledgerId));
 		let decimals = await metadataLedger.icrc1_decimals();
 		if (decimals > 30) return #err("Unsupported token precision");
+		// Reject a currency/ledger mismatch even when a valid transfer exists.
+		// Only the canonical ledger is accepted for built-in ck-token variants.
+		switch (currency) {
+			case (#ckBTC) { if (ledgerId != Principal.fromText("mxzaz-hqaaa-aaaar-qaada-cai")) return #err("ckBTC ledger mismatch") };
+			case (#ckETH) { if (ledgerId != Principal.fromText("ss2fx-dyaaa-aaaar-qacoq-cai")) return #err("ckETH ledger mismatch") };
+			case (#ckUSDC) { if (ledgerId != Principal.fromText("xevnm-gaaaa-aaaar-qafnq-cai")) return #err("ckUSDC ledger mismatch") };
+			case (_) {};
+		};
 		let rate = switch (donorExchangeRates.get(Principal.toText(ledgerId))) {
 			case null return #err("Ledger-specific governance exchange rate not configured");
 			case (?value) value;
