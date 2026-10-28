@@ -1123,7 +1123,7 @@ persistent actor Defunds{
 		for (entry in response.blocks.vals()) {
 			if (entry.id == blockIndex) proof := ?entry.block;
 		};
-		if (proof == null) {
+		if (Option.isNull(proof)) {
 			for (range in response.archived_blocks.vals()) {
 				for (section in range.args.vals()) {
 					if (blockIndex >= section.start and blockIndex - section.start < section.length) {
@@ -1169,8 +1169,8 @@ persistent actor Defunds{
 		let donation : Donation = { donorId = caller; amount = amount; currency = currency; timestamp = Time.now(); blockIndex = Nat64.fromNat(blockIndex); isConfirmed = true };
 		let change : PowerChange = { amount = Nat64.fromNat(score); timestamp = Time.now(); source = donation };
 		switch (existing) {
-			case null votingPowers.put(caller, { userId = caller; totalPower = change.amount; powerHistory = [change] });
-			case (?power) votingPowers.put(caller, { userId = caller; totalPower = power.totalPower + change.amount; powerHistory = Array.append(power.powerHistory, [change]) });
+			case null { votingPowers.put(caller, { userId = caller; totalPower = change.amount; powerHistory = [change] }); };
+			case (?power) { votingPowers.put(caller, { userId = caller; totalPower = power.totalPower + change.amount; powerHistory = Array.append(power.powerHistory, [change]) }); };
 		};
 		_accumulated_voting_power := Nat64.fromNat(Nat64.toNat(_accumulated_voting_power) + score);
 		#ok(1)
