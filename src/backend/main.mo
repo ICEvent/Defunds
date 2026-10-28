@@ -1110,6 +1110,16 @@ persistent actor Defunds{
 		if (Principal.isAnonymous(caller)) return #err("Authentication required");
 		if (currency == #ICP or amount == 0) return #err("Invalid ICRC donation");
 		if (blockIndex > 18_446_744_073_709_551_615) return #err("Block index exceeds supported history range");
+		// Canonicalize known ledgers: a generic ICRC alias cannot create a
+		// second currency identity for the same underlying transaction.
+		switch (currency) {
+			case (#ICRC(id)) {
+				if (id == "mxzaz-hqaaa-aaaar-qaada-cai" or id == "ss2fx-dyaaa-aaaar-qacoq-cai" or id == "xevnm-gaaaa-aaaar-qafnq-cai") {
+					return #err("Use the canonical ckBTC, ckETH or ckUSDC currency");
+				};
+			};
+			case (_) {};
+		};
 		let ledgerId = switch (getIcrcLedgerCanister(currency)) {
 			case null return #err("Invalid ICRC ledger");
 			case (?id) id;
