@@ -1013,7 +1013,7 @@ persistent actor Defunds{
 		// historical confirmed donations already retained in voting power history.
 		for ((_, power) in votingPowers.entries()) {
 			for (change in power.powerHistory.vals()) {
-				if (change.source.isConfirmed) {
+				if (change.source.isConfirmed and change.source.currency == #ICP) {
 					processedDonationBlocks.put(change.source.blockIndex, true);
 				};
 			};
