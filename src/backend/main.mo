@@ -1154,7 +1154,11 @@ persistent actor Defunds{
 		};
 		if (rate == 0) return #err("Invalid exchange rate");
 		var scale : Nat = 1;
-		for (_ in Iter.range(1, Nat8.toNat(decimals))) { scale *= 10 };
+		var digit : Nat = 0;
+		while (digit < Nat8.toNat(decimals)) {
+			scale *= 10;
+			digit += 1;
+		};
 		let score = Nat64.toNat(amount) * Nat64.toNat(rate) / scale;
 		let max : Nat = 18_446_744_073_709_551_615;
 		if (score == 0 or score > max or Nat64.toNat(_accumulated_voting_power) + score > max) return #err("Contribution score out of range");
