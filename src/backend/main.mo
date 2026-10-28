@@ -24,6 +24,7 @@ import Bool "mo:base/Bool";
 import ICPTypes "./icptypes";
 import GrantTypes "./grant/types";
 import Icrc3PayoutProof "./Icrc3PayoutProof";
+import Icrc3DonationProof "./Icrc3DonationProof";
 import Grants "./grant";
 
 import GroupTypes "./group/types";
@@ -88,6 +89,7 @@ persistent actor Defunds{
 	var upgradeTreasuryCommitments : [(Nat, TreasuryCommitment)] = [];
 	var upgradeIcrcPayouts : [(Nat, IcrcPayoutStatus)] = [];
 	var upgradeProcessedDonationBlocks : [Nat64] = [];
+	var upgradeProcessedIcrcDonations : [Text] = [];
 	var _stable_grants : [(Nat, Grant)] = [];
 	var upgradeDonations : [(Nat64, Donation)] = [];
 
@@ -108,6 +110,8 @@ persistent actor Defunds{
 
 	transient var donations = TrieMap.TrieMap<Nat64, Donation>(Nat64.equal, nat64Hash);
 	transient var processedDonationBlocks = TrieMap.TrieMap<Nat64, Bool>(Nat64.equal, nat64Hash);
+	transient var processedIcrcDonations = TrieMap.TrieMap<Text, Bool>(Text.equal, Text.hash);
+	processedIcrcDonations := TrieMap.fromEntries<Text, Bool>(Iter.map<Text, (Text, Bool)>(Iter.fromArray(upgradeProcessedIcrcDonations), func(k) { (k, true) }), Text.equal, Text.hash);
 	processedDonationBlocks := TrieMap.fromEntries<Nat64, Bool>(
 		Iter.map<Nat64, (Nat64, Bool)>(
 			Iter.fromArray(upgradeProcessedDonationBlocks),
@@ -931,6 +935,7 @@ persistent actor Defunds{
 		upgradeTreasuryCommitments := Iter.toArray(treasuryCommitments.entries());
 		upgradeIcrcPayouts := Iter.toArray(icrcPayouts.entries());
 		upgradeProcessedDonationBlocks := Iter.toArray(processedDonationBlocks.keys());
+		upgradeProcessedIcrcDonations := Iter.toArray(processedIcrcDonations.keys());
 		upgradeDonations := Iter.toArray(donations.entries());
 
 		_stable_grants := grants.toStable();
@@ -1014,6 +1019,8 @@ persistent actor Defunds{
 			};
 		};
 		upgradeProcessedDonationBlocks := [];
+		processedIcrcDonations := TrieMap.fromEntries<Text, Bool>(Iter.map<Text, (Text, Bool)>(Iter.fromArray(upgradeProcessedIcrcDonations), func(k) { (k, true) }), Text.equal, Text.hash);
+		upgradeProcessedIcrcDonations := [];
 		donations := TrieMap.fromEntries<Nat64, Donation>(
 			Iter.fromArray(upgradeDonations),
 			Nat64.equal,
@@ -1087,6 +1094,78 @@ persistent actor Defunds{
 	//---------------------------------------
 	// Donations
 	//---------------------------------------
+	// Native ICRC-3 donation ingestion. Only authenticated direct transfers to
+	// the default treasury account qualify; unknown metadata/rates fail closed.
+	public shared ({ caller }) func donateIcrc(currency : Types.Currency, blockIndex : Nat, amount : Nat64) : async Result.Result<Nat, Text> {
+		if (Principal.isAnonymous(caller)) return #err("Authentication required");
+		if (currency == #ICP or amount == 0) return #err("Invalid ICRC donation");
+		if (blockIndex > 18_446_744_073_709_551_615) return #err("Block index exceeds supported history range");
+		let ledgerId = switch (getIcrcLedgerCanister(currency)) {
+			case null return #err("Invalid ICRC ledger");
+			case (?id) id;
+		};
+		let key = Principal.toText(ledgerId) # ":" # Nat.toText(blockIndex);
+		if (Option.isSome(processedIcrcDonations.get(key))) return #err("Transaction already credited");
+		let ledger = icrc3LedgerActor(ledgerId);
+		let args : [Icrc3BlocksArg] = [{ start = blockIndex; length = 1 }];
+		let response = await ledger.icrc3_get_blocks(args);
+		var proof : ?Icrc3PayoutProof.Value = null;
+		for (entry in response.blocks.vals()) {
+			if (entry.id == blockIndex) proof := ?entry.block;
+		};
+		if (proof == null) {
+			for (range in response.archived_blocks.vals()) {
+				for (section in range.args.vals()) {
+					if (blockIndex >= section.start and blockIndex - section.start < section.length) {
+						let page = await range.callback(args);
+						for (entry in page.blocks.vals()) {
+							if (entry.id == blockIndex) proof := ?entry.block;
+						};
+					};
+				};
+			};
+		};
+		switch (proof) {
+			case null return #err("ICRC-3 transaction not found");
+			case (?block) {
+				if (not Icrc3DonationProof.isDonationTransfer(block, caller, Principal.fromActor(Defunds), Nat64.toNat(amount))) {
+					return #err("ICRC-3 transfer sender, recipient or amount mismatch");
+				};
+			};
+		};
+		// Score units: 10^8 reference units. Rates are explicit reference
+		// units per whole token; never assume all ICRC tokens have 8 decimals.
+		let metadataLedger : actor { icrc1_decimals : shared query () -> async Nat8 } = actor (Principal.toText(ledgerId));
+		let decimals = await metadataLedger.icrc1_decimals();
+		if (decimals > 30) return #err("Unsupported token precision");
+		let rate = switch (donorExchangeRates.get(Principal.toText(ledgerId))) {
+			case null return #err("Ledger-specific governance exchange rate not configured");
+			case (?value) value;
+		};
+		if (rate == 0) return #err("Invalid exchange rate");
+		var scale : Nat = 1;
+		for (_ in Iter.range(1, Nat8.toNat(decimals))) { scale *= 10 };
+		let score = Nat64.toNat(amount) * Nat64.toNat(rate) / scale;
+		let max : Nat = 18_446_744_073_709_551_615;
+		if (score == 0 or score > max or Nat64.toNat(_accumulated_voting_power) + score > max) return #err("Contribution score out of range");
+		let existing = votingPowers.get(caller);
+		switch (existing) {
+			case (?power) { if (Nat64.toNat(power.totalPower) + score > max) return #err("Donor score overflow") };
+			case null {};
+		};
+		// No await beyond this point: replay protection and credit are atomic.
+		if (Option.isSome(processedIcrcDonations.get(key))) return #err("Transaction already credited");
+		processedIcrcDonations.put(key, true);
+		let donation : Donation = { donorId = caller; amount = amount; currency = currency; timestamp = Time.now(); blockIndex = Nat64.fromNat(blockIndex); isConfirmed = true };
+		let change : PowerChange = { amount = Nat64.fromNat(score); timestamp = Time.now(); source = donation };
+		switch (existing) {
+			case null votingPowers.put(caller, { userId = caller; totalPower = change.amount; powerHistory = [change] });
+			case (?power) votingPowers.put(caller, { userId = caller; totalPower = power.totalPower + change.amount; powerHistory = Array.append(power.powerHistory, [change]) });
+		};
+		_accumulated_voting_power := Nat64.fromNat(Nat64.toNat(_accumulated_voting_power) + score);
+		#ok(1)
+	};
+
 	public shared ({ caller }) func donate(amount : Nat64, currency : Types.Currency, blockIndex : Nat64) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("no permission for anonymous caller to donate");
