@@ -8,9 +8,9 @@ BORROWER_NAME="loan-ci-borrower"
 LENDER_NAME="loan-ci-lender"
 OUTSIDER_NAME="loan-ci-outsider"
 
-dfx identity new "$BORROWER_NAME" --storage-mode plaintext
-dfx identity new "$LENDER_NAME" --storage-mode plaintext
-dfx identity new "$OUTSIDER_NAME" --storage-mode plaintext
+dfx identity new "$BORROWER_NAME" --storage-mode plaintext >/dev/null 2>&1
+dfx identity new "$LENDER_NAME" --storage-mode plaintext >/dev/null 2>&1
+dfx identity new "$OUTSIDER_NAME" --storage-mode plaintext >/dev/null 2>&1
 BORROWER="$(dfx identity get-principal --identity "$BORROWER_NAME")"
 LENDER="$(dfx identity get-principal --identity "$LENDER_NAME")"
 
@@ -98,6 +98,11 @@ assert_ok "$(call_as "$BORROWER_NAME" requestClosure '(1 : nat)')"
 assert_err "$(call_as "$BORROWER_NAME" confirmClosure '(1 : nat)')"
 assert_ok "$(call_as "$LENDER_NAME" confirmClosure '(1 : nat)')"
 assert_err "$(call_as "$BORROWER_NAME" requestAdditionalBorrowing '(1 : nat, 100 : nat, "post closure", "extra-closed")')"
+
+# Persistent actor upgrade must retain the closed loan, payment totals and audit.
+dfx deploy personal_loan --mode upgrade
+assert_balance "$BORROWER_NAME" 0
+assert_balance "$LENDER_NAME" 0
 
 # Both parties can read the same historical events, outsider cannot.
 assert_ok "$(call_as "$BORROWER_NAME" getLoanEvents '(1 : nat, 0 : nat, 100 : nat)')"
