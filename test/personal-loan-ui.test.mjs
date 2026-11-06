@@ -27,3 +27,32 @@ test('audit timeline shows each associated entry amount and the loan currency', 
   assert.match(page, /selected\.originalAmountCents/);
   assert.match(page, /getLoanCurrency\(loan\.id\)/);
 });
+
+test('loan description appears in loan details and list preview', () => {
+  assert.match(page, /data-testid="loan-description"/);
+  assert.match(page, /selected\.note \|\| 'No description provided\.'/);
+  assert.match(page, /title=\{loan\.note\}/);
+});
+
+test('additional borrowing and repayment are exclusive tabs with separate notes', () => {
+  assert.match(page, /role="tablist" aria-label="Transaction type"/);
+  assert.match(page, /transactionMode === 'borrow'/);
+  assert.match(page, /transactionMode === 'repay'/);
+  assert.match(page, /\{#if transactionMode === 'borrow'\}/);
+  assert.match(page, /bind:value=\{borrowingNote\}/);
+  assert.match(page, /bind:value=\{repaymentNote\}/);
+  assert.doesNotMatch(page, /bind:value=\{entryNote\}/);
+});
+
+test('repay full outstanding requests an up-to-date balance before submission', () => {
+  assert.match(page, /id="repay-full" type="checkbox" bind:checked=\{repaymentFull\}/);
+  assert.match(page, /data-testid="full-repayment-amount"/);
+  assert.match(page, /await actor\.getBalance\(loanId\)/);
+  assert.match(page, /getRepaymentCents\(full, latest\.outstandingCents, input\)/);
+});
+
+test('audit shows friendly event names and original notes with each entry', () => {
+  assert.match(page, /loanEventLabel\(eventKind\)/);
+  assert.match(page, /loanEventNote\(eventKind, relatedEntry, selected\)/);
+  assert.match(page, /data-testid="loan-audit-note"/);
+});
