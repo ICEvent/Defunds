@@ -185,6 +185,7 @@ persistent actor PersonalLoan {
     };
     nextLoanId += 1;
     loans := Array.append<Loan>(loans, [loan]);
+    appendEvent(loan.id, null, #loanProposed, caller);
     #ok(loan.id);
   };
 
@@ -201,6 +202,7 @@ persistent actor PersonalLoan {
       "initial:" # Nat.toText(loanId), #pendingFunding, null, "", "Initial borrowing",
     );
     replaceLoan({ loan with status = #fundingPending; updatedAt = Time.now() });
+    appendEvent(loanId, ?initial.id, #loanAccepted, caller);
     #ok(initial.id);
   };
 
@@ -213,6 +215,7 @@ persistent actor PersonalLoan {
       return #err("Only the invited counterparty can reject proposed terms");
     };
     replaceLoan({ loan with status = #rejected; updatedAt = Time.now() });
+    appendEvent(loanId, null, #loanRejected, caller);
     #ok(());
   };
 
@@ -240,6 +243,7 @@ persistent actor PersonalLoan {
       loanId, #additionalBorrowing, amountCents, caller, requestId,
       #pendingTerms, null, "", note,
     );
+    appendEvent(loanId, ?created.id, #additionalBorrowingRequested, caller);
     #ok(created.id);
   };
 
@@ -256,6 +260,7 @@ persistent actor PersonalLoan {
       return #err("Only the counterpart can accept pending borrowing terms");
     };
     replaceEntry({ entry with status = #pendingFunding; updatedAt = Time.now() });
+    appendEvent(loanId, ?entryId, #additionalBorrowingAccepted, caller);
     #ok(());
   };
 
@@ -272,6 +277,7 @@ persistent actor PersonalLoan {
       return #err("Only the counterpart can reject pending borrowing terms");
     };
     replaceEntry({ entry with status = #rejected; updatedAt = Time.now() });
+    appendEvent(loanId, ?entryId, #additionalBorrowingRejected, caller);
     #ok(());
   };
 
@@ -289,7 +295,7 @@ persistent actor PersonalLoan {
     if (entry.proposedBy != caller) return #err("Only the requester can withdraw an entry");
     let cancellable = switch (entry.status) {
       case (#pendingTerms) true;
-      case (#disputed) true;
+      case (#disputed) entry.kind != #initialBorrowing;
       case (#pendingConfirmation) {
         switch (entry.kind) {
           case (#repayment) true;
@@ -301,6 +307,7 @@ persistent actor PersonalLoan {
     };
     if (not cancellable) return #err("Entry cannot be withdrawn in this state");
     replaceEntry({ entry with status = #rejected; updatedAt = Time.now() });
+    appendEvent(loanId, ?entryId, #entryWithdrawn, caller);
     #ok(());
   };
 
@@ -320,7 +327,7 @@ persistent actor PersonalLoan {
       case null return #err("Entry unavailable");
       case (?value) value;
     };
-    if (caller != loan.lender or entry.status != #pendingFunding or Text.size(method) > 100) {
+    if (caller != loan.lender or (entry.status != #pendingFunding and entry.status != #disputed) or Text.size(method) > 100) {
       return #err("Only the lender can declare pending funding");
     };
     switch (entry.kind) {
@@ -340,6 +347,7 @@ persistent actor PersonalLoan {
       fundingDeclaredBy = ?caller;
       updatedAt = Time.now();
     });
+    appendEvent(loanId, ?entryId, #fundingDeclared, caller);
     #ok(());
   };
 
@@ -368,6 +376,7 @@ persistent actor PersonalLoan {
     if (entry.kind == #initialBorrowing) {
       replaceLoan({ loan with status = #active; updatedAt = Time.now() });
     };
+    appendEvent(loanId, ?entryId, #fundingConfirmed, caller);
     #ok(());
   };
 
@@ -403,6 +412,7 @@ persistent actor PersonalLoan {
       loanId, #repayment, amountCents, caller, requestId,
       #pendingConfirmation, ?effectiveAt, method, note,
     );
+    appendEvent(loanId, ?created.id, #repaymentSubmitted, caller);
     #ok(created.id);
   };
 
@@ -421,6 +431,7 @@ persistent actor PersonalLoan {
     let candidate = confirmedCandidate(entry);
     if (not Ledger.validBalance(loanId, candidate)) return #err("Repayment exceeds outstanding principal");
     replaceEntry({ entry with status = #confirmed; confirmedBy = ?caller; updatedAt = Time.now() });
+    appendEvent(loanId, ?entryId, #repaymentConfirmed, caller);
     #ok(());
   };
 
@@ -437,6 +448,7 @@ persistent actor PersonalLoan {
       return #err("Only the awaiting counterparty may dispute a pending entry");
     };
     replaceEntry({ entry with status = #disputed; updatedAt = Time.now() });
+    appendEvent(loanId, ?entryId, #entryDisputed, caller);
     #ok(());
   };
 
@@ -484,6 +496,7 @@ persistent actor PersonalLoan {
       loanId, #reversal(originalEntryId), original.amountCents, caller, requestId,
       #pendingConfirmation, ?Time.now(), "", note,
     );
+    appendEvent(loanId, ?created.id, #reversalRequested, caller);
     #ok(created.id);
   };
 
@@ -508,6 +521,7 @@ persistent actor PersonalLoan {
       case (_) return #err("Not a reversal");
     };
     replaceEntry({ entry with status = #confirmed; confirmedBy = ?caller; updatedAt = Time.now() });
+    appendEvent(loanId, ?entryId, #reversalConfirmed, caller);
     #ok(());
   };
 
@@ -530,6 +544,7 @@ persistent actor PersonalLoan {
       closureRequestedBy = ?caller;
       updatedAt = Time.now();
     });
+    appendEvent(loanId, null, #closureRequested, caller);
     #ok(());
   };
 
@@ -548,6 +563,7 @@ persistent actor PersonalLoan {
       closureRequestedBy = null;
       updatedAt = Time.now();
     });
+    appendEvent(loanId, null, #loanClosed, caller);
     #ok(());
   };
 
