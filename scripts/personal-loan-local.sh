@@ -99,7 +99,10 @@ npm ci
 dfx canister create --all
 
 # The test ledger and a local Internet Identity are the only canisters deployed.
-dfx deploy personal_loan --network local
+# Preserve existing enhanced orthogonal persistent state when the local
+# personal_loan canister already exists. In auto mode the option applies
+# to upgrades, not to fresh first-time installs.
+dfx deploy personal_loan --network local --mode auto --wasm-memory-persistence keep
 dfx deploy internet_identity --network local --argument '(null)'
 
 # Build Candid artifacts for the existing Defunds frontend imports.
