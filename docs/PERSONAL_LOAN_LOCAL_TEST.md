@@ -109,3 +109,15 @@ This MVP **only records mutually acknowledged, off-chain CAD movements** and doe
 ## Automated checks
 
 The PR includes Motoko ledger fixtures, local three-principal (borrower/lender/outsider) Canister E2E, canister upgrade persistence, and GitHub Actions frontend/preview build checks. Browser login through two manually operated local II accounts is the final interactive acceptance test; do not call it automated unless it is automated separately.
+
+## Loan Detail UI acceptance — transaction workflow
+
+For a loan with a nonempty description, verify the **Loan description** appears in the list preview and in its detail panel. An empty description should show a neutral placeholder, not a stale description from another loan.
+
+In an **Active** loan, the New transaction area has exactly two options:
+- **Additional borrowing:** amount and borrowing-specific Note; only requests another borrowing, with no repayment/date controls.
+- **Repayment:** choose a manually entered partial amount, or select **Repay full outstanding balance**. The amount is displayed automatically from the *confirmed* balance and checked again against the live canister balance immediately before the repayment record is submitted. The repayment's date, method and Note are independent of the borrowing form.
+
+For a confirmed outstanding balance of **CAD 8,500.00**, select Repayment → Repay full outstanding balance and Record repayment. A pending repayment for CAD 8,500.00 should appear, but Outstanding remains CAD 8,500.00 until the other party confirms receipt. Then Outstanding becomes CAD 0.00, and loan closure remains a separate bilateral step.
+
+The **Audit timeline** should display readable action names such as *Repayment recorded* and *Repayment confirmed*, with the same transaction's amount and its Note, plus the event timestamp. Amounts in audit events are descriptive and must **not** be added together to calculate debt; both events refer to the same repayment.
