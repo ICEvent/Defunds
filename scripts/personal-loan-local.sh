@@ -10,6 +10,14 @@ if [[ "${DFX_NETWORK:-local}" != "local" ]]; then
 fi
 export DFX_NETWORK=local
 
+# Project-specific PocketIC must never reuse the user's shared DFX local state.
+# See https://internetcomputer.org/docs/building-apps/developer-tools/dfx/dfx-start
+LOCAL_PORT="${PERSONAL_LOAN_LOCAL_PORT:-4945}"
+if ! [[ "$LOCAL_PORT" =~ ^[0-9]{4,5}$ ]] || (( 10#$LOCAL_PORT < 1000 || 10#$LOCAL_PORT > 65535 )); then
+  echo "PERSONAL_LOAN_LOCAL_PORT must be a TCP port (1000-65535)" >&2
+  exit 1
+fi
+
 for binary in dfx npm jq; do
   if ! command -v "$binary" >/dev/null 2>&1; then
     echo "Missing required tool: $binary" >&2
@@ -36,9 +44,12 @@ restore() {
 trap restore EXIT
 
 II_RELEASE="release-2025-08-29"
-jq --arg release "$II_RELEASE" '
+jq --arg release "$II_RELEASE" --arg bind "127.0.0.1:$LOCAL_PORT" '
   del(.defaults.build.packtool)
   | del(.output_env_file)
+  # A dfx.json local network definition isolates PocketIC checkpoints under
+  # this project's .dfx/network/local rather than the global shared network.
+  | .networks.local = {"bind": $bind, "type": "ephemeral"}
   | .canisters.internet_identity = {
       "type":"custom",
       "candid":("https://github.com/dfinity/internet-identity/releases/download/" + $release + "/internet_identity.did"),
@@ -49,9 +60,29 @@ jq --arg release "$II_RELEASE" '
     }
 ' "$BACKUP" > "$ROOT/dfx.json"
 
-echo "Starting or reusing local replica (never --clean)..."
-if ! dfx start --background; then
-  echo "dfx start did not launch a new replica. Checking whether local already responds..."
+echo "Using isolated project-specific local network: 127.0.0.1:$LOCAL_PORT"
+echo "Local checkpoint directory: $ROOT/.dfx/network/local"
+echo "Existing global DFX shared network state will not be modified."
+if dfx ping --network local >/dev/null 2>&1; then
+  echo "Reusing responding project-local PocketIC."
+else
+  echo "Starting project-specific PocketIC (never --clean)..."
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 120s dfx start --background || {
+      echo "PocketIC did not start. Original shared state was not cleaned." >&2
+      echo "Try a fresh git worktree; see docs/PERSONAL_LOAN_LOCAL_TEST.md." >&2
+      exit 1
+    }
+  else
+    dfx start --background || {
+      echo "PocketIC startup failed. Original shared state was not cleaned." >&2
+      exit 1
+    }
+  fi
+fi
+if ! dfx ping --network local >/dev/null 2>&1; then
+  echo "Project-local PocketIC did not report healthy on $LOCAL_PORT; refusing deployment." >&2
+  exit 1
 fi
 
 npm ci
@@ -71,10 +102,10 @@ dfx generate icp_index
 dfx generate icrc1_ledger_canister
 
 export VITE_PERSONAL_LOAN_TEST_MODE=true
-export VITE_PERSONAL_LOAN_HOST="http://127.0.0.1:4943"
+export VITE_PERSONAL_LOAN_HOST="http://127.0.0.1:$LOCAL_PORT"
 export VITE_PERSONAL_LOAN_CANISTER_ID="$(dfx canister id personal_loan)"
 II_ID="$(dfx canister id internet_identity)"
-export VITE_PERSONAL_LOAN_IDENTITY_PROVIDER="http://$II_ID.localhost:4943"
+export VITE_PERSONAL_LOAN_IDENTITY_PROVIDER="http://$II_ID.localhost:$LOCAL_PORT"
 
 echo
 echo "Personal Loan local canister: $VITE_PERSONAL_LOAN_CANISTER_ID"
