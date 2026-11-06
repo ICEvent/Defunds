@@ -59,6 +59,7 @@
   async function initialize() {
     if (!isAuthed || !loanCanisterConfigured || connecting) return;
     connecting = true;
+    error = '';
     try {
       actor = await connectPersonalLoan(me);
       if (!actor) throw new Error('Personal Loan session unavailable. Please sign in again.');
