@@ -1,6 +1,9 @@
 name: Personal Loan checks
 
 on:
+  push:
+    branches:
+      - "feat/personal-loan-ledger-20261105"
   pull_request:
     paths:
       - "src/personal_loan/**"
