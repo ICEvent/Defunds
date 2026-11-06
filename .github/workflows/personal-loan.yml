@@ -4,8 +4,7 @@ on:
   pull_request:
     paths:
       - "src/personal_loan/**"
-      - "src/frontend/src/routes/loans/**"
-      - "src/frontend/src/lib/api/personal-loan.js"
+      - "src/frontend/**"
       - "test/PersonalLoanLedger.test.mo"
       - "test/personal-loan-e2e.sh"
       - "dfx.json"
