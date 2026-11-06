@@ -260,6 +260,35 @@ persistent actor PersonalLoan {
     #ok(());
   };
 
+  // The creator may withdraw an unaccepted request or a disputed entry.
+  // Funded borrowing declarations cannot be retracted unilaterally.
+  public shared ({ caller }) func withdrawPendingEntry(loanId : Nat, entryId : Nat) : async R<()> {
+    ignore switch (requireParticipant(loanId, caller)) {
+      case (#err(e)) return #err(e);
+      case (#ok(value)) value;
+    };
+    let entry = switch (entryById(loanId, entryId)) {
+      case null return #err("Entry unavailable");
+      case (?value) value;
+    };
+    if (entry.proposedBy != caller) return #err("Only the requester can withdraw an entry");
+    let cancellable = switch (entry.status) {
+      case (#pendingTerms) true;
+      case (#disputed) true;
+      case (#pendingConfirmation) {
+        switch (entry.kind) {
+          case (#repayment) true;
+          case (#reversal(_)) true;
+          case (_) false;
+        };
+      };
+      case (_) false;
+    };
+    if (not cancellable) return #err("Entry cannot be withdrawn in this state");
+    replaceEntry({ entry with status = #rejected; updatedAt = Time.now() });
+    #ok(());
+  };
+
   // Borrowing only affects the ledger after a separate lender delivery
   // declaration and borrower acknowledgement.
   public shared ({ caller }) func declareFunding(
