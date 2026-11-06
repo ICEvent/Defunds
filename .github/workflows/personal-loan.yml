@@ -11,6 +11,7 @@ on:
       - "test/PersonalLoanLedger.test.mo"
       - "test/personal-loan-date.test.mjs"
       - "test/personal-loan-e2e.sh"
+      - "test/personal-loan-legacy-upgrade.sh"
       - "scripts/personal-loan-local.sh"
       - "dfx.json"
       - ".github/workflows/personal-loan.yml"
@@ -44,6 +45,8 @@ jobs:
           "$CACHE/moc" -r --package base "$CACHE/base" test/PersonalLoanLedger.test.mo
       - name: Run isolated three-identity canister E2E
         run: bash test/personal-loan-e2e.sh
+      - name: Verify existing v0.1 loans upgrade to per-loan currency model
+        run: bash test/personal-loan-legacy-upgrade.sh
 
   frontend:
     runs-on: ubuntu-24.04
