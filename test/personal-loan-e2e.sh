@@ -25,14 +25,14 @@ call_as() {
 }
 assert_ok() {
   local output="$1"
-  if ! grep -Eq 'variant[[:space:]]*\\{[[:space:]]*ok[[:space:]]*=' <<< "$output"; then
+  if ! grep -Eq 'variant[[:space:]]*\{[[:space:]]*ok[[:space:]]*=' <<< "$output"; then
     echo "Expected #ok, received: $output" >&2
     exit 1
   fi
 }
 assert_err() {
   local output="$1"
-  if ! grep -Eq 'variant[[:space:]]*\\{[[:space:]]*err[[:space:]]*=' <<< "$output"; then
+  if ! grep -Eq 'variant[[:space:]]*\{[[:space:]]*err[[:space:]]*=' <<< "$output"; then
     echo "Expected #err, received: $output" >&2
     exit 1
   fi
@@ -59,17 +59,17 @@ assert_ok "$(call_as "$LENDER_NAME" acceptLoan '(1 : nat)')"
 assert_err "$(call_as "$BORROWER_NAME" confirmFunding '(1 : nat, 1 : nat)')"
 assert_balance "$BORROWER_NAME" 0
 
-assert_ok "$(call_as "$LENDER_NAME" declareFunding '(1 : nat, 1 : nat, 1800000000000000000 : int, \"Interac\")')"
+assert_ok "$(call_as "$LENDER_NAME" declareFunding '(1 : nat, 1 : nat, 1800000000000000000 : int, "Interac")')"
 assert_ok "$(call_as "$BORROWER_NAME" confirmFunding '(1 : nat, 1 : nat)')"
 assert_err "$(call_as "$BORROWER_NAME" confirmFunding '(1 : nat, 1 : nat)')" # no replay
 assert_balance "$BORROWER_NAME" 1000000
 
 # Additional borrowing: only accepted and funded borrowing changes balance.
-assert_ok "$(call_as "$BORROWER_NAME" requestAdditionalBorrowing '(1 : nat, 300000 : nat, \"Extra cash\", \"extra-001\")')"
+assert_ok "$(call_as "$BORROWER_NAME" requestAdditionalBorrowing '(1 : nat, 300000 : nat, "Extra cash", "extra-001")')"
 assert_balance "$LENDER_NAME" 1000000
 assert_err "$(call_as "$BORROWER_NAME" acceptAdditionalBorrowing '(1 : nat, 2 : nat)')"
 assert_ok "$(call_as "$LENDER_NAME" acceptAdditionalBorrowing '(1 : nat, 2 : nat)')"
-assert_ok "$(call_as "$LENDER_NAME" declareFunding '(1 : nat, 2 : nat, 1800100000000000000 : int, \"Interac\")')"
+assert_ok "$(call_as "$LENDER_NAME" declareFunding '(1 : nat, 2 : nat, 1800100000000000000 : int, "Interac")')"
 assert_ok "$(call_as "$BORROWER_NAME" confirmFunding '(1 : nat, 2 : nat)')"
 assert_balance "$LENDER_NAME" 1300000
 
