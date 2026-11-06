@@ -17,8 +17,8 @@ for binary in dfx npm jq; do
   fi
 done
 
-if [[ "${1:-}" != "" && "${1:-}" != "--prepare-only" ]]; then
-  echo "Usage: bash scripts/personal-loan-local.sh [--prepare-only]" >&2
+if [[ "${1:-}" != "" && "${1:-}" != "--prepare-only" && "${1:-}" != "--smoke" ]]; then
+  echo "Usage: bash scripts/personal-loan-local.sh [--prepare-only|--smoke]" >&2
   exit 1
 fi
 
@@ -28,10 +28,12 @@ fi
 BACKUP="$(mktemp "$ROOT/.dfx.personal-loan-backup.XXXXXX")"
 cp "$ROOT/dfx.json" "$BACKUP"
 restore() {
-  cp "$BACKUP" "$ROOT/dfx.json"
-  rm -f "$BACKUP"
+  if [[ -f "$BACKUP" ]]; then
+    cp "$BACKUP" "$ROOT/dfx.json"
+    rm -f "$BACKUP"
+  fi
 }
-trap restore EXIT INT TERM
+trap restore EXIT
 
 II_RELEASE="release-2025-08-29"
 jq --arg release "$II_RELEASE" '
@@ -85,6 +87,27 @@ echo "Do NOT enter real bank details; this is an off-chain, local-only ledger."
 if [[ "${1:-}" == "--prepare-only" ]]; then
   echo "Preparation complete. Frontend dev server not started."
   exit 0
+fi
+
+if [[ "${1:-}" == "--smoke" ]]; then
+  npm --workspace frontend run dev -- --host 127.0.0.1 --port 5173 --strictPort > /tmp/defunds-personal-loan-vite.log 2>&1 &
+  vite_pid="$!"
+  trap 'kill "$vite_pid" 2>/dev/null || true; restore' EXIT
+  for attempt in $(seq 1 30); do
+    if curl -fsS http://127.0.0.1:5173/loans > /tmp/defunds-personal-loan-page.html 2>/dev/null; then
+      echo "PASS: browser test page responds at /loans"
+      exit 0
+    fi
+    if ! kill -0 "$vite_pid" 2>/dev/null; then
+      cat /tmp/defunds-personal-loan-vite.log >&2
+      echo "Vite exited before test page was ready" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  cat /tmp/defunds-personal-loan-vite.log >&2
+  echo "Vite /loans smoke check timed out" >&2
+  exit 1
 fi
 
 # Foreground dev server. Ctrl-C closes Vite but preserves local replica data.
