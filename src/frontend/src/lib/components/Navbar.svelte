@@ -87,6 +87,7 @@
 	   </a>
 	   <div class="flex items-center space-x-4 text-sm font-medium">
 		   <a href="/funds" class="text-slate-300 hover:text-sky-300">Funds</a>
+		   <a href="/loans" class="text-slate-300 hover:text-sky-300">Loans</a>
 		   <!-- <a href="/ai-agent-fund" class="text-slate-300 hover:text-sky-300">AI Agent</a> -->
 		   {#if isAuthed}
 			   <button
