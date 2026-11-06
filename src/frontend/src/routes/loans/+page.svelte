@@ -3,6 +3,7 @@
   import { Principal } from '@dfinity/principal';
   import { globalStore } from '$lib/store';
   import { connectPersonalLoan, loanCanisterConfigured } from '$lib/api/personal-loan';
+  import { parseLoanCalendarDay } from '$lib/utils/personal-loan-date';
 
   let isAuthed = false;
   let me = null;
@@ -66,13 +67,7 @@
     return id;
   }
   const requestId = () => crypto.randomUUID();
-  function effectiveDay(isoDate, endOfDay = false) {
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(isoDate)) throw new Error('Select a valid date.');
-    const stamp = Date.parse(isoDate + (endOfDay ? 'T23:59:59.999Z' : 'T12:00:00.000Z'));
-    if (!Number.isFinite(stamp) || new Date(stamp).toISOString().slice(0, 10) !== isoDate)
-      throw new Error('Invalid calendar date.');
-    return BigInt(stamp) * 1_000_000n;
-  }
+  const effectiveDay = parseLoanCalendarDay;
 
   async function initialize() {
     if (!isAuthed || !loanCanisterConfigured || connecting) return;
