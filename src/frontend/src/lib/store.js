@@ -31,7 +31,7 @@ export const setAgent = (agent) => {
   globalStore.update(store => {
     return {
       ...store,
-      icpledger: ICPLEDGER.createActor(agent, ICP_LEDGER_CANISTER_ID, { actorOptions: {} }),
+      icpledger: ICPLEDGER.createActor(ICP_LEDGER_CANISTER_ID, { agent }),
       backend: createActor(DEFUND_CANISTER_ID, { agent }),
       governance: createGovernanceActor(GOVERNANCE_CANISTER_ID, { agent })
     };
