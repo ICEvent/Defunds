@@ -22,6 +22,7 @@ module {
     #pendingConfirmation;
     #confirmed;
     #disputed;
+    #rejected;
   };
 
   public type Loan = {
