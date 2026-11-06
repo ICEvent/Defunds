@@ -319,6 +319,14 @@
                     <span class="text-xs text-sky-300">{variant(entry.status)}</span>
                   </div>
                   <div class="mt-1 text-xs text-slate-400">Recorded by {isMe(entry.proposedBy) ? 'you' : 'the other participant'}{entry.note ? ' · ' + entry.note : ''}</div>
+                  {#if isMe(entry.proposedBy) && (
+                    variant(entry.status) === 'pendingTerms' ||
+                    variant(entry.status) === 'disputed' ||
+                    (variant(entry.status) === 'pendingConfirmation' && ['repayment','reversal'].includes(variant(entry.kind)))
+                  )}
+                    <button disabled={busy} on:click={() => run(() => actor.withdrawPendingEntry(selected.id, entry.id))}
+                      class="mt-3 rounded bg-slate-700 px-3 py-2 text-xs">Withdraw record</button>
+                  {/if}
                   {#if variant(entry.status) === 'pendingTerms' && !isMe(entry.proposedBy)}
                     <div class="mt-3 flex gap-2">
                       <button disabled={busy} class="rounded bg-emerald-700 px-3 py-2 text-xs" on:click={() => run(() => actor.acceptAdditionalBorrowing(selected.id, entry.id))}>Accept terms</button>
