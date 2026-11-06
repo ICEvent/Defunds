@@ -4,6 +4,7 @@
   import { globalStore } from '$lib/store';
   import { connectPersonalLoan, loanCanisterConfigured } from '$lib/api/personal-loan';
   import { parseLoanCalendarDay, LOAN_DATE_PARSER_VERSION } from '$lib/utils/personal-loan-date';
+  import LoanConfirmationModal from '$lib/components/LoanConfirmationModal.svelte';
 
   let isAuthed = false;
   let me = null;
@@ -12,6 +13,7 @@
   let busy = false;
   let error = '';
   let notice = '';
+  let confirmation = null;
   let loans = [];
   let loanCurrencies = {};
   let selected = null;
@@ -179,15 +181,56 @@
     return new Date(Number(BigInt(at) / 1_000_000n)).toLocaleString('en-CA');
   }
 
+  // All consequential loan actions use an in-app modal, not the system confirmation dialog.
+  function confirmLoanAction(title, description, action, options = {}) {
+    if (!selected || busy) return;
+    error = '';
+    confirmation = {
+      title,
+      description,
+      amount: options.amountCents == null ? '' : money(options.amountCents, selectedCurrency),
+      reference: options.reference || ('Loan #' + String(selected.id)),
+      confirmLabel: options.confirmLabel || 'Confirm',
+      danger: Boolean(options.danger),
+      action,
+      afterSuccess: options.afterSuccess
+    };
+  }
+
+  function cancelLoanConfirmation() {
+    if (busy) return;
+    confirmation = null;
+    error = '';
+  }
+
+  async function executeLoanConfirmation() {
+    const pendingConfirmation = confirmation;
+    if (!pendingConfirmation || busy) return;
+    const success = await run(pendingConfirmation.action, pendingConfirmation.afterSuccess);
+    if (success) confirmation = null;
+  }
+
   function requestReversal(entry) {
-    if (!selected || !window.confirm('Request a mutually approved correction? The original transaction remains auditable.')) return;
-    return run(() => actor.requestReversal(
-      selected.id, entry.id, entryNote || ('Correction for transaction #' + String(entry.id)), requestId()
-    ));
+    if (!selected) return;
+    const loanId = selected.id;
+    const entryId = entry.id;
+    const note = entryNote || ('Correction for transaction #' + String(entryId));
+    const id = stableRequestId('reversal', [String(loanId), String(entryId), note].join('|'));
+    confirmLoanAction(
+      'Request a transaction correction',
+      'This creates a new correction request for the other participant to approve. The original confirmed transaction will remain in the audit history.',
+      () => actor.requestReversal(loanId, entryId, note, id),
+      {
+        amountCents: entry.amountCents,
+        reference: 'Loan #' + String(loanId) + ' · Transaction #' + String(entryId),
+        confirmLabel: 'Request correction',
+        afterSuccess: () => { delete pendingIds.reversal; }
+      }
+    );
   }
 
   async function run(work, afterSuccess) {
-    if (!actor || busy) return;
+    if (!actor || busy) return false;
     busy = true;
     error = '';
     notice = '';
@@ -196,8 +239,10 @@
       await refresh();
       if (afterSuccess) await afterSuccess(result);
       notice = 'Record updated. The other party can review the same loan.';
+      return true;
     } catch (e) {
       error = e?.message ?? String(e);
+      return false;
     } finally {
       busy = false;
     }
@@ -253,21 +298,49 @@
   }
 
   function declareFunding(entry) {
-    if (!selected || !window.confirm('Confirm you have actually delivered this amount to the borrower? No bank transfer will be made by Defunds.')) return;
-    return run(() => actor.declareFunding(selected.id, entry.id, effectiveDay(paymentDate), paymentMethod));
+    if (!selected) return;
+    const loanId = selected.id;
+    const entryId = entry.id;
+    const date = paymentDate;
+    const method = paymentMethod;
+    confirmLoanAction(
+      'Declare funds delivered',
+      'Only proceed after you have actually transferred this amount to the borrower. Defunds records your declaration but does not transfer or verify bank funds.',
+      () => actor.declareFunding(loanId, entryId, effectiveDay(date), method),
+      {
+        amountCents: entry.amountCents,
+        reference: 'Loan #' + String(loanId) + ' · Transaction #' + String(entryId) + ' · ' + date,
+        confirmLabel: 'Declare delivered'
+      }
+    );
   }
 
   function confirmEntry(entry) {
     if (!selected) return;
+    const loanId = selected.id;
+    const entryId = entry.id;
     const kind = variant(entry.kind);
-    const isBorrowing = kind === 'initialBorrowing' || kind === 'additionalBorrowing';
-    if (!window.confirm(isBorrowing
-      ? 'Have you actually received this money from the lender?'
-      : 'Confirm the amount and that the off-chain payment/correction is correct?')) return;
-    return run(() => {
-      if (isBorrowing) return actor.confirmFunding(selected.id, entry.id);
-      if (kind === 'repayment') return actor.confirmRepayment(selected.id, entry.id);
-      return actor.confirmReversal(selected.id, entry.id);
+    const borrowing = kind === 'initialBorrowing' || kind === 'additionalBorrowing';
+    let title;
+    let description;
+    let action;
+    if (borrowing) {
+      title = 'Confirm funds received';
+      description = 'Confirm only after you have actually received the money from the lender. This will increase the confirmed outstanding debt.';
+      action = () => actor.confirmFunding(loanId, entryId);
+    } else if (kind === 'repayment') {
+      title = 'Confirm repayment';
+      description = 'Confirm that the repayment was received through the stated off-chain method. The confirmed outstanding debt will decrease.';
+      action = () => actor.confirmRepayment(loanId, entryId);
+    } else {
+      title = 'Confirm transaction correction';
+      description = 'Confirm this correction after reviewing the original transaction and its effect on the shared loan balance.';
+      action = () => actor.confirmReversal(loanId, entryId);
+    }
+    confirmLoanAction(title, description, action, {
+      amountCents: entry.amountCents,
+      reference: 'Loan #' + String(loanId) + ' · Transaction #' + String(entryId),
+      confirmLabel: borrowing ? 'Confirm received' : 'Confirm transaction'
     });
   }
 
@@ -534,9 +607,31 @@
               <p class="text-sm text-slate-400">No events yet.</p>
             {/if}
             {#each auditEvents as event (event.id)}
-              <div class="flex items-center justify-between gap-3 border-t border-slate-800 py-2 text-xs">
-                <span>{variant(event.kind)} {event.entryId.length ? (' · transaction #' + String(event.entryId[0])) : ''}</span>
-                <span class="text-slate-400">{eventTime(event.at)}</span>
+              {@const eventKind = variant(event.kind)}
+              {@const relatedEntry = event.entryId.length
+                ? entries.find(entry => entry.id === event.entryId[0])
+                : null}
+              {@const eventAmount = relatedEntry
+                ? relatedEntry.amountCents
+                : (['loanProposed', 'loanRejected'].includes(eventKind)
+                    ? selected.originalAmountCents
+                    : null)}
+              <div class="flex flex-wrap items-start justify-between gap-3 border-t border-slate-800 py-3 text-xs">
+                <div class="min-w-0">
+                  <div class="font-medium text-slate-200">
+                    {eventKind}
+                    {event.entryId.length ? (' · transaction #' + String(event.entryId[0])) : ''}
+                  </div>
+                  {#if eventAmount != null}
+                    <div class="mt-1 text-sm font-semibold text-sky-200" data-testid="loan-audit-amount">
+                      Amount: {money(eventAmount, selectedCurrency)}
+                    </div>
+                  {/if}
+                  {#if relatedEntry?.kind && variant(relatedEntry.kind) === 'reversal'}
+                    <div class="mt-1 text-slate-400">Correction of a previously confirmed transaction</div>
+                  {/if}
+                </div>
+                <span class="whitespace-nowrap text-slate-400">{eventTime(event.at)}</span>
               </div>
             {/each}
           </section>
@@ -545,3 +640,16 @@
     </div>
   {/if}
 </div>
+<LoanConfirmationModal
+  open={Boolean(confirmation)}
+  title={confirmation?.title || ''}
+  description={confirmation?.description || ''}
+  amount={confirmation?.amount || ''}
+  reference={confirmation?.reference || ''}
+  confirmLabel={confirmation?.confirmLabel || 'Confirm'}
+  danger={confirmation?.danger || false}
+  pending={busy}
+  error={confirmation ? error : ''}
+  on:cancel={cancelLoanConfirmation}
+  on:confirm={executeLoanConfirmation}
+/>
