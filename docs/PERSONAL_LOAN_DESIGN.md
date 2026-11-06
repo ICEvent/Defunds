@@ -2,7 +2,7 @@
 
 **Status:** Draft / implementation in progress  
 **Version:** 0.1 — 2026-11-05  
-**Scope:** personal, two-party, off-chain CAD loans
+**Scope:** personal, two-party, off-chain loans with immutable per-loan currency (CAD, USD, EUR, GBP, CNY)
 
 ## Goal
 One Loan, Two Parties, One Shared Ledger. A borrower and lender authenticate with Internet Identity and see the same loan, confirmed borrowings, repayments, and outstanding balance. Either party may initiate an additional borrowing or a repayment; the other party must accept. No custody, bank integration, DAO voting, or token transfers in this MVP.
@@ -10,8 +10,8 @@ One Loan, Two Parties, One Shared Ledger. A borrower and lender authenticate wit
 ## Definitions
 - A **loan** is one continuing debt relationship between a borrower and a lender, with immutable principals and initial terms.
 - An **entry** is an append-only debt-changing transaction: initial borrowing, additional borrowing, repayment, or reversal.
-- A **pending** entry is not included in the balance. An entry is reflected in the balance **only once confirmed**.
-- Monetary amounts are nonnegative integer **CAD cents**; never floating point.
+- A **pending** entry is not included in the balance. An entry is reflected in the balance **only once confirmed**. The loan's **Agreed Loan Amount** is stored immediately at proposal creation and displayed separately from **Confirmed Borrowed**, **Total Repaid** and **Outstanding**.
+- Monetary amounts use nonnegative integer **minor units** (two decimal places for CAD, USD, EUR, GBP and CNY), never floating point. Each loan has one immutable currency; additional borrowing, repayments and reversals must use that same currency without automatic FX conversion.
 - Borrowing is not considered funded when terms are accepted. The lender declares funds delivered, and the borrower separately acknowledges receipt.
 - The first version is **interest-free (0 bps)**. Interest schedules, amendments, and multilateral loans are explicitly deferred.
 
@@ -55,7 +55,7 @@ Example: borrow $10,000; repay $1,000; repay $1,500; borrow $3,000; repay $2,000
 
 ## Core canister model
 Keep Personal Loan in a separate `personal_loan` Motoko canister to avoid modifying Defunds' deployed Grant/Treasury stable state.
-- `Loan`: id, borrower, lender, initial CAD cents, due date, 0% rate, status, creator, timestamps, closure requestor.
+- `Loan`: id, borrower, lender, original principal in minor units, due date, 0% rate, status, creator, timestamps, closure requestor. Currency is held in a separate stable `(LoanId, Currency)` mapping so old v0.1 CAD loan records remain upgrade-compatible; missing mapping defaults to CAD.
 - `Entry`: id, loanId, kind, integer cents, proposer, effectiveAt, evidence note/method, confirmation status and timestamps. Reversal contains a reference to the original entry.
 - `getMyLoans`, `getLoan`, `getLoanEntries`, and `getBalance` enforce participant permissions.
 - Use caller-derived actors, not principals passed as claimed approvers.
@@ -65,7 +65,7 @@ Keep Personal Loan in a separate `personal_loan` Motoko canister to avoid modify
 
 ## Proposed API
 ```text
-createPersonalLoan(borrower, lender, initialAmountCents, dueAt, note)
+createPersonalLoan(borrower, lender, initialAmountCents, dueAt, note)  // legacy CAD\ncreatePersonalLoanWithCurrency(borrower, lender, initialAmountMinor, currency, dueAt, note, requestId)\ngetLoanCurrency(loanId)
 acceptLoan(loanId) / rejectLoan(loanId)
 requestAdditionalBorrowing(loanId, amountCents, note)
 acceptAdditionalBorrowing(loanId, entryId)
@@ -80,7 +80,7 @@ getMyLoans() / getLoan(loanId) / getLoanEntries(loanId) / getBalance(loanId)\nge
 ```
 
 ## Frontend plan
-Add **Loans** with **My Borrowings**, **My Lending**, **Invitations** and **Loan Detail**. Loan Detail displays original amount, total borrowed, total repaid, current outstanding, agreement, complete ledger, and separate pending actions. Both users see the same confirmed debt. Pending/unconfirmed items are clearly separated.
+Add **Loans** with **My Borrowings**, **My Lending**, **Invitations** and **Loan Detail**. Loan Detail displays an explicit **Agreed Loan Amount** alongside confirmed borrowed/repaid/outstanding balances, immutable currency, agreement, complete ledger, and separate pending actions. An accessible in-app confirmation modal replaces native browser confirms for approvals, funding, repayment, dispute, reversal and closure; the Audit Timeline displays the currency-denominated amount associated with each financial event. Both users see the same confirmed debt. Pending/unconfirmed items are clearly separated.
 
 ## Safety and limitations
 - An account balance is a **jointly confirmed record**, not proof of money transfer or a legally enforceable contract.
@@ -125,5 +125,13 @@ Neither a successful GitHub commit nor this design document establishes those ga
 
 - CI run [42155309083](https://github.com/ICEvent/Defunds/actions/runs/42155309083): Motoko build and ledger fixtures **passed**. The three-identity E2E **passed**, including the CAD 10,000 + CAD 3,000 case, partial repayments, duplicate requests, outsider denial, reversal guards and mutual closure.
 - CI run [42155545233](https://github.com/ICEvent/Defunds/actions/runs/42155545233): Motoko and three-identity E2E **passed**, including a local canister upgrade and balance persistence check.
-- Frontend global Vite build currently blocked by existing `Donations.svelte` import of an `icp_index` Candid declaration that is not configured/generated by this repository's `dfx.json`. The isolated Personal Loan Svelte compile is checked separately; do not treat unrelated global build errors as successful frontend integration.
+- The earlier full Vite build blocker involving `icp_index` Candid declarations was fixed in this PR. Later CI validates the full frontend build, the local PocketIC/II preview and the three-identity financial Canister E2E.
 - No mainnet deployment has been performed. Keep the PR draft until the frontend integration and complete regression gates pass.
+
+## UI and currencies review (2026-11-06)
+
+- New loan: choose one of CAD, USD, EUR, GBP, CNY before proposing. Currency is immutable after creation; previously created v0.1 loans remain CAD. Amounts are stored as integer cents/minor units (no floating point or FX).
+- **Agreed Loan Amount** comes directly from the original proposed principal. Immediately after proposal it can be non-zero while confirmed outstanding is still zero: that is intentional, since funds have not yet been acknowledged.
+- **Audit Timeline** shows the event name, transaction reference, associated amount and currency for borrowing/repayment/reversal events. Multiple events may reference the **same** transaction; the audit view must never be summed as if each event were a separate payment.
+- Approval, funding delivery, repayment confirmation, dispute, correction and closure use the app's modal with descriptive copy and amount rather than browser-native `confirm()`. Errors remain in the modal; cancellation has no ledger effect.
+- CI adds a regression guard for native-confirm removal and currency-aware audit amounts; actual browser interaction with two local Internet Identity users is still required for manual UX acceptance.
