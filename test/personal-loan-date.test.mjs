@@ -5,8 +5,20 @@ import { parseLoanCalendarDay } from '../src/frontend/src/lib/utils/personal-loa
 test('accepts the date entered in the loan form', () => {
   const due = parseLoanCalendarDay('2027-01-01', true);
   assert.equal(due, BigInt(Date.parse('2027-01-01T23:59:59.999Z')) * 1_000_000n);
+  assert.equal(parseLoanCalendarDay(' 2027-01-01 ', true), due);
   const repayment = parseLoanCalendarDay('2027-01-01');
   assert.equal(repayment, BigInt(Date.parse('2027-01-01T12:00:00.000Z')) * 1_000_000n);
+});
+
+test('diagnostic errors show the actual value received by the form', () => {
+  assert.throws(
+    () => parseLoanCalendarDay('01/01/2027'),
+    /date-v3-20261106.*01\\/01\\/2027/,
+  );
+  assert.throws(
+    () => parseLoanCalendarDay(undefined),
+    /date-v3-20261106.*undefined/,
+  );
 });
 
 test('accepts leap years and zero-padded dates', () => {
