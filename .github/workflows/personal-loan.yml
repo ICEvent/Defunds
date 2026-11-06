@@ -62,6 +62,17 @@ jobs:
           dfx generate governance
           dfx generate personal_loan
           echo "VITE_PERSONAL_LOAN_CANISTER_ID=$(dfx canister id personal_loan)" >> "$GITHUB_ENV"
+      - name: Compile Personal Loan Svelte page in isolation
+        run: |
+          cd src/frontend
+          node --input-type=module <<'EOF'
+          import { compile } from 'svelte/compiler';
+          import { readFileSync } from 'node:fs';
+          const file = 'src/routes/loans/+page.svelte';
+          const result = compile(readFileSync(file, 'utf8'), { filename: file, generate: 'dom' });
+          for (const w of result.warnings) console.log('Svelte warning:', w.message);
+          console.log('Personal Loan Svelte compilation passed');
+          EOF
       - name: Validate frontend build
         run: |
           cd src/frontend
