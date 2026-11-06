@@ -26,7 +26,8 @@ const config = {
         '/application/[id]',
         '/dao',
         '/donations',
-        '/profile'
+        '/profile',
+        '/loans'
       ]
     },
     alias: {
