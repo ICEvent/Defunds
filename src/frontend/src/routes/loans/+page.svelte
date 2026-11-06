@@ -274,7 +274,7 @@
   }
 
   function requestAdditional() {
-    if (!selected || transactionMode !== 'borrow') return;
+    if (!selected || !isMe(selected.borrower) || transactionMode !== 'borrow') return;
     const loanId = selected.id;
     return run(() => {
       const amount = parseCents(entryAmount);
@@ -288,7 +288,7 @@
   }
 
   function requestRepayment() {
-    if (!selected || transactionMode !== 'repay') return;
+    if (!selected || !isMe(selected.borrower) || transactionMode !== 'repay') return;
     const loanId = selected.id;
     const full = repaymentFull;
     const input = repaymentAmount;
@@ -575,7 +575,7 @@
             {/if}
           </section>
 
-          {#if variant(selected.status) === 'active'}
+          {#if variant(selected.status) === 'active' && isMe(selected.borrower)}
             <section class="rounded-xl border border-slate-700 bg-slate-900 p-5">
               <h3 class="mb-4 font-semibold">New transaction</h3>
               <div role="tablist" aria-label="Transaction type"
