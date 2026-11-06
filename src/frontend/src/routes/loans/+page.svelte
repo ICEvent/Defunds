@@ -3,7 +3,7 @@
   import { Principal } from '@dfinity/principal';
   import { globalStore } from '$lib/store';
   import { connectPersonalLoan, loanCanisterConfigured } from '$lib/api/personal-loan';
-  import { parseLoanCalendarDay } from '$lib/utils/personal-loan-date';
+  import { parseLoanCalendarDay, LOAN_DATE_PARSER_VERSION } from '$lib/utils/personal-loan-date';
 
   let isAuthed = false;
   let me = null;
@@ -269,6 +269,9 @@
     <p class="mt-2 text-sm text-slate-400">
       One loan, two parties, one shared balance. CAD records only; no funds are transferred by this page.
     </p>
+    <p class="mt-2 text-xs text-slate-500" data-testid="loan-ui-build">
+      Loan UI build: {import.meta.env.VITE_PERSONAL_LOAN_BUILD || 'unspecified'} · {LOAN_DATE_PARSER_VERSION}
+    </p>
   </div>
   {#if isAuthed && me}
     <div class="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-900 p-3 text-sm">
@@ -348,7 +351,14 @@
           <label class="mb-2 block text-xs text-slate-400" for="loan-amount">Initial amount (CAD)</label>
           <input id="loan-amount" bind:value={originalAmount} placeholder="10000.00" class="mb-3 w-full rounded bg-slate-800 p-2" />
           <label class="mb-2 block text-xs text-slate-400" for="loan-due-date">Due date (optional)</label>
-          <input id="loan-due-date" type="date" bind:value={dueDate} class="mb-3 w-full rounded bg-slate-800 p-2" />
+          <input id="loan-due-date" type="date" bind:value={dueDate} class="mb-1 w-full rounded bg-slate-800 p-2" />
+          <p class="mb-3 text-xs text-slate-400" data-testid="loan-due-date-bound">
+            {#if dueDate}
+              Form date value: {dueDate}
+            {:else}
+              No due date selected
+            {/if}
+          </p>
           <textarea aria-label="Loan note" bind:value={loanNote} maxlength="500" placeholder="Description (optional)" class="mb-3 w-full rounded bg-slate-800 p-2"></textarea>
           <button disabled={busy || !counterparty || !originalAmount}
             on:click={createLoan}
