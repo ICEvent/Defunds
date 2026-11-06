@@ -63,7 +63,7 @@ jq --arg release "$II_RELEASE" --arg bind "127.0.0.1:$LOCAL_PORT" '
 echo "Using isolated project-specific local network: 127.0.0.1:$LOCAL_PORT"
 echo "Local checkpoint directory: $ROOT/.dfx/network/local"
 echo "Existing global DFX shared network state will not be modified."
-if dfx ping --network local >/dev/null 2>&1; then
+if dfx ping local >/dev/null 2>&1; then
   echo "Reusing responding project-local PocketIC."
 else
   echo "Starting project-specific PocketIC (never --clean)..."
@@ -80,7 +80,7 @@ else
     }
   fi
 fi
-if ! dfx ping --network local >/dev/null 2>&1; then
+if ! dfx ping local >/dev/null 2>&1; then
   echo "Project-local PocketIC did not report healthy on $LOCAL_PORT; refusing deployment." >&2
   exit 1
 fi
