@@ -295,7 +295,15 @@ persistent actor PersonalLoan {
     if (entry.proposedBy != caller) return #err("Only the requester can withdraw an entry");
     let cancellable = switch (entry.status) {
       case (#pendingTerms) true;
-      case (#disputed) entry.kind != #initialBorrowing;
+      case (#disputed) {
+        // Once the lender has declared a borrowing delivered, the borrower
+        // must not be able to erase the disputed delivery single-handedly.
+        switch (entry.kind) {
+          case (#repayment) true;
+          case (#reversal(_)) true;
+          case (_) false;
+        };
+      };
       case (#pendingConfirmation) {
         switch (entry.kind) {
           case (#repayment) true;
@@ -581,8 +589,13 @@ persistent actor PersonalLoan {
         let matching = Array.filter<Types.LoanEvent>(events, func(x) { x.loanId == loanId });
         let length = matching.size();
         if (offset >= length) return #ok([]);
-        let until = if (limit > length - offset) length else offset + limit;
-        #ok(Array.tabulate<Types.LoanEvent>(until - offset, func(i) { matching[offset + i] }));
+        let available = length - offset;
+        let count = if (limit > available) available else limit;
+        // Newest first: the first page is the latest 100 events rather
+        // than silently truncating the latest activity.
+        #ok(Array.tabulate<Types.LoanEvent>(count, func(i) {
+          matching[length - (offset + i + 1)]
+        }));
       };
     };
   };
