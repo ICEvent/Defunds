@@ -94,3 +94,29 @@ Add **Loans** with **My Borrowings**, **My Lending**, **Invitations** and **Loan
 2. Mutual acceptance, additional-borrowing delivery confirmation, repayment/dispute/reversal, closure, replay protections.
 3. UI and authenticated dual-identity E2E tests.
 4. Local dfx compile, state upgrade/migration tests and security review before any deployment.
+
+## Development and local verification
+The UI and Motoko backend are committed on the feature branch, **not deployed**.
+
+1. Install the project's dfx/Motoko toolchain, then run `dfx build personal_loan --check`.
+2. Run the pure balance fixture:
+   ```bash
+   CACHE="$(dfx cache show)"
+   "$CACHE/moc" -r --package base "$CACHE/base" test/PersonalLoanLedger.test.mo
+   ```
+3. Create and deploy the canister **only on an isolated local replica**:
+   ```bash
+   dfx start --clean --background
+   dfx deploy personal_loan
+   dfx generate personal_loan
+   ```
+4. Configure the frontend with `VITE_PERSONAL_LOAN_CANISTER_ID=<local canister ID>` and
+   `VITE_PERSONAL_LOAN_HOST=http://127.0.0.1:4943`; rebuild the frontend.
+   Do not point a local ID at the production replica or reuse the Defunds Treasury ID.
+5. With two authenticated identities, test invitations, initial delivery, additional
+   borrowing, partial repayments, duplicate client request IDs, declined/disputed
+   entries, reversal, closing, and outsiders' denied queries.
+6. Test a stable canister upgrade and paginated read performance before production.
+
+**Unverified in this branch:** compiler/build, Svelte integration and dual-identity E2E.
+Neither a successful GitHub commit nor this design document establishes those gates.
