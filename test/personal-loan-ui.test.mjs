@@ -56,3 +56,22 @@ test('audit shows friendly event names and original notes with each entry', () =
   assert.match(page, /loanEventNote\(eventKind, relatedEntry, selected\)/);
   assert.match(page, /data-testid="loan-audit-note"/);
 });
+
+test('new transaction form is shown only to the loan borrower', () => {
+  assert.match(
+    page,
+    /\{#if variant\(selected\.status\) === 'active' && isMe\(selected\.borrower\)\}[\s\S]*?<h3 class="mb-4 font-semibold">New transaction<\/h3>/
+  );
+  assert.match(
+    page,
+    /if \(!selected \|\| !isMe\(selected\.borrower\) \|\| transactionMode !== 'borrow'\) return;/
+  );
+  assert.match(
+    page,
+    /if \(!selected \|\| !isMe\(selected\.borrower\) \|\| transactionMode !== 'repay'\) return;/
+  );
+  // Lenders retain their confirmation controls inside shared transaction history.
+  assert.match(page, /isMe\(selected\.lender\)/);
+  assert.match(page, /Declare funds delivered/);
+  assert.match(page, /confirmEntry\(entry\)/);
+});
