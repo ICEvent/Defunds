@@ -53,6 +53,23 @@ assert_balance() {
 PROPOSE="(principal \"$BORROWER\", principal \"$LENDER\", 1000000 : nat, null, \"Private loan\", \"initial-req-001\")"
 assert_ok "$(call_as "$BORROWER_NAME" createPersonalLoan "$PROPOSE")"
 assert_ok "$(call_as "$BORROWER_NAME" createPersonalLoan "$PROPOSE")" # idempotent request
+# Existing v0.1 Candid clients remain CAD by default. New loans can lock in a
+# selected two-decimal currency; no FX conversion or cross-currency settlement.
+assert_ok "$(call_as "$BORROWER_NAME" getLoanCurrency '(1 : nat)')"
+if ! grep -Fq '"CAD"' <<< "$(call_as "$BORROWER_NAME" getLoanCurrency '(1 : nat)')"; then
+  echo "Existing CAD loan returned wrong currency" >&2; exit 1
+fi
+USD_PROPOSE="(principal \"$BORROWER\", principal \"$LENDER\", 250050 : nat, \"USD\", null, \"USD loan\", \"currency-req-001\")"
+assert_ok "$(call_as "$BORROWER_NAME" createPersonalLoanWithCurrency "$USD_PROPOSE")"
+assert_ok "$(call_as "$BORROWER_NAME" createPersonalLoanWithCurrency "$USD_PROPOSE")"
+if ! grep -Fq '"USD"' <<< "$(call_as "$LENDER_NAME" getLoanCurrency '(2 : nat)')"; then
+  echo "Loan 2 did not retain USD" >&2; exit 1
+fi
+BAD_CURRENCY="(principal \"$BORROWER\", principal \"$LENDER\", 250050 : nat, \"XYZ\", null, \"unsupported currency\", \"bad-currency\")"
+assert_err "$(call_as "$BORROWER_NAME" createPersonalLoanWithCurrency "$BAD_CURRENCY")"
+CONFLICT_CURRENCY="(principal \"$BORROWER\", principal \"$LENDER\", 250050 : nat, \"EUR\", null, \"USD loan\", \"currency-req-001\")"
+assert_err "$(call_as "$BORROWER_NAME" createPersonalLoanWithCurrency "$CONFLICT_CURRENCY")"
+assert_err "$(call_as "$OUTSIDER_NAME" getLoanCurrency '(2 : nat)')"
 assert_err "$(call_as "$OUTSIDER_NAME" getLoan '(1 : nat)')"
 assert_err "$(call_as "$BORROWER_NAME" acceptLoan '(1 : nat)')"
 assert_ok "$(call_as "$LENDER_NAME" acceptLoan '(1 : nat)')"
@@ -107,6 +124,12 @@ assert_err "$(call_as "$BORROWER_NAME" requestAdditionalBorrowing '(1 : nat, 100
 
 # Persistent actor upgrade must retain the closed loan, payment totals and audit.
 dfx deploy personal_loan --mode upgrade
+if ! grep -Fq '"CAD"' <<< "$(call_as "$BORROWER_NAME" getLoanCurrency '(1 : nat)')"; then
+  echo "CAD currency did not survive canister upgrade" >&2; exit 1
+fi
+if ! grep -Fq '"USD"' <<< "$(call_as "$LENDER_NAME" getLoanCurrency '(2 : nat)')"; then
+  echo "USD currency did not survive canister upgrade" >&2; exit 1
+fi
 assert_balance "$BORROWER_NAME" 0
 assert_balance "$LENDER_NAME" 0
 
