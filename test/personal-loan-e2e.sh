@@ -25,14 +25,14 @@ call_as() {
 }
 assert_ok() {
   local output="$1"
-  if ! grep -Eq 'variant[[:space:]]*\{[[:space:]]*ok[[:space:]]*=' <<< "$output"; then
+  if ! grep -Eq '^[[:space:]]*ok[[:space:]]*=' <<< "$output"; then
     echo "Expected #ok, received: $output" >&2
     exit 1
   fi
 }
 assert_err() {
   local output="$1"
-  if ! grep -Eq 'variant[[:space:]]*\{[[:space:]]*err[[:space:]]*=' <<< "$output"; then
+  if ! grep -Eq '^[[:space:]]*err[[:space:]]*=' <<< "$output"; then
     echo "Expected #err, received: $output" >&2
     exit 1
   fi
