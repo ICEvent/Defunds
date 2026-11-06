@@ -10,6 +10,7 @@ on:
       - "src/frontend/**"
       - "test/PersonalLoanLedger.test.mo"
       - "test/personal-loan-e2e.sh"
+      - "scripts/personal-loan-local.sh"
       - "dfx.json"
       - ".github/workflows/personal-loan.yml"
   workflow_dispatch:
@@ -88,5 +89,21 @@ jobs:
           npx tsc --noEmit
           npx vite build
       - name: Stop local replica
+        if: always()
+        run: dfx stop || true
+
+  local_preview:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install dfx 0.30.1
+        uses: dfinity/setup-dfx@e50c04f104ee4285ec010f10609483cf41e4d365
+        with:
+          dfx-version: '0.30.1'
+      - name: Deploy isolated local II and verify /loans page
+        run: bash scripts/personal-loan-local.sh --smoke
+      - name: Stop test replica
         if: always()
         run: dfx stop || true
