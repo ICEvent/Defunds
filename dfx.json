@@ -1,9 +1,7 @@
 {
   "canisters": {
     "governance": {
-      "dependencies": [
-        
-      ],
+      "dependencies": [],
       "main": "src/governance/main.mo",
       "type": "motoko",
       "args": "--enhanced-orthogonal-persistence"
@@ -33,6 +31,11 @@
       ],
       "type": "assets",
       "workspace": "frontend"
+    },
+    "personal_loan": {
+      "main": "src/personal_loan/main.mo",
+      "type": "motoko",
+      "args": "--enhanced-orthogonal-persistence"
     }
   },
   "defaults": {
