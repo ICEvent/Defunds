@@ -27,7 +27,7 @@
   let entryAmount = '';
   let repaymentAmount = '';
   let paymentMethod = 'Interac e-Transfer';
-  let paymentDate = new Date().toISOString().slice(0, 10);
+  let paymentDate = '';
   let entryNote = '';
 
   const variant = (value) => Object.keys(value ?? {})[0] ?? '';
@@ -56,7 +56,6 @@
   }
 
   const requestId = () => crypto.randomUUID();
-  const nowNanos = () => BigInt(Date.now()) * 1_000_000n;
   function effectiveDay(isoDate, endOfDay = false) {
     if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(isoDate)) throw new Error('Select a valid date.');
     const stamp = Date.parse(isoDate + (endOfDay ? 'T23:59:59.999Z' : 'T12:00:00.000Z'));
@@ -81,6 +80,9 @@
   }
 
   onMount(() => {
+    const today = new Date();
+    paymentDate = new Date(today.getTime() - today.getTimezoneOffset() * 60_000)
+      .toISOString().slice(0, 10);
     const unsub = globalStore.subscribe((state) => {
       const authed = Boolean(state.isAuthed);
       const changed = authed !== isAuthed || textId(me) !== textId(state.principal);
@@ -179,7 +181,7 @@
 
   function declareFunding(entry) {
     if (!selected || !window.confirm('Confirm you have actually delivered this amount to the borrower? No bank transfer will be made by Defunds.')) return;
-    return run(() => actor.declareFunding(selected.id, entry.id, nowNanos(), paymentMethod));
+    return run(() => actor.declareFunding(selected.id, entry.id, effectiveDay(paymentDate), paymentMethod));
   }
 
   function confirmEntry(entry) {
@@ -304,6 +306,7 @@
             <div class="mt-4 break-all text-xs text-slate-400">
               <div>Borrower: {textId(selected.borrower)}</div>
               <div class="mt-1">Lender: {textId(selected.lender)}</div>
+              <div class="mt-1">Due date: {selected.dueAt?.length ? new Date(Number(selected.dueAt[0] / 1_000_000n)).toLocaleDateString('en-CA') : 'Not set'}</div>
             </div>
             {#if variant(selected.status) === 'proposed' && !isMe(selected.createdBy)}
               <div class="mt-4 flex gap-2">
