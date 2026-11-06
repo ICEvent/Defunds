@@ -59,10 +59,16 @@ jobs:
           mv dfx.ci.json dfx.json
           dfx start --clean --background
           dfx canister create --all
-          dfx generate
+          dfx generate backend
+          dfx generate governance
+          dfx generate personal_loan
           echo "VITE_PERSONAL_LOAN_CANISTER_ID=$(dfx canister id personal_loan)" >> "$GITHUB_ENV"
       - name: Validate frontend build
-        run: npm --workspace src/frontend run build
+        run: |
+          cd src/frontend
+          npx svelte-kit sync
+          npx tsc --noEmit
+          npx vite build
       - name: Stop local replica
         if: always()
         run: dfx stop || true
