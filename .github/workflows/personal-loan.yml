@@ -5,6 +5,7 @@ on:
     paths:
       - "src/personal_loan/**"
       - "test/PersonalLoanLedger.test.mo"
+      - "test/personal-loan-e2e.sh"
       - "dfx.json"
       - ".github/workflows/personal-loan.yml"
   workflow_dispatch:
@@ -35,3 +36,5 @@ jobs:
         run: |
           CACHE="$(dfx cache show)"
           "$CACHE/moc" -r --package base "$CACHE/base" test/PersonalLoanLedger.test.mo
+      - name: Run isolated three-identity canister E2E
+        run: bash test/personal-loan-e2e.sh
