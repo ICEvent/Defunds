@@ -60,8 +60,9 @@
     if (!isAuthed || !loanCanisterConfigured || connecting) return;
     connecting = true;
     try {
-      actor = await connectPersonalLoan();
-      if (actor) await refresh();
+      actor = await connectPersonalLoan(me);
+      if (!actor) throw new Error('Personal Loan session unavailable. Please sign in again.');
+      await refresh();
     } catch (e) {
       error = e?.message ?? String(e);
     } finally {
@@ -216,7 +217,14 @@
       Please log in with Internet Identity to view your private loans.
     </div>
   {:else if connecting || !actor}
-    <div class="rounded-xl border border-slate-700 bg-slate-900 p-5">Connecting to your Personal Loan ledger…</div>
+    <div class="rounded-xl border border-slate-700 bg-slate-900 p-5">
+      {#if error}
+        <p role="alert" class="mb-3 text-red-300">{error}</p>
+        <button on:click={initialize} disabled={connecting} class="rounded bg-sky-700 px-4 py-2 text-sm disabled:opacity-50">Retry connection</button>
+      {:else}
+        Connecting to your Personal Loan ledger…
+      {/if}
+    </div>
   {:else}
     {#if error}<div class="mb-5 rounded-lg border border-red-600 p-3 text-red-300" role="alert">{error}</div>{/if}
     {#if notice}<div class="mb-5 rounded-lg border border-emerald-700 p-3 text-emerald-200" role="status">{notice}</div>{/if}
