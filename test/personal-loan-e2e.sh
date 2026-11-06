@@ -70,6 +70,12 @@ assert_balance "$LENDER_NAME" 1000000
 assert_err "$(call_as "$BORROWER_NAME" acceptAdditionalBorrowing '(1 : nat, 2 : nat)')"
 assert_ok "$(call_as "$LENDER_NAME" acceptAdditionalBorrowing '(1 : nat, 2 : nat)')"
 assert_ok "$(call_as "$LENDER_NAME" declareFunding '(1 : nat, 2 : nat, 1800100000000000000 : int, "Interac")')"
+# The borrower disputes receipt. The claim remains auditable and cannot
+# be unilaterally withdrawn after delivery was declared.
+assert_ok "$(call_as "$BORROWER_NAME" disputeEntry '(1 : nat, 2 : nat)')"
+assert_balance "$BORROWER_NAME" 1000000
+assert_err "$(call_as "$BORROWER_NAME" withdrawPendingEntry '(1 : nat, 2 : nat)')"
+assert_ok "$(call_as "$LENDER_NAME" declareFunding '(1 : nat, 2 : nat, 1800100000000000000 : int, "Interac")')"
 assert_ok "$(call_as "$BORROWER_NAME" confirmFunding '(1 : nat, 2 : nat)')"
 assert_balance "$LENDER_NAME" 1300000
 
