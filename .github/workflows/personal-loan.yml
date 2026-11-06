@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - "src/personal_loan/**"
+      - "src/frontend/src/routes/loans/**"
+      - "src/frontend/src/lib/api/personal-loan.js"
       - "test/PersonalLoanLedger.test.mo"
       - "test/personal-loan-e2e.sh"
       - "dfx.json"
@@ -38,3 +40,29 @@ jobs:
           "$CACHE/moc" -r --package base "$CACHE/base" test/PersonalLoanLedger.test.mo
       - name: Run isolated three-identity canister E2E
         run: bash test/personal-loan-e2e.sh
+
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install dfx 0.30.1
+        uses: dfinity/setup-dfx@e50c04f104ee4285ec010f10609483cf41e4d365
+        with:
+          dfx-version: '0.30.1'
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Generate local Candid declarations
+        run: |
+          jq 'del(.defaults.build.packtool)' dfx.json > dfx.ci.json
+          mv dfx.ci.json dfx.json
+          dfx start --clean --background
+          dfx canister create --all
+          dfx generate
+          echo "VITE_PERSONAL_LOAN_CANISTER_ID=$(dfx canister id personal_loan)" >> "$GITHUB_ENV"
+      - name: Validate frontend build
+        run: npm --workspace src/frontend run build
+      - name: Stop local replica
+        if: always()
+        run: dfx stop || true
