@@ -10,6 +10,7 @@ on:
       - "src/frontend/**"
       - "test/PersonalLoanLedger.test.mo"
       - "test/personal-loan-date.test.mjs"
+      - "test/personal-loan-ui.test.mjs"
       - "test/personal-loan-e2e.sh"
       - "test/personal-loan-legacy-upgrade.sh"
       - "scripts/personal-loan-local.sh"
@@ -62,6 +63,8 @@ jobs:
         run: npm ci
       - name: Validate loan form date parsing
         run: node --test test/personal-loan-date.test.mjs
+      - name: Validate confirmation modal and audit amount UI
+        run: node --test test/personal-loan-ui.test.mjs
       - name: Generate local Candid declarations
         run: |
           jq 'del(.defaults.build.packtool)' dfx.json > dfx.ci.json
