@@ -21,11 +21,13 @@
   let ownRole = 'borrower';
   let counterparty = '';
   let originalAmount = '';
+  let dueDate = '';
   let loanNote = '';
 
   let entryAmount = '';
   let repaymentAmount = '';
   let paymentMethod = 'Interac e-Transfer';
+  let paymentDate = new Date().toISOString().slice(0, 10);
   let entryNote = '';
 
   const variant = (value) => Object.keys(value ?? {})[0] ?? '';
@@ -55,6 +57,13 @@
 
   const requestId = () => crypto.randomUUID();
   const nowNanos = () => BigInt(Date.now()) * 1_000_000n;
+  function effectiveDay(isoDate, endOfDay = false) {
+    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(isoDate)) throw new Error('Select a valid date.');
+    const stamp = Date.parse(isoDate + (endOfDay ? 'T23:59:59.999Z' : 'T12:00:00.000Z'));
+    if (!Number.isFinite(stamp) || new Date(stamp).toISOString().slice(0, 10) !== isoDate)
+      throw new Error('Invalid calendar date.');
+    return BigInt(stamp) * 1_000_000n;
+  }
 
   async function initialize() {
     if (!isAuthed || !loanCanisterConfigured || connecting) return;
@@ -151,7 +160,7 @@
       const borrower = ownRole === 'borrower' ? me : other;
       const lender = ownRole === 'lender' ? me : other;
       return actor.createPersonalLoan(
-        borrower, lender, parseCents(originalAmount), [], loanNote, requestId()
+        borrower, lender, parseCents(originalAmount), dueDate ? [effectiveDay(dueDate, true)] : [], loanNote, requestId()
       );
     });
   }
@@ -164,7 +173,7 @@
   function requestRepayment() {
     if (!selected) return;
     return run(() => actor.submitRepayment(
-      selected.id, parseCents(repaymentAmount), nowNanos(), paymentMethod, entryNote, requestId()
+      selected.id, parseCents(repaymentAmount), effectiveDay(paymentDate), paymentMethod, entryNote, requestId()
     ));
   }
 
@@ -267,6 +276,8 @@
           <input id="loan-other" bind:value={counterparty} placeholder="Principal" class="mb-3 w-full rounded bg-slate-800 p-2 text-sm" />
           <label class="mb-2 block text-xs text-slate-400" for="loan-amount">Initial amount (CAD)</label>
           <input id="loan-amount" bind:value={originalAmount} placeholder="10000.00" class="mb-3 w-full rounded bg-slate-800 p-2" />
+          <label class="mb-2 block text-xs text-slate-400" for="loan-due-date">Due date (optional)</label>
+          <input id="loan-due-date" type="date" bind:value={dueDate} class="mb-3 w-full rounded bg-slate-800 p-2" />
           <textarea aria-label="Loan note" bind:value={loanNote} maxlength="500" placeholder="Description (optional)" class="mb-3 w-full rounded bg-slate-800 p-2"></textarea>
           <button disabled={busy || !counterparty || !originalAmount}
             on:click={createLoan}
@@ -327,6 +338,8 @@
                   <button disabled={busy || !repaymentAmount} on:click={requestRepayment} class="mt-2 rounded bg-emerald-700 px-4 py-2 text-sm disabled:opacity-40">Record repayment</button>
                 </div>
               </div>
+              <label class="mt-3 block text-xs text-slate-400" for="payment-date">Repayment / funding date</label>
+              <input id="payment-date" type="date" bind:value={paymentDate} class="mt-1 w-full rounded bg-slate-800 p-2" />
               <label class="mt-3 block text-xs text-slate-400" for="payment-method">Off-chain payment method</label>
               <select id="payment-method" bind:value={paymentMethod} class="mt-1 w-full rounded bg-slate-800 p-2">
                 <option>Interac e-Transfer</option><option>Bank Transfer</option><option>Cash</option><option>Cheque</option><option>Other</option>
