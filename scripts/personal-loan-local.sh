@@ -48,7 +48,7 @@ jq --arg release "$II_RELEASE" --arg bind "127.0.0.1:$LOCAL_PORT" '
   del(.defaults.build.packtool)
   | del(.output_env_file)
   # A dfx.json local network definition isolates PocketIC checkpoints under
-  # this project's .dfx/network/local rather than the global shared network.
+  # .dfx/network/local for this project rather than the global shared network.
   | .networks.local = {"bind": $bind, "type": "ephemeral"}
   | .canisters.internet_identity = {
       "type":"custom",
