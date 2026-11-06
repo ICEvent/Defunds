@@ -14,6 +14,7 @@
   let loans = [];
   let selected = null;
   let entries = [];
+  let auditEvents = [];
   let balance = null;
   let view = 'borrowings';
 
@@ -93,10 +94,17 @@
     if (selected) {
       selected = next.find((l) => l.id === selected.id) ?? null;
       if (selected) {
-        entries = unwrap(await actor.getLoanEntries(selected.id)) ?? [];
-        balance = unwrap(await actor.getBalance(selected.id));
+        const [entryResult, balanceResult, eventResult] = await Promise.all([
+          actor.getLoanEntries(selected.id),
+          actor.getBalance(selected.id),
+          actor.getLoanEvents(selected.id, 0n, 100n)
+        ]);
+        entries = unwrap(entryResult) ?? [];
+        balance = unwrap(balanceResult);
+        auditEvents = unwrap(eventResult) ?? [];
       } else {
         entries = [];
+        auditEvents = [];
         balance = null;
       }
     }
@@ -106,6 +114,17 @@
     selected = loan;
     error = '';
     await refresh();
+  }
+
+  function eventTime(at) {
+    return new Date(Number(BigInt(at) / 1_000_000n)).toLocaleString('en-CA');
+  }
+
+  function requestReversal(entry) {
+    if (!selected || !window.confirm('Request a mutually approved correction? The original transaction remains auditable.')) return;
+    return run(() => actor.requestReversal(
+      selected.id, entry.id, entryNote || ('Correction for transaction #' + String(entry.id)), requestId()
+    ));
   }
 
   async function run(work) {
@@ -319,6 +338,10 @@
                     <span class="text-xs text-sky-300">{variant(entry.status)}</span>
                   </div>
                   <div class="mt-1 text-xs text-slate-400">Recorded by {isMe(entry.proposedBy) ? 'you' : 'the other participant'}{entry.note ? ' · ' + entry.note : ''}</div>
+                  {#if variant(entry.status) === 'confirmed' && variant(selected.status) === 'active' && variant(entry.kind) !== 'reversal'}
+                    <button disabled={busy} on:click={() => requestReversal(entry)}
+                      class="mt-3 rounded border border-slate-600 px-3 py-2 text-xs hover:border-sky-500">Request correction</button>
+                  {/if}
                   {#if isMe(entry.proposedBy) && (
                     variant(entry.status) === 'pendingTerms' ||
                     variant(entry.status) === 'disputed' ||
@@ -347,6 +370,19 @@
                 </div>
               {/each}
             </div>
+          </section>
+          <section class="rounded-xl border border-slate-700 bg-slate-900 p-5">
+            <h3 class="mb-3 font-semibold">Audit timeline</h3>
+            <p class="mb-3 text-xs text-slate-400">Event history is append-only; latest 100 events shown.</p>
+            {#if auditEvents.length === 0}
+              <p class="text-sm text-slate-400">No events yet.</p>
+            {/if}
+            {#each [...auditEvents].reverse() as event (event.id)}
+              <div class="flex items-center justify-between gap-3 border-t border-slate-800 py-2 text-xs">
+                <span>{variant(event.kind)} {event.entryId.length ? (' · transaction #' + String(event.entryId[0])) : ''}</span>
+                <span class="text-slate-400">{eventTime(event.at)}</span>
+              </div>
+            {/each}
           </section>
         {/if}
       </div>
