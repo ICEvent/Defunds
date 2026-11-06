@@ -84,7 +84,7 @@ module {
     loanId : Nat;
     entryId : ?Nat;
     kind : EventKind;
-    actor : Principal;
+    performedBy : Principal;
     at : Int;
   };
 
