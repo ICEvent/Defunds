@@ -137,9 +137,13 @@ if [[ "${1:-}" == "--smoke" ]]; then
   trap 'kill "$vite_pid" 2>/dev/null || true; restore' EXIT
   for attempt in $(seq 1 30); do
     if curl -fsS http://127.0.0.1:5173/loans > /tmp/defunds-personal-loan-page.html 2>/dev/null; then
-      if ! grep -Fq 'date-v3-20261106' /tmp/defunds-personal-loan-page.html; then
-        echo "The dev server did not serve the expected date-v3 Loan UI." >&2
-        echo "Check whether an older Vite process owns port 5173." >&2
+      # Vite can return an HTML shell for SvelteKit routes; verify the actual
+      # JS module the browser imports rather than expecting text in SSR HTML.
+      if ! curl -fsS http://127.0.0.1:5173/src/lib/utils/personal-loan-date.js \
+          -o /tmp/defunds-personal-loan-date.js ||
+          ! grep -Fq 'date-v3-20261106' /tmp/defunds-personal-loan-date.js; then
+        echo "Vite is not serving the expected Personal Loan date parser." >&2
+        echo "Stop the old frontend; then update this worktree and restart." >&2
         exit 1
       fi
       echo "PASS: browser test page responds at /loans"
