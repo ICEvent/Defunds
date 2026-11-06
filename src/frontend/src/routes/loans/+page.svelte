@@ -446,6 +446,9 @@
                 <span class="text-xs text-sky-300">{variant(loan.status)}</span>
               </div>
               <div class="mt-1 text-sm text-slate-300">{money(loan.originalAmountCents, loanCurrencies[String(loan.id)] || 'CAD')} agreed</div>
+              {#if loan.note}
+                <div class="mt-2 truncate text-xs text-slate-400" title={loan.note}>{loan.note}</div>
+              {/if}
             </button>
           {/each}
         </section>
@@ -493,6 +496,12 @@
             <div class="flex flex-wrap items-center justify-between gap-3">
               <h2 class="text-xl font-semibold">Loan #{String(selected.id)}</h2>
               <span class="rounded-full bg-slate-800 px-3 py-1 text-sm">{variant(selected.status)}</span>
+            </div>
+            <div class="mt-4 rounded-lg border border-slate-700 bg-slate-800/60 p-4" data-testid="loan-description">
+              <div class="text-xs font-medium uppercase tracking-wide text-slate-400">Loan description</div>
+              <p class="mt-2 whitespace-pre-wrap break-words text-sm text-slate-100">
+                {selected.note || 'No description provided.'}
+              </p>
             </div>
             <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <div class="rounded-lg bg-slate-800 p-4" data-testid="agreed-loan-amount">
@@ -568,26 +577,80 @@
 
           {#if variant(selected.status) === 'active'}
             <section class="rounded-xl border border-slate-700 bg-slate-900 p-5">
-              <h3 class="mb-3 font-semibold">New transaction</h3>
-              <div class="grid gap-3 md:grid-cols-2">
-                <div>
-                  <label class="block text-xs text-slate-400" for="extra-amount">Additional borrowing ({selectedCurrency})</label>
-                  <input id="extra-amount" bind:value={entryAmount} placeholder="3000.00" class="mt-1 w-full rounded bg-slate-800 p-2" />
-                  <button disabled={busy || !entryAmount} on:click={requestAdditional} class="mt-2 rounded bg-sky-600 px-4 py-2 text-sm disabled:opacity-40">Request borrowing</button>
-                </div>
-                <div>
-                  <label class="block text-xs text-slate-400" for="repay-amount">Repayment ({selectedCurrency})</label>
-                  <input id="repay-amount" bind:value={repaymentAmount} placeholder="500.00" class="mt-1 w-full rounded bg-slate-800 p-2" />
-                  <button disabled={busy || !repaymentAmount} on:click={requestRepayment} class="mt-2 rounded bg-emerald-700 px-4 py-2 text-sm disabled:opacity-40">Record repayment</button>
-                </div>
+              <h3 class="mb-4 font-semibold">New transaction</h3>
+              <div role="tablist" aria-label="Transaction type"
+                class="mb-5 grid grid-cols-2 gap-2 rounded-lg bg-slate-800 p-1">
+                <button type="button" role="tab" aria-selected={transactionMode === 'borrow'}
+                  aria-controls="loan-transaction-fields"
+                  on:click={() => transactionMode = 'borrow'}
+                  class={transactionMode === 'borrow'
+                    ? 'rounded-md bg-sky-700 px-3 py-3 text-sm font-semibold text-white'
+                    : 'rounded-md px-3 py-3 text-sm text-slate-300 hover:bg-slate-700'}>
+                  Additional borrowing
+                </button>
+                <button type="button" role="tab" aria-selected={transactionMode === 'repay'}
+                  aria-controls="loan-transaction-fields"
+                  on:click={() => transactionMode = 'repay'}
+                  class={transactionMode === 'repay'
+                    ? 'rounded-md bg-emerald-700 px-3 py-3 text-sm font-semibold text-white'
+                    : 'rounded-md px-3 py-3 text-sm text-slate-300 hover:bg-slate-700'}>
+                  Repayment
+                </button>
               </div>
-              <label class="mt-3 block text-xs text-slate-400" for="payment-date">Repayment / funding date</label>
-              <input id="payment-date" type="date" bind:value={paymentDate} class="mt-1 w-full rounded bg-slate-800 p-2" />
-              <label class="mt-3 block text-xs text-slate-400" for="payment-method">Off-chain payment method</label>
-              <select id="payment-method" bind:value={paymentMethod} class="mt-1 w-full rounded bg-slate-800 p-2">
-                <option>Interac e-Transfer</option><option>Bank Transfer</option><option>Cash</option><option>Cheque</option><option>Other</option>
-              </select>
-              <textarea aria-label="Transaction note" maxlength="500" bind:value={entryNote} placeholder="Note (optional)" class="mt-3 w-full rounded bg-slate-800 p-2"></textarea>
+
+              <div id="loan-transaction-fields" role="tabpanel">
+                {#if transactionMode === 'borrow'}
+                  <p class="mb-4 text-xs text-slate-400">
+                    Request more money under this loan. The amount is recorded as debt only after both parties confirm funding.
+                  </p>
+                  <label class="block text-xs text-slate-400" for="extra-amount">Additional borrowing ({selectedCurrency})</label>
+                  <input id="extra-amount" bind:value={entryAmount} placeholder="3000.00"
+                    class="mt-1 w-full rounded bg-slate-800 p-2" />
+                  <label class="mt-3 block text-xs text-slate-400" for="borrowing-note">Borrowing note (optional)</label>
+                  <textarea id="borrowing-note" maxlength="500" bind:value={borrowingNote}
+                    placeholder="Reason for this additional borrowing" class="mt-1 w-full rounded bg-slate-800 p-2"></textarea>
+                  <button disabled={busy || !entryAmount} on:click={requestAdditional}
+                    class="mt-3 rounded bg-sky-600 px-4 py-2 text-sm font-semibold hover:bg-sky-500 disabled:opacity-40">
+                    Request borrowing
+                  </button>
+                {:else}
+                  <p class="mb-4 text-xs text-slate-400">
+                    Record an off-chain repayment. The other participant must confirm it before the debt balance decreases.
+                  </p>
+                  <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/60 p-3 text-sm" for="repay-full">
+                    <input id="repay-full" type="checkbox" bind:checked={repaymentFull} class="h-4 w-4 accent-emerald-600" />
+                    Repay full outstanding balance
+                  </label>
+                  {#if repaymentFull}
+                    <div class="mt-3 rounded-lg bg-slate-800 p-4" data-testid="full-repayment-amount">
+                      <div class="text-xs text-slate-400">Confirmed balance to repay</div>
+                      <div class="mt-1 text-xl font-semibold">{balance ? money(balance.outstandingCents, selectedCurrency) : 'Loading...'}</div>
+                      <p class="mt-1 text-xs text-slate-400">
+                        The current confirmed balance will be checked again when submitted. Pending repayments are not yet deducted.
+                      </p>
+                    </div>
+                  {:else}
+                    <label class="mt-3 block text-xs text-slate-400" for="repay-amount">Repayment amount ({selectedCurrency})</label>
+                    <input id="repay-amount" bind:value={repaymentAmount} placeholder="500.00"
+                      class="mt-1 w-full rounded bg-slate-800 p-2" />
+                  {/if}
+                  <label class="mt-3 block text-xs text-slate-400" for="payment-date">Repayment date</label>
+                  <input id="payment-date" type="date" bind:value={paymentDate}
+                    class="mt-1 w-full rounded bg-slate-800 p-2" />
+                  <label class="mt-3 block text-xs text-slate-400" for="payment-method">Off-chain payment method</label>
+                  <select id="payment-method" bind:value={paymentMethod} class="mt-1 w-full rounded bg-slate-800 p-2">
+                    <option>Interac e-Transfer</option><option>Bank Transfer</option><option>Cash</option><option>Cheque</option><option>Other</option>
+                  </select>
+                  <label class="mt-3 block text-xs text-slate-400" for="repayment-note">Repayment note (optional)</label>
+                  <textarea id="repayment-note" maxlength="500" bind:value={repaymentNote}
+                    placeholder="e.g. Interac reference or repayment details" class="mt-1 w-full rounded bg-slate-800 p-2"></textarea>
+                  <button disabled={busy || !balance || balance.outstandingCents <= 0n || (!repaymentFull && !repaymentAmount)}
+                    on:click={requestRepayment}
+                    class="mt-3 rounded bg-emerald-700 px-4 py-2 text-sm font-semibold hover:bg-emerald-600 disabled:opacity-40">
+                    Record repayment
+                  </button>
+                {/if}
+              </div>
             </section>
           {/if}
 
@@ -636,7 +699,18 @@
 )}>Reject</button>
                     </div>
                   {:else if variant(entry.status) === 'pendingFunding' && isMe(selected.lender)}
-                    <button disabled={busy} on:click={() => declareFunding(entry)} class="mt-3 rounded bg-sky-700 px-3 py-2 text-xs">Declare funds delivered</button>
+                    <div class="mt-3 space-y-2 rounded-lg border border-slate-700 bg-slate-800/50 p-3">
+                      <label class="block text-xs text-slate-400" for="funding-date">Funding date</label>
+                      <input id="funding-date" type="date" bind:value={fundingDate}
+                        class="w-full rounded bg-slate-800 p-2 text-sm" />
+                      <label class="block text-xs text-slate-400" for="funding-method">Funds delivery method</label>
+                      <select id="funding-method" bind:value={fundingMethod}
+                        class="w-full rounded bg-slate-800 p-2 text-sm">
+                        <option>Interac e-Transfer</option><option>Bank Transfer</option><option>Cash</option><option>Cheque</option><option>Other</option>
+                      </select>
+                      <button disabled={busy || !fundingDate} on:click={() => declareFunding(entry)}
+                        class="rounded bg-sky-700 px-3 py-2 text-xs disabled:opacity-40">Declare funds delivered</button>
+                    </div>
                   {:else if variant(entry.status) === 'pendingConfirmation'}
                     {@const kind = variant(entry.kind)}
                     {@const borrowing = kind === 'initialBorrowing' || kind === 'additionalBorrowing'}
@@ -672,15 +746,21 @@
                 : (['loanProposed', 'loanRejected'].includes(eventKind)
                     ? selected.originalAmountCents
                     : null)}
+              {@const eventNote = loanEventNote(eventKind, relatedEntry, selected)}
               <div class="flex flex-wrap items-start justify-between gap-3 border-t border-slate-800 py-3 text-xs">
                 <div class="min-w-0">
                   <div class="font-medium text-slate-200">
-                    {eventKind}
+                    {loanEventLabel(eventKind)}
                     {event.entryId.length ? (' · transaction #' + String(event.entryId[0])) : ''}
                   </div>
                   {#if eventAmount != null}
                     <div class="mt-1 text-sm font-semibold text-sky-200" data-testid="loan-audit-amount">
                       Amount: {money(eventAmount, selectedCurrency)}
+                    </div>
+                  {/if}
+                  {#if eventNote}
+                    <div class="mt-2 whitespace-pre-wrap break-words text-slate-300" data-testid="loan-audit-note">
+                      <span class="font-medium text-slate-400">Note:</span> {eventNote}
                     </div>
                   {/if}
                   {#if relatedEntry?.kind && variant(relatedEntry.kind) === 'reversal'}
