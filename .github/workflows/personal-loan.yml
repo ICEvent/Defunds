@@ -61,6 +61,9 @@ jobs:
           mv dfx.ci.json dfx.json
           dfx start --clean --background
           dfx canister create --all
+          # Custom external interfaces need their Candid build artifacts first.
+          dfx build icp_index --check
+          dfx build icrc1_ledger_canister --check
           dfx generate backend
           dfx generate governance
           dfx generate personal_loan
