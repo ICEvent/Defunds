@@ -58,6 +58,36 @@ module {
     updatedAt : Int;
   };
 
+  // Append-only audit events preserve transitions even when an entry's
+  // current pending/confirmed state changes later.
+  public type EventKind = {
+    #loanProposed;
+    #loanAccepted;
+    #loanRejected;
+    #fundingDeclared;
+    #fundingConfirmed;
+    #additionalBorrowingRequested;
+    #additionalBorrowingAccepted;
+    #additionalBorrowingRejected;
+    #repaymentSubmitted;
+    #repaymentConfirmed;
+    #entryDisputed;
+    #entryWithdrawn;
+    #reversalRequested;
+    #reversalConfirmed;
+    #closureRequested;
+    #loanClosed;
+  };
+
+  public type LoanEvent = {
+    id : Nat;
+    loanId : Nat;
+    entryId : ?Nat;
+    kind : EventKind;
+    actor : Principal;
+    at : Int;
+  };
+
   public type Balance = {
     totalBorrowedCents : Nat;
     totalRepaidCents : Nat;
