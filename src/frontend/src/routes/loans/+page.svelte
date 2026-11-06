@@ -386,7 +386,7 @@
             {#if auditEvents.length === 0}
               <p class="text-sm text-slate-400">No events yet.</p>
             {/if}
-            {#each [...auditEvents].reverse() as event (event.id)}
+            {#each auditEvents as event (event.id)}
               <div class="flex items-center justify-between gap-3 border-t border-slate-800 py-2 text-xs">
                 <span>{variant(event.kind)} {event.entryId.length ? (' · transaction #' + String(event.entryId[0])) : ''}</span>
                 <span class="text-slate-400">{eventTime(event.at)}</span>
