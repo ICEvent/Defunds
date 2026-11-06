@@ -40,7 +40,7 @@ fi
 
 # Preserve the same canister ID and existing stable data when upgrading source.
 cp "$CURRENT_BACKEND" src/personal_loan/main.mo
-dfx deploy personal_loan --mode upgrade
+dfx deploy personal_loan --mode upgrade --wasm-memory-persistence keep
 
 loan="$(dfx canister call personal_loan getLoan '(1 : nat)' --identity loan-legacy-a)"
 if ! grep -q 'originalAmountCents = 1_000_000' <<< "$loan"; then
