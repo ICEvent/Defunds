@@ -55,6 +55,16 @@
     return value?.ok;
   }
 
+  // Keep a retry id stable for the exact same submitted payload. A lost
+  // network response must never turn a retry into a second debt entry.
+  const pendingIds = {};
+  function stableRequestId(kind, payload) {
+    const previous = pendingIds[kind];
+    if (previous && previous.payload === payload) return previous.id;
+    const id = crypto.randomUUID();
+    pendingIds[kind] = { payload, id };
+    return id;
+  }
   const requestId = () => crypto.randomUUID();
   function effectiveDay(isoDate, endOfDay = false) {
     if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(isoDate)) throw new Error('Select a valid date.');
@@ -140,14 +150,15 @@
     ));
   }
 
-  async function run(work) {
+  async function run(work, afterSuccess) {
     if (!actor || busy) return;
     busy = true;
     error = '';
     notice = '';
     try {
-      unwrap(await work());
+      const result = unwrap(await work());
       await refresh();
+      if (afterSuccess) await afterSuccess(result);
       notice = 'Record updated. The other party can review the same loan.';
     } catch (e) {
       error = e?.message ?? String(e);
@@ -161,22 +172,47 @@
       const other = Principal.fromText(counterparty.trim());
       const borrower = ownRole === 'borrower' ? me : other;
       const lender = ownRole === 'lender' ? me : other;
+      const amount = parseCents(originalAmount);
+      const due = dueDate ? [effectiveDay(dueDate, true)] : [];
+      const payload = [textId(borrower), textId(lender), String(amount), dueDate, loanNote].join('|');
       return actor.createPersonalLoan(
-        borrower, lender, parseCents(originalAmount), dueDate ? [effectiveDay(dueDate, true)] : [], loanNote, requestId()
+        borrower, lender, amount, due, loanNote, stableRequestId('create', payload)
       );
+    }, async (loanId) => {
+      delete pendingIds.create;
+      view = ownRole === 'borrower' ? 'borrowings' : 'lending';
+      const created = loans.find((l) => l.id === loanId);
+      if (created) await selectLoan(created);
+      originalAmount = '';
+      loanNote = '';
     });
   }
 
   function requestAdditional() {
     if (!selected) return;
-    return run(() => actor.requestAdditionalBorrowing(selected.id, parseCents(entryAmount), entryNote, requestId()));
+    return run(() => {
+      const amount = parseCents(entryAmount);
+      const payload = [String(selected.id), String(amount), entryNote].join('|');
+      return actor.requestAdditionalBorrowing(selected.id, amount, entryNote, stableRequestId('additional', payload));
+    }, () => {
+      delete pendingIds.additional;
+      entryAmount = '';
+    });
   }
 
   function requestRepayment() {
     if (!selected) return;
-    return run(() => actor.submitRepayment(
-      selected.id, parseCents(repaymentAmount), effectiveDay(paymentDate), paymentMethod, entryNote, requestId()
-    ));
+    return run(() => {
+      const amount = parseCents(repaymentAmount);
+      const at = effectiveDay(paymentDate);
+      const payload = [String(selected.id), String(amount), paymentDate, paymentMethod, entryNote].join('|');
+      return actor.submitRepayment(
+        selected.id, amount, at, paymentMethod, entryNote, stableRequestId('repayment', payload)
+      );
+    }, () => {
+      delete pendingIds.repayment;
+      repaymentAmount = '';
+    });
   }
 
   function declareFunding(entry) {
