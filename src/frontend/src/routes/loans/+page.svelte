@@ -133,6 +133,27 @@
     }
   }
 
+  async function refreshNow() {
+    if (!actor || busy) return;
+    error = '';
+    try {
+      await refresh();
+      notice = 'Loan records refreshed.';
+    } catch (e) {
+      error = e?.message || String(e);
+    }
+  }
+
+  async function copyMyPrincipal() {
+    if (!me) return;
+    try {
+      await navigator.clipboard.writeText(textId(me));
+      notice = 'Principal copied. Send it only to your intended loan counterparty.';
+    } catch (e) {
+      error = 'Could not copy the Principal. Select it manually.';
+    }
+  }
+
   async function selectLoan(loan) {
     selected = loan;
     error = '';
@@ -254,6 +275,23 @@
       One loan, two parties, one shared balance. CAD records only; no funds are transferred by this page.
     </p>
   </div>
+  {#if isAuthed && me}
+    <div class="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-900 p-3 text-sm">
+      <div class="min-w-0 flex-1">
+        <div class="mb-1 text-xs text-slate-400">Your authenticated Principal (share with the other participant)</div>
+        <code class="break-all text-xs text-sky-200">{textId(me)}</code>
+      </div>
+      <button on:click={copyMyPrincipal} class="rounded bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700">
+        Copy Principal
+      </button>
+      {#if actor}
+        <button disabled={busy || connecting} on:click={refreshNow}
+          class="rounded bg-sky-700 px-3 py-2 text-sm hover:bg-sky-600 disabled:opacity-50">
+          Refresh
+        </button>
+      {/if}
+    </div>
+  {/if}
 
   {#if !loanCanisterConfigured}
     <div class="rounded-xl border border-amber-600/40 bg-amber-950/20 p-5 text-amber-100">
