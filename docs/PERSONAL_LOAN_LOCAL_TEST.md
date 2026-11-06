@@ -13,12 +13,32 @@
 
 ```bash
 git checkout feat/personal-loan-ledger-20261105
+git pull --ff-only
 bash scripts/personal-loan-local.sh
 ```
 
+### When the global shared PocketIC returns HTTP 400 on WSL2
+
+The script uses a **project-specific local network**, bound to **127.0.0.1:4945**, and saves its checkpoints in this repository's `.dfx/network/local`. It does **not** resume the broken shared network stored under `~/.local/share/dfx/network/local`. Avoid `dfx start --clean`, which could erase the other projects' checkpoints.
+
+If the current checkout contains old `.dfx/local` canister IDs or corrupted project-specific checkpoints, the safest completely fresh environment is a **separate Git worktree**, without deleting anything:
+
+```bash
+# Run from your original Defunds checkout; stop the hanging process first (Ctrl+C).
+git fetch origin
+git worktree add --detach ../defunds-personal-loan-test origin/feat/personal-loan-ledger-20261105
+cd ../defunds-personal-loan-test
+bash scripts/personal-loan-local.sh
+```
+
+Worktrees have separate `.dfx/` data directories. Your original checkout, original shared network and old canister states remain untouched. The test network uses port 4945, independently of shared 4943. You may set `PERSONAL_LOAN_LOCAL_PORT=4955` if port 4945 is occupied. Use a worktree when you want an entirely separate test ledger; do not copy its local Principal IDs into a production loan.
+
+The temporary `dfx.json` network configuration is restored when Vite closes. To run DFX commands against this isolated local network, keep the script running in a separate terminal; rerun the script to reconnect later.
+
+
 The script:
 1. Creates a backup of `dfx.json`, uses a temporary local-only configuration and restores the original file on exit.
-2. Starts/reuses the local replica **without** `--clean`.
+2. Starts/reuses this project's separate PocketIC on **127.0.0.1:4945** **without** `--clean`. The default global shared network (4943) and its state are not touched.
 3. Installs npm dependencies, creates missing local canister IDs and deploys only `personal_loan` plus a **local** Internet Identity (pinned `release-2025-08-29`).
 4. Generates the Candid declarations needed by the existing Defunds frontend.
 5. Starts Vite in the foreground at **http://127.0.0.1:5173/loans**.
@@ -82,8 +102,8 @@ This MVP **only records mutually acknowledged, off-chain CAD movements** and doe
 - **Login blocked:** confirm the local II URL printed by the script is accessible in your browser, the two browser sessions use the identical `http://127.0.0.1:5173` origin, and that local test mode is enabled.
 - **Loans not connected:** check `VITE_PERSONAL_LOAN_CANISTER_ID` and `VITE_PERSONAL_LOAN_HOST` in the script's output; use the script instead of a generic `npm run dev`.
 - **No invitation shown:** click Refresh, then Invitations; verify the sender entered exactly the Principal of the intended recipient.
-- **Network root key / certificate errors:** check the local replica listens on `127.0.0.1:4943` and II is local, not production.
-- **Port already in use:** stop the other Vite process on 5173. Reusing your existing local replica is fine; **do not clean it**.
+- **Network root key / certificate errors:** check the isolated PocketIC listens on `127.0.0.1:4945` and II is local, not production.
+- **Port already in use:** stop the other Vite process on 5173 or choose a different `PERSONAL_LOAN_LOCAL_PORT`. Do not stop other project's replicas or clean their state.
 - **Persistent warnings from other Defunds pages:** those pages may still rely on existing Defunds backend canisters. This script is scoped to `/loans` only.
 
 ## Automated checks
