@@ -38,7 +38,7 @@
 
   function parseCents(value) {
     const input = String(value).trim();
-    if (!/^(0|[1-9]\\d{0,11})(\\.\\d{1,2})?$/.test(input)) {
+    if (!/^(0|[1-9]\d{0,11})(\.\d{1,2})?$/.test(input)) {
       throw new Error('Enter a CAD amount with up to two decimal places');
     }
     const [dollars, fraction = ''] = input.split('.');
@@ -210,8 +210,7 @@
             {#each [['borrowings','Borrowings'],['lending','Lending'],['invitations','Invitations']] as tab}
               <button
                 on:click={() => { view = tab[0]; selected = null; }}
-                class:!bg-sky-700={view === tab[0]}
-                class="rounded-md bg-slate-800 px-3 py-2 text-xs hover:bg-slate-700">{tab[1]}</button>
+                class={view === tab[0] ? 'rounded-md bg-sky-700 px-3 py-2 text-xs hover:bg-slate-700' : 'rounded-md bg-slate-800 px-3 py-2 text-xs hover:bg-slate-700'}>{tab[1]}</button>
             {/each}
           </div>
           {#if visibleLoans.length === 0}
