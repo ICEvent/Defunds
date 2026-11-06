@@ -30,6 +30,16 @@ if [[ "${1:-}" != "" && "${1:-}" != "--prepare-only" && "${1:-}" != "--smoke" ]]
   exit 1
 fi
 
+# An older Vite instance on 5173 can silently serve stale /loans code even
+# after the checkout is updated. Fail before deploying or modifying config.
+echo "Personal Loan source commit: $(git rev-parse --short HEAD)"
+if command -v curl >/dev/null 2>&1 && curl --silent --max-time 3 --output /dev/null http://127.0.0.1:5173/; then
+  echo "Port 5173 is already serving HTTP, possibly from a stale Vite process." >&2
+  echo "Stop the old frontend terminal (Ctrl+C) before launching this test page." >&2
+  echo "For process lookup: fuser -n tcp 5173 2>/dev/null || ss -ltnp | grep ':5173'" >&2
+  exit 1
+fi
+
 # DFX 0.30.1's global packtool is only needed for the other Motoko canisters.
 # Temporarily use a base-only build config and add a pinned local II canister.
 # Restore original dfx.json *exactly* when the script exits.
@@ -101,6 +111,7 @@ dfx generate personal_loan
 dfx generate icp_index
 dfx generate icrc1_ledger_canister
 
+export VITE_PERSONAL_LOAN_BUILD="$(git rev-parse --short HEAD)"
 export VITE_PERSONAL_LOAN_TEST_MODE=true
 export VITE_PERSONAL_LOAN_HOST="http://127.0.0.1:$LOCAL_PORT"
 export VITE_PERSONAL_LOAN_CANISTER_ID="$(dfx canister id personal_loan)"
@@ -126,6 +137,11 @@ if [[ "${1:-}" == "--smoke" ]]; then
   trap 'kill "$vite_pid" 2>/dev/null || true; restore' EXIT
   for attempt in $(seq 1 30); do
     if curl -fsS http://127.0.0.1:5173/loans > /tmp/defunds-personal-loan-page.html 2>/dev/null; then
+      if ! grep -Fq 'date-v3-20261106' /tmp/defunds-personal-loan-page.html; then
+        echo "The dev server did not serve the expected date-v3 Loan UI." >&2
+        echo "Check whether an older Vite process owns port 5173." >&2
+        exit 1
+      fi
       echo "PASS: browser test page responds at /loans"
       exit 0
     fi
