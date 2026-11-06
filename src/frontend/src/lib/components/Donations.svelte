@@ -38,13 +38,9 @@
         return unsubscribe;
     });
 	onMount(async () => {
-		let icpindex = ICPIndex.createActor(
-			new HttpAgent({
-				host: HOST_MAINNET
-			}),
-			ICP_INDEX_CANISTER_ID,
-			{ actorOptions: {} }
-		);
+		let icpindex = ICPIndex.createActor(ICP_INDEX_CANISTER_ID, {
+			agent: new HttpAgent({ host: HOST_MAINNET })
+		});
 		let para = {
 			max_results: 30,
 			start: [],
