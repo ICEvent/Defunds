@@ -13,7 +13,8 @@ test('accepts the date entered in the loan form', () => {
 test('diagnostic errors show the actual value received by the form', () => {
   assert.throws(
     () => parseLoanCalendarDay('01/01/2027'),
-    /date-v3-20261106.*01\\/01\\/2027/,
+    (error) => error.message.includes('date-v3-20261106')
+      && error.message.includes('01/01/2027'),
   );
   assert.throws(
     () => parseLoanCalendarDay(undefined),
