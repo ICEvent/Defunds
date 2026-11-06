@@ -18,8 +18,23 @@ persistent actor PersonalLoan {
 
   var loans : [Loan] = [];
   var entries : [Entry] = [];
+  var events : [Types.LoanEvent] = [];
+  var nextEventId : Nat = 1;
   var nextLoanId : Nat = 1;
   var nextEntryId : Nat = 1;
+
+  private func appendEvent(loanId : Nat, entryId : ?Nat, kind : Types.EventKind, caller : Principal) {
+    let event : Types.LoanEvent = {
+      id = nextEventId;
+      loanId;
+      entryId;
+      kind;
+      actor = caller;
+      at = Time.now();
+    };
+    nextEventId += 1;
+    events := Array.append<Types.LoanEvent>(events, [event]);
+  };
 
   private func participant(loan : Loan, user : Principal) : Bool {
     not Principal.isAnonymous(user) and (user == loan.borrower or user == loan.lender);
@@ -534,6 +549,26 @@ persistent actor PersonalLoan {
       updatedAt = Time.now();
     });
     #ok(());
+  };
+
+  // Read the audit log with the same loan participant ACL as financial entries.
+  // Entries are append-only; a status change never deletes the old event.
+  public shared query ({ caller }) func getLoanEvents(
+    loanId : Nat,
+    offset : Nat,
+    limit : Nat,
+  ) : async R<[Types.LoanEvent]> {
+    switch (requireParticipant(loanId, caller)) {
+      case (#err(e)) #err(e);
+      case (#ok(_)) {
+        if (limit == 0 or limit > 100) return #err("Limit must be between 1 and 100");
+        let matching = Array.filter<Types.LoanEvent>(events, func(x) { x.loanId == loanId });
+        let length = matching.size();
+        if (offset >= length) return #ok([]);
+        let until = if (limit > length - offset) length else offset + limit;
+        #ok(Array.tabulate<Types.LoanEvent>(until - offset, func(i) { matching[offset + i] }));
+      };
+    };
   };
 
   // Never expose unfiltered loan or ledger enumeration.
