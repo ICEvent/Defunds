@@ -24,7 +24,8 @@
     "frontend": {
       "dependencies": [
         "backend",
-        "governance"
+        "governance",
+        "personal_loan"
       ],
       "source": [
         "src/frontend/dist"
