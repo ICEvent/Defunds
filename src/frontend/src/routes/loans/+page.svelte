@@ -5,6 +5,12 @@
   import { connectPersonalLoan, loanCanisterConfigured } from '$lib/api/personal-loan';
   import { parseLoanCalendarDay, LOAN_DATE_PARSER_VERSION } from '$lib/utils/personal-loan-date';
   import LoanConfirmationModal from '$lib/components/LoanConfirmationModal.svelte';
+  import {
+    loanEventLabel,
+    loanEventNote,
+    parseLoanAmountCents,
+    getRepaymentCents
+  } from '$lib/utils/personal-loan-display';
 
   let isAuthed = false;
   let me = null;
@@ -30,11 +36,16 @@
   let dueDate = '';
   let loanNote = '';
 
+  let transactionMode = 'borrow';
   let entryAmount = '';
+  let borrowingNote = '';
   let repaymentAmount = '';
+  let repaymentFull = false;
+  let repaymentNote = '';
   let paymentMethod = 'Interac e-Transfer';
   let paymentDate = '';
-  let entryNote = '';
+  let fundingMethod = 'Interac e-Transfer';
+  let fundingDate = '';
 
   const variant = (value) => Object.keys(value ?? {})[0] ?? '';
   const textId = (value) => value?.toText?.() ?? String(value ?? '');
@@ -51,16 +62,7 @@
       whole.toLocaleString('en-CA') + '.' + fractional;
   }
 
-  function parseCents(value) {
-    const input = String(value).trim();
-    if (!/^(0|[1-9]\d{0,11})(\.\d{1,2})?$/.test(input)) {
-      throw new Error('Enter an amount with up to two decimal places');
-    }
-    const [dollars, fraction = ''] = input.split('.');
-    const cents = BigInt(dollars) * 100n + BigInt((fraction + '00').slice(0, 2));
-    if (cents <= 0n) throw new Error('Amount must be positive');
-    return cents;
-  }
+  const parseCents = parseLoanAmountCents;
 
   function unwrap(value) {
     if (value && 'err' in value) throw new Error(value.err);
@@ -99,6 +101,7 @@
     const today = new Date();
     paymentDate = new Date(today.getTime() - today.getTimezoneOffset() * 60_000)
       .toISOString().slice(0, 10);
+    fundingDate = paymentDate;
     const unsub = globalStore.subscribe((state) => {
       const authed = Boolean(state.isAuthed);
       const changed = authed !== isAuthed || textId(me) !== textId(state.principal);
@@ -214,7 +217,7 @@
     if (!selected) return;
     const loanId = selected.id;
     const entryId = entry.id;
-    const note = entryNote || ('Correction for transaction #' + String(entryId));
+    const note = 'Correction requested for transaction #' + String(entryId);
     const id = stableRequestId('reversal', [String(loanId), String(entryId), note].join('|'));
     confirmLoanAction(
       'Request a transaction correction',
@@ -271,29 +274,42 @@
   }
 
   function requestAdditional() {
-    if (!selected) return;
+    if (!selected || transactionMode !== 'borrow') return;
+    const loanId = selected.id;
     return run(() => {
       const amount = parseCents(entryAmount);
-      const payload = [String(selected.id), String(amount), entryNote].join('|');
-      return actor.requestAdditionalBorrowing(selected.id, amount, entryNote, stableRequestId('additional', payload));
+      const payload = [String(loanId), String(amount), borrowingNote].join('|');
+      return actor.requestAdditionalBorrowing(loanId, amount, borrowingNote, stableRequestId('additional', payload));
     }, () => {
       delete pendingIds.additional;
       entryAmount = '';
+      borrowingNote = '';
     });
   }
 
   function requestRepayment() {
-    if (!selected) return;
-    return run(() => {
-      const amount = parseCents(repaymentAmount);
-      const at = effectiveDay(paymentDate);
-      const payload = [String(selected.id), String(amount), paymentDate, paymentMethod, entryNote].join('|');
+    if (!selected || transactionMode !== 'repay') return;
+    const loanId = selected.id;
+    const full = repaymentFull;
+    const input = repaymentAmount;
+    const date = paymentDate;
+    const method = paymentMethod;
+    const note = repaymentNote;
+    return run(async () => {
+      // Confirmed outstanding may have changed since the page last refreshed.
+      // Query it again immediately before creating the repayment record.
+      const latest = unwrap(await actor.getBalance(loanId));
+      const amount = getRepaymentCents(full, latest.outstandingCents, input);
+      const at = effectiveDay(date);
+      const payload = [String(loanId), String(amount), date, method, note].join('|');
       return actor.submitRepayment(
-        selected.id, amount, at, paymentMethod, entryNote, stableRequestId('repayment', payload)
+        loanId, amount, at, method, note, stableRequestId('repayment', payload)
       );
     }, () => {
       delete pendingIds.repayment;
       repaymentAmount = '';
+      repaymentNote = '';
+      repaymentFull = false;
     });
   }
 
@@ -301,8 +317,8 @@
     if (!selected) return;
     const loanId = selected.id;
     const entryId = entry.id;
-    const date = paymentDate;
-    const method = paymentMethod;
+    const date = fundingDate;
+    const method = fundingMethod;
     confirmLoanAction(
       'Declare funds delivered',
       'Only proceed after you have actually transferred this amount to the borrower. Defunds records your declaration but does not transfer or verify bank funds.',
