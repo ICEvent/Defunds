@@ -29,7 +29,7 @@ persistent actor PersonalLoan {
       loanId;
       entryId;
       kind;
-      actor = caller;
+      performedBy = caller;
       at = Time.now();
     };
     nextEventId += 1;
