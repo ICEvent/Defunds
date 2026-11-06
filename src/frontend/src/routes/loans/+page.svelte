@@ -514,18 +514,38 @@
             </div>
             {#if variant(selected.status) === 'proposed' && !isMe(selected.createdBy)}
               <div class="mt-4 flex gap-2">
-                <button disabled={busy} class="rounded bg-emerald-700 px-4 py-2" on:click={() => run(() => actor.acceptLoan(selected.id))}>Accept terms</button>
-                <button disabled={busy} class="rounded bg-slate-700 px-4 py-2" on:click={() => run(() => actor.rejectLoan(selected.id))}>Reject</button>
+                <button disabled={busy} class="rounded bg-emerald-700 px-4 py-2" on:click={() => confirmLoanAction(
+  'Accept loan terms',
+  'You agree to the proposed loan terms. The loan will not count as funded until the lender declares delivery and the borrower confirms receipt.',
+  () => actor.acceptLoan(selected.id),
+  { amountCents: selected.originalAmountCents, confirmLabel: 'Accept terms' }
+)}>Accept terms</button>
+                <button disabled={busy} class="rounded bg-slate-700 px-4 py-2" on:click={() => confirmLoanAction(
+  'Reject this loan?',
+  'The proposed loan will be rejected. No confirmed debt will be created.',
+  () => actor.rejectLoan(selected.id),
+  { amountCents: selected.originalAmountCents, confirmLabel: 'Reject loan', danger: true }
+)}>Reject</button>
               </div>
             {/if}
             {#if variant(selected.status) === 'active' && balance?.outstandingCents === 0n}
               <div class="mt-4">
-                <button disabled={busy} class="rounded bg-sky-700 px-4 py-2" on:click={() => run(() => actor.requestClosure(selected.id))}>Request closure</button>
+                <button disabled={busy} class="rounded bg-sky-700 px-4 py-2" on:click={() => confirmLoanAction(
+  'Request loan closure',
+  'The confirmed balance is zero. The other participant must also approve closure. Closing prevents any further borrowing in this loan.',
+  () => actor.requestClosure(selected.id),
+  { confirmLabel: 'Request closure' }
+)}>Request closure</button>
               </div>
             {/if}
             {#if variant(selected.status) === 'readyToClose' && !isMe(selected.closureRequestedBy?.[0])}
               <div class="mt-4">
-                <button disabled={busy} class="rounded bg-emerald-700 px-4 py-2" on:click={() => run(() => actor.confirmClosure(selected.id))}>Confirm closure</button>
+                <button disabled={busy} class="rounded bg-emerald-700 px-4 py-2" on:click={() => confirmLoanAction(
+  'Confirm loan closure',
+  'Confirm that the loan has been fully repaid. Once closed, new borrowing will require a separate loan.',
+  () => actor.confirmClosure(selected.id),
+  { confirmLabel: 'Close loan' }
+)}>Confirm closure</button>
               </div>
             {/if}
           </section>
@@ -576,13 +596,28 @@
                     variant(entry.status) === 'disputed' ||
                     (variant(entry.status) === 'pendingConfirmation' && ['repayment','reversal'].includes(variant(entry.kind)))
                   )}
-                    <button disabled={busy} on:click={() => run(() => actor.withdrawPendingEntry(selected.id, entry.id))}
+                    <button disabled={busy} on:click={() => confirmLoanAction(
+  'Withdraw pending transaction',
+  'Withdraw this unconfirmed request. Confirmed transaction history is not deleted.',
+  () => actor.withdrawPendingEntry(selected.id, entry.id),
+  { amountCents: entry.amountCents, reference: 'Transaction #' + String(entry.id), confirmLabel: 'Withdraw', danger: true }
+)}
                       class="mt-3 rounded bg-slate-700 px-3 py-2 text-xs">Withdraw record</button>
                   {/if}
                   {#if variant(entry.status) === 'pendingTerms' && !isMe(entry.proposedBy)}
                     <div class="mt-3 flex gap-2">
-                      <button disabled={busy} class="rounded bg-emerald-700 px-3 py-2 text-xs" on:click={() => run(() => actor.acceptAdditionalBorrowing(selected.id, entry.id))}>Accept terms</button>
-                      <button disabled={busy} class="rounded bg-slate-700 px-3 py-2 text-xs" on:click={() => run(() => actor.rejectAdditionalBorrowing(selected.id, entry.id))}>Reject</button>
+                      <button disabled={busy} class="rounded bg-emerald-700 px-3 py-2 text-xs" on:click={() => confirmLoanAction(
+  'Accept additional borrowing',
+  'Agree to this additional borrowing amount. The debt increases only after the lender declares delivery and the borrower confirms receipt.',
+  () => actor.acceptAdditionalBorrowing(selected.id, entry.id),
+  { amountCents: entry.amountCents, reference: 'Transaction #' + String(entry.id), confirmLabel: 'Accept terms' }
+)}>Accept terms</button>
+                      <button disabled={busy} class="rounded bg-slate-700 px-3 py-2 text-xs" on:click={() => confirmLoanAction(
+  'Reject additional borrowing?',
+  'The additional borrowing request will be rejected. It will not affect the confirmed debt balance.',
+  () => actor.rejectAdditionalBorrowing(selected.id, entry.id),
+  { amountCents: entry.amountCents, reference: 'Transaction #' + String(entry.id), confirmLabel: 'Reject', danger: true }
+)}>Reject</button>
                     </div>
                   {:else if variant(entry.status) === 'pendingFunding' && isMe(selected.lender)}
                     <button disabled={busy} on:click={() => declareFunding(entry)} class="mt-3 rounded bg-sky-700 px-3 py-2 text-xs">Declare funds delivered</button>
@@ -592,7 +627,12 @@
                     {#if (borrowing && isMe(selected.borrower)) || (!borrowing && !isMe(entry.proposedBy))}
                       <div class="mt-3 flex gap-2">
                         <button disabled={busy} on:click={() => confirmEntry(entry)} class="rounded bg-emerald-700 px-3 py-2 text-xs">Confirm</button>
-                        <button disabled={busy} on:click={() => run(() => actor.disputeEntry(selected.id, entry.id))} class="rounded bg-slate-700 px-3 py-2 text-xs">Dispute</button>
+                        <button disabled={busy} on:click={() => confirmLoanAction(
+  'Dispute this transaction?',
+  'This records a dispute instead of confirming the payment. The shared confirmed balance will not change.',
+  () => actor.disputeEntry(selected.id, entry.id),
+  { amountCents: entry.amountCents, reference: 'Transaction #' + String(entry.id), confirmLabel: 'Dispute', danger: true }
+)} class="rounded bg-slate-700 px-3 py-2 text-xs">Dispute</button>
                       </div>
                     {/if}
                   {/if}
