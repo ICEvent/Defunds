@@ -30,7 +30,7 @@ const config = {
       ]
     },
     alias: {
-			$declarations: './src/declarations'
+			$declarations: '../declarations'
 		}
   },
 };export default config;
