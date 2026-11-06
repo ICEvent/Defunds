@@ -17,6 +17,10 @@ persistent actor PersonalLoan {
   type R<T> = Result.Result<T, Text>;
 
   var loans : [Loan] = [];
+  // Separate persistent mapping preserves upgrade compatibility with existing
+  // stable Loan records created by v0.1 (which were implicitly CAD).
+  // An absent entry always means CAD; the mapping is immutable per loan.
+  var loanCurrencies : [(Nat, Text)] = [];
   var entries : [Entry] = [];
   var events : [Types.LoanEvent] = [];
   var nextEventId : Nat = 1;
@@ -64,6 +68,20 @@ persistent actor PersonalLoan {
 
   private func validNote(note : Text) : Bool {
     Text.size(note) <= 500;
+  };
+
+  // Only currencies with 2 decimal minor units are supported in v0.2.
+  // No currency conversion is performed by this ledger.
+  private func supportedCurrency(currency : Text) : Bool {
+    currency == "CAD" or currency == "USD" or currency == "EUR" or
+    currency == "GBP" or currency == "CNY";
+  };
+
+  private func currencyOf(loanId : Nat) : Text {
+    switch (Array.find<(Nat, Text)>(loanCurrencies, func(pair) { pair.0 == loanId })) {
+      case (?(id, code)) code;
+      case null "CAD"; // Legacy v0.1 loans were always CAD.
+    };
   };
 
   private func replaceLoan(next : Loan) {
@@ -136,7 +154,8 @@ persistent actor PersonalLoan {
     };
   };
 
-  // Caller is always one of the actual parties; requestId is scoped to creator.
+  // Currency is immutable once a loan has been proposed. Keep the old
+  // createPersonalLoan signature for existing UIs/Candid clients (CAD default).
   public shared ({ caller }) func createPersonalLoan(
     borrower : Principal,
     lender : Principal,
@@ -145,11 +164,39 @@ persistent actor PersonalLoan {
     note : Text,
     requestId : Text,
   ) : async R<Nat> {
+    createLoan(caller, borrower, lender, initialAmountCents, "CAD", dueAt, note, requestId);
+  };
+
+  public shared ({ caller }) func createPersonalLoanWithCurrency(
+    borrower : Principal,
+    lender : Principal,
+    initialAmountMinor : Nat,
+    currency : Text,
+    dueAt : ?Int,
+    note : Text,
+    requestId : Text,
+  ) : async R<Nat> {
+    createLoan(caller, borrower, lender, initialAmountMinor, currency, dueAt, note, requestId);
+  };
+
+  private func createLoan(
+    caller : Principal,
+    borrower : Principal,
+    lender : Principal,
+    initialAmountCents : Nat,
+    currency : Text,
+    dueAt : ?Int,
+    note : Text,
+    requestId : Text,
+  ) : R<Nat> {
     if (Principal.isAnonymous(caller) or Principal.isAnonymous(borrower) or Principal.isAnonymous(lender)) {
       return #err("Authentication required");
     };
     if (borrower == lender or (caller != borrower and caller != lender)) {
       return #err("Distinct borrower and lender required; creator must be a participant");
+    };
+    if (not supportedCurrency(currency)) {
+      return #err("Unsupported currency (CAD, USD, EUR, GBP or CNY)");
     };
     if (initialAmountCents == 0 or not validRequestId(requestId) or not validNote(note)) {
       return #err("Invalid amount, request ID or note");
@@ -160,7 +207,8 @@ persistent actor PersonalLoan {
       case (?existing) {
         if (existing.borrower == borrower and existing.lender == lender and
             existing.originalAmountCents == initialAmountCents and
-            existing.dueAt == dueAt and existing.note == note) {
+            existing.dueAt == dueAt and existing.note == note and
+            currencyOf(existing.id) == currency) {
           return #ok(existing.id);
         };
         return #err("Request ID conflict");
@@ -185,6 +233,7 @@ persistent actor PersonalLoan {
     };
     nextLoanId += 1;
     loans := Array.append<Loan>(loans, [loan]);
+    loanCurrencies := Array.append<(Nat, Text)>(loanCurrencies, [(loan.id, currency)]);
     appendEvent(loan.id, null, #loanProposed, caller);
     #ok(loan.id);
   };
@@ -607,6 +656,13 @@ persistent actor PersonalLoan {
 
   public shared query ({ caller }) func getLoan(loanId : Nat) : async R<Loan> {
     requireParticipant(loanId, caller);
+  };
+
+  public shared query ({ caller }) func getLoanCurrency(loanId : Nat) : async R<Text> {
+    switch (requireParticipant(loanId, caller)) {
+      case (#err(e)) #err(e);
+      case (#ok(_)) #ok(currencyOf(loanId));
+    };
   };
 
   public shared query ({ caller }) func getLoanEntries(loanId : Nat) : async R<[Entry]> {
