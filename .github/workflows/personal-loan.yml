@@ -61,6 +61,8 @@ jobs:
           dfx generate backend
           dfx generate governance
           dfx generate personal_loan
+          dfx generate icp_index
+          dfx generate icrc1_ledger_canister
           echo "VITE_PERSONAL_LOAN_CANISTER_ID=$(dfx canister id personal_loan)" >> "$GITHUB_ENV"
       - name: Compile Personal Loan Svelte page in isolation
         run: |
