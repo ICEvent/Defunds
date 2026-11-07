@@ -77,6 +77,16 @@ assert_err "$(call_as "$BORROWER_NAME" confirmFunding '(1 : nat, 1 : nat)')"
 assert_balance "$BORROWER_NAME" 0
 
 assert_ok "$(call_as "$LENDER_NAME" declareFunding '(1 : nat, 1 : nat, 1800000000000000000 : int, "Interac")')"
+# Initial funding can also be disputed without recording confirmed debt.
+# Lender can re-declare with corrected payment details for a fresh review.
+assert_ok "$(call_as "$BORROWER_NAME" disputeEntry '(1 : nat, 1 : nat)')"
+assert_balance "$BORROWER_NAME" 0
+assert_err "$(call_as "$BORROWER_NAME" withdrawPendingEntry '(1 : nat, 1 : nat)')"
+assert_ok "$(call_as "$LENDER_NAME" declareFunding '(1 : nat, 1 : nat, 1800000000000000000 : int, "Bank Transfer")')"
+if ! grep -Fq '"Bank Transfer"' <<< "$(call_as "$BORROWER_NAME" getLoanEntries '(1 : nat)')"; then
+  echo "Corrected funding method was not retained" >&2
+  exit 1
+fi
 assert_ok "$(call_as "$BORROWER_NAME" confirmFunding '(1 : nat, 1 : nat)')"
 assert_err "$(call_as "$BORROWER_NAME" confirmFunding '(1 : nat, 1 : nat)')" # no replay
 assert_balance "$BORROWER_NAME" 1000000
