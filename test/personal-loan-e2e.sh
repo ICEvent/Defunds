@@ -132,6 +132,47 @@ assert_err "$(call_as "$BORROWER_NAME" confirmClosure '(1 : nat)')"
 assert_ok "$(call_as "$LENDER_NAME" confirmClosure '(1 : nat)')"
 assert_err "$(call_as "$BORROWER_NAME" requestAdditionalBorrowing '(1 : nat, 100 : nat, "post closure", "extra-closed")')"
 
+# The second USD loan has not been funded yet. Initial pending funding
+# cancellation must be approved by BOTH parties; cancelling the initial
+# agreement rejects the unfunded loan, without creating a balance.
+assert_ok "$(call_as "$LENDER_NAME" acceptLoan '(2 : nat)')"
+assert_ok "$(call_as "$BORROWER_NAME" requestFundingCancellation '(2 : nat, 7 : nat)')"
+assert_ok "$(call_as "$BORROWER_NAME" requestFundingCancellation '(2 : nat, 7 : nat)')" # same caller cannot approve twice
+assert_err "$(call_as "$OUTSIDER_NAME" getFundingCancellationRequests '(2 : nat)')"
+if ! grep -Fq 'requestedBy' <<< "$(call_as "$LENDER_NAME" getFundingCancellationRequests '(2 : nat)')"; then
+  echo "Lender cannot see pending cancellation approval" >&2; exit 1
+fi
+assert_ok "$(call_as "$LENDER_NAME" requestFundingCancellation '(2 : nat, 7 : nat)')"
+if ! grep -Fq 'rejected' <<< "$(call_as "$BORROWER_NAME" getLoan '(2 : nat)')"; then
+  echo "Initial unfunded loan was not rejected after bilateral cancellation" >&2; exit 1
+fi
+assert_err "$(call_as "$BORROWER_NAME" requestFundingCancellation '(2 : nat, 7 : nat)')"
+
+# Third loan: cancellation of accepted additional borrowing should unblock
+# closure after the ACTUAL funded amount has been fully repaid.
+LOAN3="(principal \"$BORROWER\", principal \"$LENDER\", 100000 : nat, null, \"Funding cancellation regression\", \"loan-3\")"
+assert_ok "$(call_as "$BORROWER_NAME" createPersonalLoan "$LOAN3")"
+assert_ok "$(call_as "$LENDER_NAME" acceptLoan '(3 : nat)')"
+assert_ok "$(call_as "$LENDER_NAME" declareFunding '(3 : nat, 8 : nat, 1800000000000000000 : int, "Interac")')"
+assert_ok "$(call_as "$BORROWER_NAME" confirmFunding '(3 : nat, 8 : nat)')"
+assert_ok "$(call_as "$BORROWER_NAME" requestAdditionalBorrowing '(3 : nat, 25000 : nat, "Undelivered extra", "extra-3")')"
+assert_ok "$(call_as "$LENDER_NAME" acceptAdditionalBorrowing '(3 : nat, 9 : nat)')"
+assert_ok "$(call_as "$BORROWER_NAME" submitRepayment '(3 : nat, 100000 : nat, 1800200000000000000 : int, "Interac", "Paid in full", "repay-3")')"
+assert_ok "$(call_as "$LENDER_NAME" confirmRepayment '(3 : nat, 10 : nat)')"
+if ! grep -Fq 'outstandingCents = 0' <<< "$(call_as "$BORROWER_NAME" getBalance '(3 : nat)')"; then
+  echo "Third loan should have zero confirmed outstanding debt" >&2; exit 1
+fi
+assert_err "$(call_as "$BORROWER_NAME" requestClosure '(3 : nat)')" # accepted extra blocks closure
+assert_ok "$(call_as "$BORROWER_NAME" requestFundingCancellation '(3 : nat, 9 : nat)')"
+assert_err "$(call_as "$OUTSIDER_NAME" requestFundingCancellation '(3 : nat, 9 : nat)')"
+assert_err "$(call_as "$LENDER_NAME" withdrawFundingCancellationRequest '(3 : nat, 9 : nat)')"
+assert_ok "$(call_as "$BORROWER_NAME" withdrawFundingCancellationRequest '(3 : nat, 9 : nat)')"
+assert_ok "$(call_as "$LENDER_NAME" requestFundingCancellation '(3 : nat, 9 : nat)')"
+assert_ok "$(call_as "$BORROWER_NAME" requestFundingCancellation '(3 : nat, 9 : nat)')"
+assert_err "$(call_as "$LENDER_NAME" declareFunding '(3 : nat, 9 : nat, 1800200000000000000 : int, "Interac")')"
+assert_ok "$(call_as "$BORROWER_NAME" requestClosure '(3 : nat)')"
+assert_ok "$(call_as "$LENDER_NAME" confirmClosure '(3 : nat)')"
+
 # Persistent actor upgrade must retain the closed loan, payment totals and audit.
 dfx deploy personal_loan --mode upgrade
 if ! grep -Fq '"CAD"' <<< "$(call_as "$BORROWER_NAME" getLoanCurrency '(1 : nat)')"; then
