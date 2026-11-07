@@ -11,6 +11,7 @@
     parseLoanAmountCents,
     getRepaymentCents,
     formatEntryPaymentDate,
+    formatLoanUtcDate,
     canLenderDeclareFunding,
     canRequesterWithdrawEntry
   } from '$lib/utils/personal-loan-display';
@@ -30,6 +31,9 @@
   let entries = [];
   let auditEvents = [];
   let balance = null;
+  let detailLoading = false;
+  // A pending reply must never render loan A's balance under loan B's header.
+  let refreshVersion = 0;
   let view = 'borrowings';
 
   let ownRole = 'borrower';
@@ -111,10 +115,15 @@
       isAuthed = authed;
       me = state.principal ?? null;
       if (!authed) {
+        refreshVersion += 1;
         actor = null;
         loans = [];
         loanCurrencies = {};
         selected = null;
+        entries = [];
+        auditEvents = [];
+        balance = null;
+        detailLoading = false;
         selectedCurrency = 'CAD';
       } else if (changed) {
         actor = null;
@@ -125,34 +134,49 @@
   });
 
   async function refresh() {
-    if (!actor) return;
-    const next = await actor.getMyLoans();
-    // Separate stable loan-currency mapping preserves existing CAD loan storage.
+    const requestedActor = actor;
+    if (!requestedActor) return;
+    const version = ++refreshVersion;
+    const requestedLoanId = selected?.id ?? null;
+    const isCurrent = () => requestedActor === actor
+      && version === refreshVersion
+      && (selected?.id ?? null) === requestedLoanId;
+
+    const next = await requestedActor.getMyLoans();
     const pairs = await Promise.all(next.map(async loan => [
       String(loan.id),
-      unwrap(await actor.getLoanCurrency(loan.id))
+      unwrap(await requestedActor.getLoanCurrency(loan.id))
     ]));
+    if (!isCurrent()) return; // another loan/identity was selected meanwhile
+
     loanCurrencies = Object.fromEntries(pairs);
     loans = next;
-    if (selected) {
-      selected = next.find((l) => l.id === selected.id) ?? null;
-      if (selected) {
-        selectedCurrency = loanCurrencies[String(selected.id)] || 'CAD';
-        const [entryResult, balanceResult, eventResult] = await Promise.all([
-          actor.getLoanEntries(selected.id),
-          actor.getBalance(selected.id),
-          actor.getLoanEvents(selected.id, 0n, 100n)
-        ]);
-        entries = unwrap(entryResult) ?? [];
-        balance = unwrap(balanceResult);
-        auditEvents = unwrap(eventResult) ?? [];
-      } else {
-        entries = [];
-        auditEvents = [];
-        balance = null;
-        selectedCurrency = 'CAD';
-      }
+    if (requestedLoanId == null) return;
+
+    const currentLoan = next.find(l => l.id === requestedLoanId);
+    if (!currentLoan) {
+      selected = null;
+      entries = [];
+      auditEvents = [];
+      balance = null;
+      selectedCurrency = 'CAD';
+      detailLoading = false;
+      return;
     }
+
+    selected = currentLoan;
+    selectedCurrency = loanCurrencies[String(currentLoan.id)] || 'CAD';
+    const [entryResult, balanceResult, eventResult] = await Promise.all([
+      requestedActor.getLoanEntries(requestedLoanId),
+      requestedActor.getBalance(requestedLoanId),
+      requestedActor.getLoanEvents(requestedLoanId, 0n, 100n)
+    ]);
+    if (!isCurrent()) return; // A's slow response must not overwrite B
+
+    entries = unwrap(entryResult) ?? [];
+    balance = unwrap(balanceResult);
+    auditEvents = unwrap(eventResult) ?? [];
+    detailLoading = false;
   }
 
   async function refreshNow() {
@@ -177,10 +201,20 @@
   }
 
   async function selectLoan(loan) {
+    ++refreshVersion; // invalidate any already-running detail query
     selected = loan;
     selectedCurrency = loanCurrencies[String(loan.id)] || 'CAD';
+    entries = [];
+    auditEvents = [];
+    balance = null;
+    detailLoading = true;
     error = '';
-    await refresh();
+    try {
+      await refresh();
+    } catch (e) {
+      if (selected?.id === loan.id) detailLoading = false;
+      error = e?.message ?? String(e);
+    }
   }
 
   function eventTime(at) {
@@ -544,7 +578,7 @@
               <div>Currency: {selectedCurrency} (fixed for this loan; no FX conversion)</div>
               <div class="mt-1">Borrower: {textId(selected.borrower)}</div>
               <div class="mt-1">Lender: {textId(selected.lender)}</div>
-              <div class="mt-1">Due date: {selected.dueAt?.length ? new Date(Number(selected.dueAt[0] / 1_000_000n)).toLocaleDateString('en-CA') : 'Not set'}</div>
+              <div class="mt-1">Due date: {selected.dueAt?.length ? formatLoanUtcDate(selected.dueAt[0]) : 'Not set'}</div>
             </div>
             {#if variant(selected.status) === 'proposed' && !isMe(selected.createdBy)}
               <div class="mt-4 flex gap-2">
@@ -666,9 +700,13 @@
           <section class="rounded-xl border border-slate-700 bg-slate-900 p-5">
             <h3 class="mb-3 font-semibold">Shared transaction history</h3>
             <p class="mb-4 text-xs text-slate-400">Only confirmed entries affect the outstanding balance. Check that real-world payments have actually occurred before confirming.</p>
-            {#if entries.length === 0}<p class="text-sm text-slate-400">No transaction records yet.</p>{/if}
+            {#if detailLoading}
+              <p class="text-sm text-slate-400" data-testid="loan-detail-loading">Loading selected loan details…</p>
+            {:else if entries.length === 0}
+              <p class="text-sm text-slate-400">No transaction records yet.</p>
+            {/if}
             <div class="space-y-3">
-              {#each entries as entry (entry.id)}
+              {#each (detailLoading ? [] : entries) as entry (entry.id)}
                 <div class="rounded-lg border border-slate-700 p-3">
                   <div class="flex flex-wrap justify-between gap-2">
                     <span class="text-sm font-medium">{variant(entry.kind)} · {money(entry.amountCents, selectedCurrency)}</span>
@@ -758,10 +796,11 @@
           <section class="rounded-xl border border-slate-700 bg-slate-900 p-5">
             <h3 class="mb-3 font-semibold">Audit timeline</h3>
             <p class="mb-3 text-xs text-slate-400">Event history is append-only; latest 100 events shown.</p>
+            {#if detailLoading}<p class="text-sm text-slate-400">Loading audit history…</p>{/if}
             {#if auditEvents.length === 0}
               <p class="text-sm text-slate-400">No events yet.</p>
             {/if}
-            {#each auditEvents as event (event.id)}
+            {#each (detailLoading ? [] : auditEvents) as event (event.id)}
               {@const eventKind = variant(event.kind)}
               {@const relatedEntry = event.entryId.length
                 ? entries.find(entry => entry.id === event.entryId[0])
