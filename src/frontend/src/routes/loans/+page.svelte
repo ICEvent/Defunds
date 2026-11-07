@@ -13,7 +13,8 @@
     formatEntryPaymentDate,
     formatLoanUtcDate,
     canLenderDeclareFunding,
-    canRequesterWithdrawEntry
+    canRequesterWithdrawEntry,
+    isCurrentLoanRefresh
   } from '$lib/utils/personal-loan-display';
 
   let isAuthed = false;
@@ -140,9 +141,10 @@
     if (!requestedActor) return;
     const version = ++refreshVersion;
     const requestedLoanId = selected?.id ?? null;
-    const isCurrent = () => requestedActor === actor
-      && version === refreshVersion
-      && (selected?.id ?? null) === requestedLoanId;
+    const isCurrent = () => isCurrentLoanRefresh(
+      requestedActor, actor, version, refreshVersion,
+      requestedLoanId, selected?.id ?? null
+    );
 
     const next = await requestedActor.getMyLoans();
     const pairs = await Promise.all(next.map(async loan => [
