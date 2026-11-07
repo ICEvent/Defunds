@@ -73,6 +73,8 @@ module {
     #repaymentConfirmed;
     #entryDisputed;
     #entryWithdrawn;
+    #fundingCancellationRequested;
+    #fundingCancelled;
     #reversalRequested;
     #reversalConfirmed;
     #closureRequested;
@@ -86,6 +88,15 @@ module {
     kind : EventKind;
     performedBy : Principal;
     at : Int;
+  };
+
+  // Separate stable storage keeps previously persisted Loan and Entry shapes
+  // unchanged. Only a participant can inspect these bilateral approvals.
+  public type FundingCancellationRequest = {
+    loanId : Nat;
+    entryId : Nat;
+    requestedBy : Principal;
+    createdAt : Int;
   };
 
   public type Balance = {
