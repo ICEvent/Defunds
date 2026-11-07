@@ -109,3 +109,12 @@ export function formatLoanUtcDate(nanoseconds) {
     return '';
   }
 }
+
+
+// Apply async loan details only if both the selected loan and the actor
+// session are the ones captured when the request was issued.
+export function isCurrentLoanRefresh(requestedActor, activeActor, requestedVersion, activeVersion, requestedLoanId, activeLoanId) {
+  return requestedActor === activeActor
+    && requestedVersion === activeVersion
+    && requestedLoanId === activeLoanId;
+}
