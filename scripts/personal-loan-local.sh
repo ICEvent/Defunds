@@ -126,22 +126,26 @@ if dfx ping local >/dev/null 2>&1; then
 else
   recover_stale_project_pid || exit 1
   echo "Starting project-specific PocketIC (never --clean)..."
+  # DFX can keep retrying PocketIC /instances (HTTP 400) indefinitely on
+  # corrupted project-local snapshots. Terminate the launcher after one short
+  # bounded attempt; do not delete data, or kill unrelated PocketIC servers.
+  # GNU timeout sends TERM then KILL to the process group after its grace period.
   if command -v timeout >/dev/null 2>&1; then
-    if ! timeout 120s dfx start --background; then
+    if ! timeout --signal=TERM --kill-after=5s 60s dfx start --background; then
       if ! dfx ping local >/dev/null 2>&1; then
-        echo "Project-local PocketIC did not start." >&2
+        echo "Project-local PocketIC failed to initialize (startup bounded to 60 seconds)." >&2
+        echo "If /instances returned HTTP 400 repeatedly, the saved project state may be incompatible/corrupt." >&2
+        echo "Do NOT use --clean: create a separate fresh git worktree to test without deleting this one's state." >&2
+        echo "  git worktree add --detach ../defunds-personal-loan-qa-fresh origin/feat/personal-loan-ledger-20261105" >&2
+        echo "  cd ../defunds-personal-loan-qa-fresh && PERSONAL_LOAN_LOCAL_PORT=4955 bash scripts/personal-loan-local.sh" >&2
         show_dfx_diagnostics
         exit 1
       fi
     fi
   else
-    if ! dfx start --background; then
-      if ! dfx ping local >/dev/null 2>&1; then
-        echo "Project-local PocketIC did not start." >&2
-        show_dfx_diagnostics
-        exit 1
-      fi
-    fi
+    echo "GNU timeout is required for bounded local PocketIC startup on WSL2." >&2
+    echo "Install coreutils rather than attempting an unbounded dfx start." >&2
+    exit 1
   fi
 fi
 if ! dfx ping local >/dev/null 2>&1; then
