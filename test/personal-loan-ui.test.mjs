@@ -75,3 +75,24 @@ test('new transaction form is shown only to the loan borrower', () => {
   assert.match(page, /Declare funds delivered/);
   assert.match(page, /confirmEntry\(entry\)/);
 });
+
+
+test('review: lender can re-declare disputed borrowing with a visible recovery action', () => {
+  assert.match(page, /canLenderDeclareFunding\(variant\(entry\.status\), variant\(entry\.kind\), isMe\(selected\.lender\)\)/);
+  assert.match(page, /data-testid="loan-disputed-funding-recovery"/);
+  assert.match(page, /Re-declare funds delivered/);
+  assert.match(page, /canRequesterWithdrawEntry\(variant\(entry\.status\), variant\(entry\.kind\)\)/);
+});
+
+test('review: date and method are visible before confirming payment on both surfaces', () => {
+  assert.match(page, /data-testid="loan-entry-payment-details"/);
+  assert.match(page, /formatEntryPaymentDate\(entry\)/);
+  assert.match(page, /entry\.method/);
+  assert.match(page, /paymentDate: formatEntryPaymentDate\(entry\)/);
+  assert.match(page, /paymentMethod: entry\.method\?\.trim\(\) \|\| ''/);
+  assert.match(page, /paymentDate=\{confirmation\?\.paymentDate \|\| ''\}/);
+  assert.match(page, /paymentMethod=\{confirmation\?\.paymentMethod \|\| ''\}/);
+  assert.match(modal, /data-testid="loan-confirmation-payment-details"/);
+  assert.match(modal, /Recorded payment date \(UTC\)/);
+  assert.match(modal, /Recorded payment method/);
+});
