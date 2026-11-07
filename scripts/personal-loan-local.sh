@@ -73,25 +73,80 @@ jq --arg release "$II_RELEASE" --arg bind "127.0.0.1:$LOCAL_PORT" '
 echo "Using isolated project-specific local network: 127.0.0.1:$LOCAL_PORT"
 echo "Local checkpoint directory: $ROOT/.dfx/network/local"
 echo "Existing global DFX shared network state will not be modified."
+
+LOCAL_NETWORK_DIR="$ROOT/.dfx/network/local"
+LOCAL_PID_FILE="$LOCAL_NETWORK_DIR/pid"
+
+show_dfx_diagnostics() {
+  echo "Project-local PocketIC diagnostics (no other network was stopped):" >&2
+  if [[ -f "$LOCAL_PID_FILE" ]]; then
+    local current_pid
+    current_pid="$(cat "$LOCAL_PID_FILE" 2>/dev/null || true)"
+    echo "  project PID file: $LOCAL_PID_FILE -> $current_pid" >&2
+    if [[ "$current_pid" =~ ^[0-9]+$ ]]; then
+      ps -p "$current_pid" -o pid=,ppid=,stat=,args= >&2 || true
+    fi
+  else
+    echo "  no project-specific PID file" >&2
+  fi
+  if [[ -f "$HOME/.local/share/dfx/network/local/pid" ]]; then
+    echo "  shared-network PID: $(cat "$HOME/.local/share/dfx/network/local/pid" 2>/dev/null || true)" >&2
+  fi
+  if command -v ss >/dev/null 2>&1; then
+    ss -lntp 2>/dev/null | grep -E "(:$LOCAL_PORT|:4943)[[:space:]]" >&2 || true
+  fi
+}
+
+# A WSL shutdown/crash can leave this worktree's dfx PID file behind even
+# though no process remains. Back up ONLY this dead PID marker, never canister
+# checkpoints, and never stop a living DFX process (especially shared 4943).
+recover_stale_project_pid() {
+  [[ -f "$LOCAL_PID_FILE" ]] || return 0
+  local recorded_pid backup
+  recorded_pid="$(cat "$LOCAL_PID_FILE" 2>/dev/null || true)"
+  if [[ ! "$recorded_pid" =~ ^[0-9]+$ ]]; then
+    echo "Unrecognized project PID file: $LOCAL_PID_FILE" >&2
+    show_dfx_diagnostics
+    return 1
+  fi
+  if ps -p "$recorded_pid" -o pid= 2>/dev/null | grep -Eq '[0-9]'; then
+    echo "DFX PID $recorded_pid still exists but project port $LOCAL_PORT is unresponsive." >&2
+    echo "Refusing to stop it or overwrite its PID file; identify its owner first." >&2
+    show_dfx_diagnostics
+    return 1
+  fi
+  backup="$LOCAL_PID_FILE.stale.$(date +%Y%m%d%H%M%S).$"
+  mv -- "$LOCAL_PID_FILE" "$backup"
+  echo "Recovered stale project-only PID marker (backed up as $backup)."
+  echo "Project checkpoints and all shared network data are preserved."
+}
+
 if dfx ping local >/dev/null 2>&1; then
   echo "Reusing responding project-local PocketIC."
 else
+  recover_stale_project_pid || exit 1
   echo "Starting project-specific PocketIC (never --clean)..."
   if command -v timeout >/dev/null 2>&1; then
-    timeout 120s dfx start --background || {
-      echo "PocketIC did not start. Original shared state was not cleaned." >&2
-      echo "Try a fresh git worktree; see docs/PERSONAL_LOAN_LOCAL_TEST.md." >&2
-      exit 1
-    }
+    if ! timeout 120s dfx start --background; then
+      if ! dfx ping local >/dev/null 2>&1; then
+        echo "Project-local PocketIC did not start." >&2
+        show_dfx_diagnostics
+        exit 1
+      fi
+    fi
   else
-    dfx start --background || {
-      echo "PocketIC startup failed. Original shared state was not cleaned." >&2
-      exit 1
-    }
+    if ! dfx start --background; then
+      if ! dfx ping local >/dev/null 2>&1; then
+        echo "Project-local PocketIC did not start." >&2
+        show_dfx_diagnostics
+        exit 1
+      fi
+    fi
   fi
 fi
 if ! dfx ping local >/dev/null 2>&1; then
   echo "Project-local PocketIC did not report healthy on $LOCAL_PORT; refusing deployment." >&2
+  show_dfx_diagnostics
   exit 1
 fi
 
