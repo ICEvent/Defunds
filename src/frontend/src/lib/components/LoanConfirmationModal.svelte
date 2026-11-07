@@ -6,6 +6,8 @@
   export let description = '';
   export let amount = '';
   export let reference = '';
+  export let paymentDate = '';
+  export let paymentMethod = '';
   export let confirmLabel = 'Confirm';
   export let pending = false;
   export let error = '';
@@ -64,6 +66,24 @@
           <div class="text-xs text-slate-400">Transaction amount</div>
           <div class="mt-1 text-2xl font-bold" data-testid="loan-confirmation-amount">{amount}</div>
         </div>
+      {/if}
+
+      {#if paymentDate || paymentMethod}
+        <dl class="mt-4 space-y-2 rounded-lg border border-slate-700 p-3 text-sm"
+          data-testid="loan-confirmation-payment-details">
+          {#if paymentDate}
+            <div class="flex flex-wrap justify-between gap-2">
+              <dt class="text-slate-400">Recorded payment date (UTC)</dt>
+              <dd class="font-medium">{paymentDate}</dd>
+            </div>
+          {/if}
+          {#if paymentMethod}
+            <div class="flex flex-wrap justify-between gap-2">
+              <dt class="text-slate-400">Recorded payment method</dt>
+              <dd class="font-medium">{paymentMethod}</dd>
+            </div>
+          {/if}
+        </dl>
       {/if}
 
       {#if reference}
