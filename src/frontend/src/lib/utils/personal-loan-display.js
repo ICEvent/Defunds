@@ -58,3 +58,37 @@ export function getRepaymentCents(fullOutstanding, outstandingCents, enteredAmou
   if (amount > balance) throw new Error('Repayment exceeds the confirmed outstanding balance');
   return amount;
 }
+
+
+// The Motoko optional effectiveAt : ?Int is decoded as [] or [bigint].
+// UTC date is intentional: loan forms serialize calendar days as UTC nanos,
+// and the displayed date must not shift with the viewer's browser timezone.
+export function formatEntryPaymentDate(entry) {
+  const nanoseconds = entry?.effectiveAt?.[0];
+  if (nanoseconds == null) return '';
+  try {
+    const milliseconds = Number(BigInt(nanoseconds) / 1_000_000n);
+    const date = new Date(milliseconds);
+    return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : '';
+  } catch {
+    return '';
+  }
+}
+
+// A disputed delivery can be re-declared by the lender to restart the
+// borrower acknowledgement. A disputed repayment/reversal cannot use funding.
+export function canLenderDeclareFunding(status, kind, isLender) {
+  return Boolean(
+    isLender
+    && (status === 'pendingFunding' || status === 'disputed')
+    && (kind === 'initialBorrowing' || kind === 'additionalBorrowing')
+  );
+}
+
+// Keep UI withdrawal actions consistent with withdrawPendingEntry in Motoko:
+// delivered borrowing cannot be unilaterally withdrawn after a dispute.
+export function canRequesterWithdrawEntry(status, kind) {
+  return status === 'pendingTerms'
+    || ((status === 'disputed' || status === 'pendingConfirmation')
+      && (kind === 'repayment' || kind === 'reversal'));
+}
