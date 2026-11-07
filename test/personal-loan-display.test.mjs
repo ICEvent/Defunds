@@ -3,7 +3,8 @@ import test from 'node:test';
 import {
   loanEventLabel, loanEventNote,
   parseLoanAmountCents, getRepaymentCents,
-  formatEntryPaymentDate, canLenderDeclareFunding, canRequesterWithdrawEntry
+  formatEntryPaymentDate, canLenderDeclareFunding, canRequesterWithdrawEntry,
+  formatLoanUtcDate, isCurrentLoanRefresh
 } from '../src/frontend/src/lib/utils/personal-loan-display.js';
 
 test('loan audit names are readable and cover all financial transitions', () => {
@@ -80,4 +81,38 @@ test('withdrawal controls match Motoko disputed-funding restrictions', () => {
   assert.equal(canRequesterWithdrawEntry('disputed', 'initialBorrowing'), false);
   assert.equal(canRequesterWithdrawEntry('disputed', 'additionalBorrowing'), false);
   assert.equal(canRequesterWithdrawEntry('confirmed', 'repayment'), false);
+});
+
+
+test('loan due date preserves its UTC calendar day for any viewer timezone', () => {
+  const due = BigInt(Date.parse('2026-11-07T23:59:59.999Z')) * 1_000_000n;
+  assert.equal(formatLoanUtcDate(due), '2026-11-07');
+  assert.equal(formatLoanUtcDate(null), '');
+  assert.equal(formatLoanUtcDate('invalid'), '');
+});
+
+test('stale loan selection or identity responses cannot overwrite active details', async () => {
+  const actorA = {};
+  const actorB = {};
+  const isValid = (actor, version, loan) =>
+    isCurrentLoanRefresh(actor, actorA, version, 2, loan, 202n);
+  assert.equal(isValid(actorA, 1, 101n), false);
+  assert.equal(isValid(actorA, 2, 101n), false);
+  assert.equal(isValid(actorB, 2, 202n), false);
+  assert.equal(isValid(actorA, 2, 202n), true);
+  // Simulate loan A's slower HTTP response arriving after loan B.
+  let resolveA;
+  const slowA = new Promise(resolve => { resolveA = resolve; });
+  let accepted = 'loan B';
+  const stale = slowA.then(value => {
+    if (isCurrentLoanRefresh(actorA, actorA, 1, 2, 101n, 202n)) accepted = value;
+  });
+  resolveA('loan A');
+  await stale;
+  assert.equal(accepted, 'loan B');
+});
+
+test('new funding cancellation audit events have friendly names', () => {
+  assert.equal(loanEventLabel('fundingCancellationRequested'), 'Undelivered funding cancellation requested');
+  assert.equal(loanEventLabel('fundingCancelled'), 'Undelivered borrowing cancelled by both parties');
 });
