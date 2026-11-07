@@ -51,6 +51,47 @@ The script:
 bash scripts/personal-loan-local.sh --smoke
 ```
 
+## WSL2: repeated PocketIC `/instances` HTTP 400
+
+If the terminal repeatedly prints
+`Failed to initialize PocketIC: HTTP status client error (400 Bad Request) for url (http://localhost:<random-port>/instances)`,
+DFX reached the PocketIC process but failed to create a replica instance.
+This can happen with an incompatible/corrupt saved local PocketIC state on WSL2.
+**The HTTP 400 alone does not prove the exact cause.** Do not retry forever or run
+`dfx start --clean` in a workspace with test data.
+
+The launcher bounds each startup attempt to 60 seconds and gives a fresh-isolation
+suggestion. To isolate the issue and preserve the old worktree's local state,
+open a **new WSL terminal** and use a **new worktree** with a separate port.
+Do not copy its `.dfx` directory or reuse the old project's state:
+
+```bash
+cd ~/projects/defunds-personal-loan-test
+git fetch origin
+git worktree add --detach ../defunds-personal-loan-qa-fresh origin/feat/personal-loan-ledger-20261105
+cd ../defunds-personal-loan-qa-fresh
+PERSONAL_LOAN_LOCAL_PORT=4955 bash scripts/personal-loan-local.sh
+```
+
+This reserves a fresh local PocketIC state directory under
+`~/projects/defunds-personal-loan-qa-fresh/.dfx/network/local`, leaving the
+previous project's Canister checkpoints and the global shared local network
+untouched. Keep port 5173 free for Vite; use two local Internet Identity accounts.
+If the *fresh* worktree also produces HTTP 400, stop attempting to start further
+PocketIC servers and collect verbose diagnostics instead (the likely cause is
+not restricted to the old worktree state):
+
+```bash
+free -h
+date -u
+ps -eo pid,ppid,stat,rss,args | grep -E '[d]fx start|[p]ocket-ic'
+ss -lntp | grep -E ':4943|:4945|:4955' || true
+```
+
+DFINITY developers recommend `RUST_LOG=debug` and `dfx start --verbose`
+for further diagnosis. Do not delete or move an active PocketIC state directory
+while its process is still running.
+
 ## Test with two real browser logins
 
 **Browser A — borrower**
