@@ -9,7 +9,10 @@
     loanEventLabel,
     loanEventNote,
     parseLoanAmountCents,
-    getRepaymentCents
+    getRepaymentCents,
+    formatEntryPaymentDate,
+    canLenderDeclareFunding,
+    canRequesterWithdrawEntry
   } from '$lib/utils/personal-loan-display';
 
   let isAuthed = false;
@@ -193,6 +196,8 @@
       description,
       amount: options.amountCents == null ? '' : money(options.amountCents, selectedCurrency),
       reference: options.reference || ('Loan #' + String(selected.id)),
+      paymentDate: options.paymentDate || '',
+      paymentMethod: options.paymentMethod || '',
       confirmLabel: options.confirmLabel || 'Confirm',
       danger: Boolean(options.danger),
       action,
@@ -325,8 +330,10 @@
       () => actor.declareFunding(loanId, entryId, effectiveDay(date), method),
       {
         amountCents: entry.amountCents,
-        reference: 'Loan #' + String(loanId) + ' · Transaction #' + String(entryId) + ' · ' + date,
-        confirmLabel: 'Declare delivered'
+        reference: 'Loan #' + String(loanId) + ' · Transaction #' + String(entryId),
+        paymentDate: date,
+        paymentMethod: method,
+        confirmLabel: variant(entry.status) === 'disputed' ? 'Re-declare delivered' : 'Declare delivered'
       }
     );
   }
@@ -356,6 +363,8 @@
     confirmLoanAction(title, description, action, {
       amountCents: entry.amountCents,
       reference: 'Loan #' + String(loanId) + ' · Transaction #' + String(entryId),
+      paymentDate: formatEntryPaymentDate(entry),
+      paymentMethod: entry.method?.trim() || '',
       confirmLabel: borrowing ? 'Confirm received' : 'Confirm transaction'
     });
   }
@@ -666,15 +675,23 @@
                     <span class="text-xs text-sky-300">{variant(entry.status)}</span>
                   </div>
                   <div class="mt-1 text-xs text-slate-400">Recorded by {isMe(entry.proposedBy) ? 'you' : 'the other participant'}{entry.note ? ' · ' + entry.note : ''}</div>
+                  {#if formatEntryPaymentDate(entry) || entry.method?.trim()}
+                    <div class="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-300"
+                      data-testid="loan-entry-payment-details">
+                      {#if formatEntryPaymentDate(entry)}
+                        <span>{['initialBorrowing', 'additionalBorrowing'].includes(variant(entry.kind)) ? 'Funding date' : 'Payment date'} (UTC):
+                          <strong>{formatEntryPaymentDate(entry)}</strong></span>
+                      {/if}
+                      {#if entry.method?.trim()}
+                        <span>Payment method: <strong>{entry.method}</strong></span>
+                      {/if}
+                    </div>
+                  {/if}
                   {#if variant(entry.status) === 'confirmed' && variant(selected.status) === 'active' && variant(entry.kind) !== 'reversal'}
                     <button disabled={busy} on:click={() => requestReversal(entry)}
                       class="mt-3 rounded border border-slate-600 px-3 py-2 text-xs hover:border-sky-500">Request correction</button>
                   {/if}
-                  {#if isMe(entry.proposedBy) && (
-                    variant(entry.status) === 'pendingTerms' ||
-                    variant(entry.status) === 'disputed' ||
-                    (variant(entry.status) === 'pendingConfirmation' && ['repayment','reversal'].includes(variant(entry.kind)))
-                  )}
+                  {#if isMe(entry.proposedBy) && canRequesterWithdrawEntry(variant(entry.status), variant(entry.kind))}
                     <button disabled={busy} on:click={() => confirmLoanAction(
   'Withdraw pending transaction',
   'Withdraw this unconfirmed request. Confirmed transaction history is not deleted.',
@@ -698,18 +715,26 @@
   { amountCents: entry.amountCents, reference: 'Transaction #' + String(entry.id), confirmLabel: 'Reject', danger: true }
 )}>Reject</button>
                     </div>
-                  {:else if variant(entry.status) === 'pendingFunding' && isMe(selected.lender)}
+                  {:else if canLenderDeclareFunding(variant(entry.status), variant(entry.kind), isMe(selected.lender))}
                     <div class="mt-3 space-y-2 rounded-lg border border-slate-700 bg-slate-800/50 p-3">
-                      <label class="block text-xs text-slate-400" for="funding-date">Funding date</label>
-                      <input id="funding-date" type="date" bind:value={fundingDate}
+                      {#if variant(entry.status) === 'disputed'}
+                        <p class="text-xs text-amber-200" data-testid="loan-disputed-funding-recovery">
+                          Funding was disputed. Review the details above and re-declare delivery for borrower confirmation.
+                          This does not by itself increase the confirmed balance.
+                        </p>
+                      {/if}
+                      <label class="block text-xs text-slate-400" for="funding-date-{entry.id}">Funding date</label>
+                      <input id="funding-date-{entry.id}" type="date" bind:value={fundingDate}
                         class="w-full rounded bg-slate-800 p-2 text-sm" />
-                      <label class="block text-xs text-slate-400" for="funding-method">Funds delivery method</label>
-                      <select id="funding-method" bind:value={fundingMethod}
+                      <label class="block text-xs text-slate-400" for="funding-method-{entry.id}">Funds delivery method</label>
+                      <select id="funding-method-{entry.id}" bind:value={fundingMethod}
                         class="w-full rounded bg-slate-800 p-2 text-sm">
                         <option>Interac e-Transfer</option><option>Bank Transfer</option><option>Cash</option><option>Cheque</option><option>Other</option>
                       </select>
                       <button disabled={busy || !fundingDate} on:click={() => declareFunding(entry)}
-                        class="rounded bg-sky-700 px-3 py-2 text-xs disabled:opacity-40">Declare funds delivered</button>
+                        class="rounded bg-sky-700 px-3 py-2 text-xs disabled:opacity-40">
+                        {variant(entry.status) === 'disputed' ? 'Re-declare funds delivered' : 'Declare funds delivered'}
+                      </button>
                     </div>
                   {:else if variant(entry.status) === 'pendingConfirmation'}
                     {@const kind = variant(entry.kind)}
@@ -782,6 +807,8 @@
   description={confirmation?.description || ''}
   amount={confirmation?.amount || ''}
   reference={confirmation?.reference || ''}
+  paymentDate={confirmation?.paymentDate || ''}
+  paymentMethod={confirmation?.paymentMethod || ''}
   confirmLabel={confirmation?.confirmLabel || 'Confirm'}
   danger={confirmation?.danger || false}
   pending={busy}
