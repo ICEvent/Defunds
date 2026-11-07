@@ -22,6 +22,7 @@ persistent actor PersonalLoan {
   // An absent entry always means CAD; the mapping is immutable per loan.
   var loanCurrencies : [(Nat, Text)] = [];
   var entries : [Entry] = [];
+  var fundingCancellationRequests : [Types.FundingCancellationRequest] = [];
   var events : [Types.LoanEvent] = [];
   var nextEventId : Nat = 1;
   var nextLoanId : Nat = 1;
@@ -368,6 +369,102 @@ persistent actor PersonalLoan {
     #ok(());
   };
 
+  // Two explicit authorizations are required to cancel accepted borrowing
+  // while funding has NOT been declared. The first party requests; the
+  // counterparty's call approves. No funds are recorded, and no party may
+  // cancel a declared, disputed or confirmed transfer unilaterally.
+  //
+  // Bool: false = pending the counterparty; true = cancelled by both parties.
+  public shared ({ caller }) func requestFundingCancellation(
+    loanId : Nat,
+    entryId : Nat,
+  ) : async R<Bool> {
+    let loan = switch (requireParticipant(loanId, caller)) {
+      case (#err(e)) return #err(e);
+      case (#ok(value)) value;
+    };
+    let entry = switch (entryById(loanId, entryId)) {
+      case null return #err("Entry unavailable");
+      case (?value) value;
+    };
+    if (entry.status != #pendingFunding) {
+      return #err("Only accepted but undelivered borrowing can be cancelled");
+    };
+    switch (entry.kind) {
+      case (#initialBorrowing) {
+        if (loan.status != #fundingPending) return #err("Initial loan is not awaiting funding");
+      };
+      case (#additionalBorrowing) {
+        if (loan.status != #active) return #err("Loan is not active");
+      };
+      case (_) return #err("Not a borrowing entry");
+    };
+    let existing = Array.find<Types.FundingCancellationRequest>(
+      fundingCancellationRequests,
+      func(x) { x.loanId == loanId and x.entryId == entryId },
+    );
+    switch (existing) {
+      case null {
+        fundingCancellationRequests := Array.append<Types.FundingCancellationRequest>(
+          fundingCancellationRequests,
+          [{ loanId; entryId; requestedBy = caller; createdAt = Time.now() }],
+        );
+        appendEvent(loanId, ?entryId, #fundingCancellationRequested, caller);
+        #ok(false);
+      };
+      case (?request) {
+        if (request.requestedBy == caller) {
+          // Idempotent repeat; never count a single caller twice.
+          return #ok(false);
+        };
+        // Both participants have now approved cancellation. A pending entry
+        // never contributed to the confirmed ledger balance.
+        fundingCancellationRequests := Array.filter<Types.FundingCancellationRequest>(
+          fundingCancellationRequests,
+          func(x) { not (x.loanId == loanId and x.entryId == entryId) },
+        );
+        replaceEntry({ entry with status = #rejected; updatedAt = Time.now() });
+        if (entry.kind == #initialBorrowing) {
+          replaceLoan({ loan with status = #rejected; updatedAt = Time.now() });
+        };
+        appendEvent(loanId, ?entryId, #fundingCancelled, caller);
+        #ok(true);
+      };
+    };
+  };
+
+  // The requester can retract their still-unapproved cancellation request.
+  public shared ({ caller }) func withdrawFundingCancellationRequest(
+    loanId : Nat,
+    entryId : Nat,
+  ) : async R<()> {
+    ignore switch (requireParticipant(loanId, caller)) {
+      case (#err(e)) return #err(e);
+      case (#ok(value)) value;
+    };
+    let current = switch (entryById(loanId, entryId)) {
+      case null return #err("Entry unavailable");
+      case (?value) value;
+    };
+    if (current.status != #pendingFunding) return #err("Funding is no longer pending");
+    let requester = Array.find<Types.FundingCancellationRequest>(
+      fundingCancellationRequests,
+      func(x) { x.loanId == loanId and x.entryId == entryId },
+    );
+    switch (requester) {
+      case null return #err("No cancellation request exists");
+      case (?request) {
+        if (request.requestedBy != caller) return #err("Only the requester can retract cancellation");
+      };
+    };
+    fundingCancellationRequests := Array.filter<Types.FundingCancellationRequest>(
+      fundingCancellationRequests,
+      func(x) { not (x.loanId == loanId and x.entryId == entryId) },
+    );
+    appendEvent(loanId, ?entryId, #entryWithdrawn, caller);
+    #ok(());
+  };
+
   // Borrowing only affects the ledger after a separate lender delivery
   // declaration and borrower acknowledgement.
   public shared ({ caller }) func declareFunding(
@@ -396,6 +493,12 @@ persistent actor PersonalLoan {
       };
       case (_) return #err("Not a borrowing entry");
     };
+    // Delivery supersedes a not-yet-agreed cancellation proposal; it cannot
+    // later cancel money that either party has declared delivered.
+    fundingCancellationRequests := Array.filter<Types.FundingCancellationRequest>(
+      fundingCancellationRequests,
+      func(x) { not (x.loanId == loanId and x.entryId == entryId) },
+    );
     replaceEntry({
       entry with
       status = #pendingConfirmation;
@@ -662,6 +765,20 @@ persistent actor PersonalLoan {
     switch (requireParticipant(loanId, caller)) {
       case (#err(e)) #err(e);
       case (#ok(_)) #ok(currencyOf(loanId));
+    };
+  };
+
+  public shared query ({ caller }) func getFundingCancellationRequests(
+    loanId : Nat,
+  ) : async R<[Types.FundingCancellationRequest]> {
+    switch (requireParticipant(loanId, caller)) {
+      case (#err(e)) #err(e);
+      case (#ok(_)) {
+        #ok(Array.filter<Types.FundingCancellationRequest>(
+          fundingCancellationRequests,
+          func(x) { x.loanId == loanId },
+        ));
+      };
     };
   };
 
