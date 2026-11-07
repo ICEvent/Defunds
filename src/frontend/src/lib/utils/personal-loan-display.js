@@ -13,6 +13,8 @@ export const LOAN_EVENT_LABELS = Object.freeze({
   repaymentConfirmed: 'Repayment confirmed',
   entryDisputed: 'Transaction disputed',
   entryWithdrawn: 'Pending transaction withdrawn',
+  fundingCancellationRequested: 'Undelivered funding cancellation requested',
+  fundingCancelled: 'Undelivered borrowing cancelled by both parties',
   reversalRequested: 'Correction requested',
   reversalConfirmed: 'Correction confirmed',
   closureRequested: 'Loan closure requested',
