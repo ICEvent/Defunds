@@ -30,6 +30,7 @@
   let selectedCurrency = 'CAD';
   let entries = [];
   let auditEvents = [];
+  let fundingCancellationRequests = [];
   let balance = null;
   let detailLoading = false;
   // A pending reply must never render loan A's balance under loan B's header.
@@ -122,6 +123,7 @@
         selected = null;
         entries = [];
         auditEvents = [];
+        fundingCancellationRequests = [];
         balance = null;
         detailLoading = false;
         selectedCurrency = 'CAD';
@@ -158,6 +160,7 @@
       selected = null;
       entries = [];
       auditEvents = [];
+      fundingCancellationRequests = [];
       balance = null;
       selectedCurrency = 'CAD';
       detailLoading = false;
@@ -166,16 +169,18 @@
 
     selected = currentLoan;
     selectedCurrency = loanCurrencies[String(currentLoan.id)] || 'CAD';
-    const [entryResult, balanceResult, eventResult] = await Promise.all([
+    const [entryResult, balanceResult, eventResult, cancellationResult] = await Promise.all([
       requestedActor.getLoanEntries(requestedLoanId),
       requestedActor.getBalance(requestedLoanId),
-      requestedActor.getLoanEvents(requestedLoanId, 0n, 100n)
+      requestedActor.getLoanEvents(requestedLoanId, 0n, 100n),
+      requestedActor.getFundingCancellationRequests(requestedLoanId)
     ]);
     if (!isCurrent()) return; // A's slow response must not overwrite B
 
     entries = unwrap(entryResult) ?? [];
     balance = unwrap(balanceResult);
     auditEvents = unwrap(eventResult) ?? [];
+    fundingCancellationRequests = unwrap(cancellationResult) ?? [];
     detailLoading = false;
   }
 
@@ -206,14 +211,17 @@
     selectedCurrency = loanCurrencies[String(loan.id)] || 'CAD';
     entries = [];
     auditEvents = [];
+    fundingCancellationRequests = [];
     balance = null;
     detailLoading = true;
     error = '';
     try {
       await refresh();
     } catch (e) {
-      if (selected?.id === loan.id) detailLoading = false;
-      error = e?.message ?? String(e);
+      if (selected?.id === loan.id) {
+        detailLoading = false;
+        error = e?.message ?? String(e);
+      }
     }
   }
 
@@ -350,6 +358,41 @@
       repaymentNote = '';
       repaymentFull = false;
     });
+  }
+
+  function fundingCancellationAction(entry, existingRequest) {
+    if (!selected || entry.status == null) return;
+    const loanId = selected.id;
+    const entryId = entry.id;
+    const approving = Boolean(existingRequest && !isMe(existingRequest.requestedBy));
+    const title = approving ? 'Approve funding cancellation' : 'Request funding cancellation';
+    const description = approving
+      ? 'Both parties agree no funds were delivered. This rejects the accepted borrowing without changing confirmed debt. Initial loan funding cancellation rejects the entire unfunded loan.'
+      : 'No funds have been delivered. Ask the other participant to agree to cancel this borrowing. The outstanding balance will not change.';
+    confirmLoanAction(title, description,
+      () => actor.requestFundingCancellation(loanId, entryId),
+      {
+        amountCents: entry.amountCents,
+        reference: 'Loan #' + String(loanId) + ' · Transaction #' + String(entryId),
+        confirmLabel: approving ? 'Approve cancellation' : 'Request cancellation',
+        danger: approving
+      }
+    );
+  }
+
+  function retractFundingCancellation(entry) {
+    if (!selected) return;
+    const loanId = selected.id;
+    const entryId = entry.id;
+    confirmLoanAction('Withdraw cancellation request',
+      'Cancel your pending request to stop this undelivered borrowing. The accepted borrowing remains awaiting delivery.',
+      () => actor.withdrawFundingCancellationRequest(loanId, entryId),
+      {
+        amountCents: entry.amountCents,
+        reference: 'Loan #' + String(loanId) + ' · Transaction #' + String(entryId),
+        confirmLabel: 'Withdraw request'
+      }
+    );
   }
 
   function declareFunding(entry) {
@@ -707,6 +750,7 @@
             {/if}
             <div class="space-y-3">
               {#each (detailLoading ? [] : entries) as entry (entry.id)}
+                {@const pendingCancellation = fundingCancellationRequests.find(x => x.entryId === entry.id)}
                 <div class="rounded-lg border border-slate-700 p-3">
                   <div class="flex flex-wrap justify-between gap-2">
                     <span class="text-sm font-medium">{variant(entry.kind)} · {money(entry.amountCents, selectedCurrency)}</span>
@@ -722,6 +766,34 @@
                       {/if}
                       {#if entry.method?.trim()}
                         <span>Payment method: <strong>{entry.method}</strong></span>
+                      {/if}
+                    </div>
+                  {/if}
+                  {#if variant(entry.status) === 'pendingFunding'
+                    && ['initialBorrowing','additionalBorrowing'].includes(variant(entry.kind))}
+                    <div class="mt-3 rounded-lg border border-amber-900/60 bg-amber-950/20 p-3"
+                      data-testid="loan-bilateral-funding-cancellation">
+                      {#if pendingCancellation}
+                        <p class="mb-2 text-xs text-amber-200">
+                          {isMe(pendingCancellation.requestedBy)
+                            ? 'Cancellation requested. Awaiting the other participant’s approval.'
+                            : 'The other participant requests cancellation of this undelivered borrowing.'}
+                        </p>
+                      {:else}
+                        <p class="mb-2 text-xs text-slate-400">
+                          No money delivered? Both participants can agree to cancel this accepted borrowing.
+                        </p>
+                      {/if}
+                      {#if !pendingCancellation || !isMe(pendingCancellation.requestedBy)}
+                        <button disabled={busy} on:click={() => fundingCancellationAction(entry, pendingCancellation)}
+                          class="rounded border border-amber-600 px-3 py-2 text-xs text-amber-100 hover:bg-amber-900/40">
+                          {pendingCancellation ? 'Approve cancellation' : 'Request cancellation'}
+                        </button>
+                      {:else}
+                        <button disabled={busy} on:click={() => retractFundingCancellation(entry)}
+                          class="rounded border border-slate-600 px-3 py-2 text-xs text-slate-200 hover:bg-slate-700">
+                          Withdraw cancellation request
+                        </button>
                       {/if}
                     </div>
                   {/if}
