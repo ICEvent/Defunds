@@ -96,3 +96,26 @@ test('review: date and method are visible before confirming payment on both surf
   assert.match(modal, /Recorded payment date \(UTC\)/);
   assert.match(modal, /Recorded payment method/);
 });
+
+
+test('review: drop stale loan A details and clear old state immediately on selecting B', () => {
+  assert.match(page, /refreshVersion/);
+  assert.match(page, /isCurrentLoanRefresh\(/);
+  assert.match(page, /if \(!isCurrent\(\)\) return; \/\/ A's slow response must not overwrite B/);
+  assert.match(page, /selected = loan;[\s\S]*?entries = \[\];[\s\S]*?auditEvents = \[\];[\s\S]*?balance = null;[\s\S]*?detailLoading = true;/);
+  assert.match(page, /data-testid="loan-detail-loading"/);
+});
+
+test('review: accepted undelivered funding is cancellable only with bilateral approvals', () => {
+  assert.match(page, /getFundingCancellationRequests\(requestedLoanId\)/);
+  assert.match(page, /data-testid="loan-bilateral-funding-cancellation"/);
+  assert.match(page, /requestFundingCancellation\(loanId, entryId\)/);
+  assert.match(page, /withdrawFundingCancellationRequest\(loanId, entryId\)/);
+  assert.match(page, /Approve cancellation/);
+  assert.match(page, /Withdraw cancellation request/);
+});
+
+test('review: agreed loan due date is always formatted in UTC', () => {
+  assert.match(page, /formatLoanUtcDate\(selected\.dueAt\[0\]\)/);
+  assert.doesNotMatch(page, /selected\.dueAt\[0\].*toLocaleDateString/);
+});
