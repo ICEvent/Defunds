@@ -104,6 +104,14 @@ This MVP **only records mutually acknowledged, off-chain CAD movements** and doe
 - **No invitation shown:** click Refresh, then Invitations; verify the sender entered exactly the Principal of the intended recipient.
 - **Network root key / certificate errors:** check the isolated PocketIC listens on `127.0.0.1:4945` and II is local, not production.
 - **Port already in use:** stop the other Vite process on 5173 or choose a different `PERSONAL_LOAN_LOCAL_PORT`. Do not stop other project's replicas or clean their state.
+- **`Error: dfx is already running` while 4945 is not healthy:** a WSL restart can leave the *project-local* `.dfx/network/local/pid` behind even after the process exits. The launcher now checks this PID against the OS; **only if no process exists**, it renames that PID file with a `.stale.<timestamp>` suffix before starting PocketIC. This leaves canisters/checkpoints untouched. If the PID **is alive**, the launcher deliberately refuses to kill it and prints the PID/process and ports. Never run `dfx killall`, `pkill dfx` or `dfx start --clean` as a shortcut; they could affect other projects or erase checkpoints. Inspect with:
+  ```bash
+  cd ~/projects/defunds-personal-loan-test
+  cat .dfx/network/local/pid 2>/dev/null || true
+  ps -eo pid,ppid,stat,args | grep -E '[d]fx start|[p]ocket-ic|[p]ocketic' || true
+  ss -lntp | grep -E ':4943|:4945' || true
+  ```
+- **Source commit differs from the current PR head:** in the test worktree, run `git fetch origin` and `git switch --detach origin/feat/personal-loan-ledger-20261105` (only when there are no unsaved local edits), then rerun the launcher. The launcher prints the source commit at startup so a stale test server is easy to identify.
 - **Persistent warnings from other Defunds pages:** those pages may still rely on existing Defunds backend canisters. This script is scoped to `/loans` only.
 
 ## Automated checks
