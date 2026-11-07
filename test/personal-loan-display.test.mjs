@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   loanEventLabel, loanEventNote,
-  parseLoanAmountCents, getRepaymentCents
+  parseLoanAmountCents, getRepaymentCents,
+  formatEntryPaymentDate, canLenderDeclareFunding, canRequesterWithdrawEntry
 } from '../src/frontend/src/lib/utils/personal-loan-display.js';
 
 test('loan audit names are readable and cover all financial transitions', () => {
@@ -46,4 +47,37 @@ test('full repayment uses exact fresh confirmed outstanding, not typed input', (
   assert.throws(() => getRepaymentCents(false, 850000n, '8500.01'), /exceeds/);
   assert.throws(() => getRepaymentCents(true, 0n, ''), /no confirmed outstanding/);
   assert.throws(() => getRepaymentCents(false, 0n, '10'), /no confirmed outstanding/);
+});
+
+
+test('loan payment date uses persisted Motoko nanoseconds and stays UTC calendar day', () => {
+  const date = BigInt(Date.parse('2027-01-01T12:00:00.000Z')) * 1_000_000n;
+  const repayment = { effectiveAt: [date], method: 'Interac e-Transfer' };
+  assert.equal(formatEntryPaymentDate(repayment), '2027-01-01');
+  assert.equal(formatEntryPaymentDate({ effectiveAt: [] }), '');
+  assert.equal(formatEntryPaymentDate({ effectiveAt: [0n] }), '1970-01-01');
+  assert.equal(formatEntryPaymentDate({ effectiveAt: ['not-a-nanosecond'] }), '');
+  assert.equal(formatEntryPaymentDate(null), '');
+});
+
+test('lender can redeclare disputed borrowing, but not disputed repayment or reversal', () => {
+  for (const kind of ['initialBorrowing', 'additionalBorrowing']) {
+    assert.equal(canLenderDeclareFunding('pendingFunding', kind, true), true);
+    assert.equal(canLenderDeclareFunding('disputed', kind, true), true);
+    assert.equal(canLenderDeclareFunding('pendingConfirmation', kind, true), false);
+    assert.equal(canLenderDeclareFunding('confirmed', kind, true), false);
+    assert.equal(canLenderDeclareFunding('disputed', kind, false), false);
+  }
+  assert.equal(canLenderDeclareFunding('disputed', 'repayment', true), false);
+  assert.equal(canLenderDeclareFunding('disputed', 'reversal', true), false);
+});
+
+test('withdrawal controls match Motoko disputed-funding restrictions', () => {
+  assert.equal(canRequesterWithdrawEntry('pendingTerms', 'additionalBorrowing'), true);
+  assert.equal(canRequesterWithdrawEntry('pendingConfirmation', 'repayment'), true);
+  assert.equal(canRequesterWithdrawEntry('disputed', 'repayment'), true);
+  assert.equal(canRequesterWithdrawEntry('disputed', 'reversal'), true);
+  assert.equal(canRequesterWithdrawEntry('disputed', 'initialBorrowing'), false);
+  assert.equal(canRequesterWithdrawEntry('disputed', 'additionalBorrowing'), false);
+  assert.equal(canRequesterWithdrawEntry('confirmed', 'repayment'), false);
 });
