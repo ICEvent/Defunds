@@ -92,3 +92,18 @@ export function canRequesterWithdrawEntry(status, kind) {
     || ((status === 'disputed' || status === 'pendingConfirmation')
       && (kind === 'repayment' || kind === 'reversal'));
 }
+
+
+// A contractual due date is a UTC calendar day, not a viewer-local instant.
+// Due dates are stored at 23:59:59.999 UTC, so toLocaleDateString would
+// display tomorrow in positive-offset timezones (e.g. Asia/Shanghai).
+export function formatLoanUtcDate(nanoseconds) {
+  if (nanoseconds == null) return '';
+  try {
+    const ms = Number(BigInt(nanoseconds) / 1_000_000n);
+    const date = new Date(ms);
+    return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : '';
+  } catch {
+    return '';
+  }
+}
