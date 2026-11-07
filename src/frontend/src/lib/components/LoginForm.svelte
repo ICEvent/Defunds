@@ -16,21 +16,28 @@
 	let principal = "";
 	let authClient = null;
 
-	let windowFeatures = undefined;
 
-	const isDesktop = window.innerWidth > 768;
-	if (isDesktop) {
-		const width = 500;
-		const height = 600;
-		const left = window.screenX + (window.innerWidth - width) / 2;
-		const top = window.screenY + (window.innerHeight - height) / 2;
-		windowFeatures = `left=${left},top=${top},width=${width},height=${height}`;
-	}
+  // Never use the oneblock.page derivation origin while testing from localhost:
+  // II only authorizes alternative origins registered by the derivation origin.
+  const localLoanTest = import.meta.env.DEV &&
+    import.meta.env.VITE_PERSONAL_LOAN_TEST_MODE === 'true';
+  let authError = '';
+  let windowFeatures = undefined;
 
-	globalStore.subscribe((value) => {
-		isAuthed = value.isAuthed;
-		principal = value.principal;
-	});
+  onMount(() => {
+    if (window.innerWidth > 768) {
+      const width = 500;
+      const height = 600;
+      const left = window.screenX + (window.innerWidth - width) / 2;
+      const top = window.screenY + (window.innerHeight - height) / 2;
+      windowFeatures = `left=${left},top=${top},width=${width},height=${height}`;
+    }
+    const unsubscribe = globalStore.subscribe(value => {
+      isAuthed = value.isAuthed;
+      principal = value.principal;
+    });
+    return unsubscribe;
+  });
 
 	//check plug connection
 	// onMount(async () => {
@@ -64,43 +71,57 @@
 		}
 	}
 
-	const handleAuthenticated = async (authClient) => {
-		const identity = authClient.getIdentity();
+  const handleAuthenticated = async (client) => {
+    const identity = client.getIdentity();
+    const host = localLoanTest
+      ? import.meta.env.VITE_PERSONAL_LOAN_HOST
+      : HOST_MAINNET;
+    if (localLoanTest && !host) {
+      authError = 'Local test is missing VITE_PERSONAL_LOAN_HOST';
+      return;
+    }
+    const agent = new HttpAgent({ identity, host });
+    if (localLoanTest) await agent.fetchRootKey();
+    setAgent(agent);
+    globalStore.update(store => ({
+      ...store,
+      isAuthed: true,
+      principal: identity.getPrincipal()
+    }));
+    closeLoginForm();
+  };
 
-		setAgent(
-			new HttpAgent({
-				identity,
-				host: HOST_MAINNET,
-			}),
-		);
+  async function handleIILogin() {
+    authError = '';
+    try {
+      authClient = await AuthClient.create({
+        idleOptions: {
+          disableIdle: true,
+          disableDefaultIdleCallback: true
+        }
+      });
+      const provider = localLoanTest
+        ? import.meta.env.VITE_PERSONAL_LOAN_IDENTITY_PROVIDER
+        : IDENTITY_PROVIDER;
+      if (!provider) throw new Error('Local Internet Identity URL is not configured');
+      const options = {
+        identityProvider: provider,
+        windowOpenerFeatures: windowFeatures,
+        onSuccess: async () => {
+          try { await handleAuthenticated(authClient); }
+          catch (error) { authError = error?.message || String(error); }
+        },
+        onError: error => {
+          authError = error?.message || String(error || 'Internet Identity login failed');
+        }
+      };
+      if (!localLoanTest) options.derivationOrigin = DERIVATION_ORIGION;
+      await authClient.login(options);
+    } catch (error) {
+      authError = error?.message || String(error);
+    }
+  }
 
-		globalStore.update((store) => {
-			return {
-				...store,
-				isAuthed: true,
-				principal: identity.getPrincipal(),
-			};
-		});
-		closeLoginForm();
-	};
-
-	async function handleIILogin() {
-		authClient = await AuthClient.create({
-			idleOptions: {
-				disableIdle: true,
-				disableDefaultIdleCallback: true,
-			},
-		});
-
-		authClient.login({
-			derivationOrigin: DERIVATION_ORIGION,
-			identityProvider: IDENTITY_PROVIDER,
-			windowOpenerFeatures: windowFeatures,
-			onSuccess: () => {
-				handleAuthenticated(authClient);
-			},
-		});
-	}
 </script>
 
 <div class="flex flex-col items-center justify-center p-8 bg-white rounded-lg">
@@ -133,6 +154,7 @@
 		</button> -->
 	</div>
 
+	{#if authError}<p role="alert" class="mt-4 text-sm text-red-600">{authError}</p>{/if}
 	<p class="mt-6 text-sm text-gray-500">
 		By continuing, you agree to our Terms of Service
 	</p>
