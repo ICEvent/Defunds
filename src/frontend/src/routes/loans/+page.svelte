@@ -5,10 +5,11 @@
   import { connectPersonalLoan, loanCanisterConfigured } from '$lib/api/personal-loan';
   import { parseLoanCalendarDay, LOAN_DATE_PARSER_VERSION } from '$lib/utils/personal-loan-date';
   import LoanConfirmationModal from '$lib/components/LoanConfirmationModal.svelte';
+  import { currencyDefinition, currencyCatalog, getBuiltinCurrency,
+    parseAmountMinor, formatAmountMinor } from '$lib/utils/personal-loan-currency.js';
   import {
     loanEventLabel,
     loanEventNote,
-    parseLoanAmountCents,
     getRepaymentCents,
     formatEntryPaymentDate,
     formatLoanUtcDate,
@@ -27,8 +28,18 @@
   let confirmation = null;
   let loans = [];
   let loanCurrencies = {};
+  let loanCurrencyDefinitions = {};
+  let customCurrencies = [];
+  let currencyManagerOpen = false;
+  let currencyCode = '';
+  let currencySymbol = '';
+  let currencyDecimals = '8';
+  let currencyKind = 'crypto';
+  let editingCurrency = false;
+  let currencyDeleteCode = '';
   let selected = null;
   let selectedCurrency = 'CAD';
+  let selectedCurrencyDefinition = getBuiltinCurrency('CAD');
   let entries = [];
   let auditEvents = [];
   let fundingCancellationRequests = [];
@@ -60,18 +71,13 @@
   const textId = (value) => value?.toText?.() ?? String(value ?? '');
   const isMe = (value) => Boolean(me && textId(value) === textId(me));
 
-  const currencySymbols = { CAD: '$', USD: '$', EUR: '€', GBP: '£', CNY: '¥' };
-  const supportedCurrencies = ['CAD', 'USD', 'EUR', 'GBP', 'CNY'];
+  $: supportedCurrencies = currencyCatalog(customCurrencies);
+  $: proposedCurrencyInfo =
+    supportedCurrencies.find(c => c.code === loanCurrency) || getBuiltinCurrency('CAD');
 
-  function money(raw, currency = 'CAD') {
-    const cents = BigInt(raw ?? 0);
-    const whole = cents / 100n;
-    const fractional = (cents % 100n).toString().padStart(2, '0');
-    return currency + ' ' + (currencySymbols[currency] || '') +
-      whole.toLocaleString('en-CA') + '.' + fractional;
-  }
-
-  const parseCents = parseLoanAmountCents;
+  const money = (raw, def = getBuiltinCurrency('CAD')) =>
+    formatAmountMinor(raw, typeof def === 'string' ? getBuiltinCurrency(def) || getBuiltinCurrency('CAD') : def);
+  const currentLoanDecimals = () => Number(selectedCurrencyDefinition?.decimals ?? 2);
 
   function unwrap(value) {
     if (value && 'err' in value) throw new Error(value.err);
@@ -98,6 +104,10 @@
     try {
       actor = await connectPersonalLoan(me);
       if (!actor) throw new Error('Personal Loan session unavailable. Please sign in again.');
+      const requestedActor = actor;
+      const owned = unwrap(await requestedActor.getMyCurrencies());
+      if (actor !== requestedActor) return;
+      customCurrencies = owned ?? [];
       await refresh();
     } catch (e) {
       error = e?.message ?? String(e);
@@ -121,6 +131,8 @@
         actor = null;
         loans = [];
         loanCurrencies = {};
+        loanCurrencyDefinitions = {};
+        customCurrencies = [];
         selected = null;
         entries = [];
         auditEvents = [];
@@ -128,6 +140,8 @@
         balance = null;
         detailLoading = false;
         selectedCurrency = 'CAD';
+        selectedCurrencyDefinition = getBuiltinCurrency('CAD');
+        currencyManagerOpen = false;
       } else if (changed) {
         actor = null;
         void initialize();
@@ -149,11 +163,12 @@
     const next = await requestedActor.getMyLoans();
     const pairs = await Promise.all(next.map(async loan => [
       String(loan.id),
-      unwrap(await requestedActor.getLoanCurrency(loan.id))
+      unwrap(await requestedActor.getLoanCurrencyDefinition(loan.id))
     ]));
     if (!isCurrent()) return; // another loan/identity was selected meanwhile
 
-    loanCurrencies = Object.fromEntries(pairs);
+    loanCurrencyDefinitions = Object.fromEntries(pairs);
+    loanCurrencies = Object.fromEntries(pairs.map(([id, def]) => [id, def.code]));
     loans = next;
     if (requestedLoanId == null) return;
 
@@ -165,12 +180,14 @@
       fundingCancellationRequests = [];
       balance = null;
       selectedCurrency = 'CAD';
+      selectedCurrencyDefinition = getBuiltinCurrency('CAD');
       detailLoading = false;
       return;
     }
 
     selected = currentLoan;
-    selectedCurrency = loanCurrencies[String(currentLoan.id)] || 'CAD';
+    selectedCurrencyDefinition = loanCurrencyDefinitions[String(currentLoan.id)] || getBuiltinCurrency('CAD');
+    selectedCurrency = selectedCurrencyDefinition.code;
     const [entryResult, balanceResult, eventResult, cancellationResult] = await Promise.all([
       requestedActor.getLoanEntries(requestedLoanId),
       requestedActor.getBalance(requestedLoanId),
@@ -210,7 +227,8 @@
   async function selectLoan(loan) {
     ++refreshVersion; // invalidate any already-running detail query
     selected = loan;
-    selectedCurrency = loanCurrencies[String(loan.id)] || 'CAD';
+    selectedCurrencyDefinition = loanCurrencyDefinitions[String(loan.id)] || getBuiltinCurrency('CAD');
+    selectedCurrency = selectedCurrencyDefinition.code;
     entries = [];
     auditEvents = [];
     fundingCancellationRequests = [];
@@ -238,7 +256,7 @@
     confirmation = {
       title,
       description,
-      amount: options.amountCents == null ? '' : money(options.amountCents, selectedCurrency),
+      amount: options.amountCents == null ? '' : money(options.amountCents, selectedCurrencyDefinition),
       reference: options.reference || ('Loan #' + String(selected.id)),
       paymentDate: options.paymentDate || '',
       paymentMethod: options.paymentMethod || '',
@@ -300,16 +318,85 @@
     }
   }
 
+  function editCustomCurrency(def) {
+    currencyManagerOpen = true;
+    currencyCode = def.code;
+    currencySymbol = def.symbol;
+    currencyDecimals = String(def.decimals);
+    currencyKind = def.kind;
+    currencyDeleteCode = '';
+    editingCurrency = true;
+  }
+
+  function resetCurrencyForm() {
+    currencyCode = '';
+    currencySymbol = '';
+    currencyDecimals = '8';
+    currencyKind = 'crypto';
+    editingCurrency = false;
+    currencyDeleteCode = '';
+  }
+
+  async function saveCustomCurrency() {
+    if (!actor || busy) return;
+    error = '';
+    notice = '';
+    try {
+      const def = currencyDefinition({
+        code: currencyCode, symbol: currencySymbol,
+        decimals: currencyDecimals, kind: currencyKind
+      });
+      if (getBuiltinCurrency(def.code)) {
+        throw new Error('Built-in currencies cannot be edited. Use a unique custom code.');
+      }
+      busy = true;
+      const requestedActor = actor;
+      unwrap(await requestedActor.upsertMyCurrency({ ...def, decimals: BigInt(def.decimals) }));
+      const owned = unwrap(await requestedActor.getMyCurrencies());
+      if (actor !== requestedActor) return;
+      customCurrencies = owned ?? [];
+      loanCurrency = def.code;
+      notice = 'Currency saved for your account. Existing loans keep their original precision.';
+      resetCurrencyForm();
+    } catch (e) {
+      error = e?.message ?? String(e);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function removeCustomCurrency(code) {
+    if (!actor || busy || currencyDeleteCode !== code) return;
+    error = '';
+    try {
+      busy = true;
+      const requestedActor = actor;
+      unwrap(await requestedActor.deleteMyCurrency(code));
+      const owned = unwrap(await requestedActor.getMyCurrencies());
+      if (actor !== requestedActor) return;
+      customCurrencies = owned ?? [];
+      if (loanCurrency === code) loanCurrency = 'CAD';
+      resetCurrencyForm();
+      notice = 'Removed from your catalog. Existing loans are unchanged.';
+    } catch (e) {
+      error = e?.message ?? String(e);
+    } finally {
+      busy = false;
+    }
+  }
+
   function createLoan() {
     return run(() => {
       const other = Principal.fromText(counterparty.trim());
       const borrower = ownRole === 'borrower' ? me : other;
       const lender = ownRole === 'lender' ? me : other;
-      const amount = parseCents(originalAmount);
+      const info = currencyDefinition(proposedCurrencyInfo);
+      const amount = parseAmountMinor(originalAmount, info.decimals);
       const due = dueDate ? [effectiveDay(dueDate, true)] : [];
-      const payload = [textId(borrower), textId(lender), String(amount), loanCurrency, dueDate, loanNote].join('|');
-      return actor.createPersonalLoanWithCurrency(
-        borrower, lender, amount, loanCurrency, due, loanNote, stableRequestId('create', payload)
+      const payload = [textId(borrower), textId(lender), String(amount), info.code, info.symbol, String(info.decimals), info.kind, dueDate, loanNote].join('|');
+      return actor.createPersonalLoanWithAsset(
+        borrower, lender, amount, { ...info, decimals: BigInt(info.decimals) },
+        due, loanNote, stableRequestId('create', payload)
       );
     }, async (loanId) => {
       delete pendingIds.create;
@@ -326,7 +413,7 @@
     if (!selected || !isMe(selected.borrower) || transactionMode !== 'borrow') return;
     const loanId = selected.id;
     return run(() => {
-      const amount = parseCents(entryAmount);
+      const amount = parseAmountMinor(entryAmount, currentLoanDecimals());
       const payload = [String(loanId), String(amount), borrowingNote].join('|');
       return actor.requestAdditionalBorrowing(loanId, amount, borrowingNote, stableRequestId('additional', payload));
     }, () => {
@@ -348,7 +435,7 @@
       // Confirmed outstanding may have changed since the page last refreshed.
       // Query it again immediately before creating the repayment record.
       const latest = unwrap(await actor.getBalance(loanId));
-      const amount = getRepaymentCents(full, latest.outstandingCents, input);
+      const amount = getRepaymentCents(full, latest.outstandingCents, input, currentLoanDecimals());
       const at = effectiveDay(date);
       const payload = [String(loanId), String(amount), date, method, note].join('|');
       return actor.submitRepayment(
@@ -405,7 +492,7 @@
     const method = fundingMethod;
     confirmLoanAction(
       'Declare funds delivered',
-      'Only proceed after you have actually transferred this amount to the borrower. Defunds records your declaration but does not transfer or verify bank funds.',
+      'Only proceed after delivery (bank, cash or crypto). Defunds records your declaration but does not transfer funds, verify blockchain settlements or check transaction hashes.',
       () => actor.declareFunding(loanId, entryId, effectiveDay(date), method),
       {
         amountCents: entry.amountCents,
@@ -533,7 +620,7 @@
                 <span class="font-medium">Loan #{String(loan.id)}</span>
                 <span class="text-xs text-sky-300">{variant(loan.status)}</span>
               </div>
-              <div class="mt-1 text-sm text-slate-300">{money(loan.originalAmountCents, loanCurrencies[String(loan.id)] || 'CAD')} agreed</div>
+              <div class="mt-1 text-sm text-slate-300">{money(loan.originalAmountCents, loanCurrencyDefinitions[String(loan.id)] || getBuiltinCurrency('CAD'))} agreed</div>
               {#if loan.note}
                 <div class="mt-2 truncate text-xs text-slate-400" title={loan.note}>{loan.note}</div>
               {/if}
@@ -594,20 +681,20 @@
             <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <div class="rounded-lg bg-slate-800 p-4" data-testid="agreed-loan-amount">
                 <div class="text-xs text-slate-400">Agreed Loan Amount</div>
-                <div class="text-lg font-semibold">{money(selected.originalAmountCents, selectedCurrency)}</div>
+                <div class="text-lg font-semibold">{money(selected.originalAmountCents, selectedCurrencyDefinition)}</div>
                 <div class="mt-1 text-xs text-slate-400">Original agreement; not necessarily funded</div>
               </div>
               <div class="rounded-lg bg-slate-800 p-4" data-testid="loan-total-borrowed">
                 <div class="text-xs text-slate-400">Total borrowed (confirmed)</div>
-                <div class="text-lg font-semibold">{balance ? money(balance.totalBorrowedCents, selectedCurrency) : 'Loading...'}</div>
+                <div class="text-lg font-semibold">{balance ? money(balance.totalBorrowedCents, selectedCurrencyDefinition) : 'Loading...'}</div>
               </div>
               <div class="rounded-lg bg-slate-800 p-4" data-testid="loan-total-repaid">
                 <div class="text-xs text-slate-400">Total repaid (confirmed)</div>
-                <div class="text-lg font-semibold">{balance ? money(balance.totalRepaidCents, selectedCurrency) : 'Loading...'}</div>
+                <div class="text-lg font-semibold">{balance ? money(balance.totalRepaidCents, selectedCurrencyDefinition) : 'Loading...'}</div>
               </div>
               <div class="rounded-lg bg-slate-800 p-4" data-testid="loan-outstanding">
                 <div class="text-xs text-slate-400">Outstanding (confirmed debt)</div>
-                <div class="text-xl font-semibold">{balance ? money(balance.outstandingCents, selectedCurrency) : 'Loading...'}</div>
+                <div class="text-xl font-semibold">{balance ? money(balance.outstandingCents, selectedCurrencyDefinition) : 'Loading...'}</div>
               </div>
             </div>
             {#if ['proposed','fundingPending'].includes(variant(selected.status))}
@@ -712,7 +799,7 @@
                   {#if repaymentFull}
                     <div class="mt-3 rounded-lg bg-slate-800 p-4" data-testid="full-repayment-amount">
                       <div class="text-xs text-slate-400">Confirmed balance to repay</div>
-                      <div class="mt-1 text-xl font-semibold">{balance ? money(balance.outstandingCents, selectedCurrency) : 'Loading...'}</div>
+                      <div class="mt-1 text-xl font-semibold">{balance ? money(balance.outstandingCents, selectedCurrencyDefinition) : 'Loading...'}</div>
                       <p class="mt-1 text-xs text-slate-400">
                         The current confirmed balance will be checked again when submitted. Pending repayments are not yet deducted.
                       </p>
@@ -755,7 +842,7 @@
                 {@const pendingCancellation = fundingCancellationRequests.find(x => x.entryId === entry.id)}
                 <div class="rounded-lg border border-slate-700 p-3">
                   <div class="flex flex-wrap justify-between gap-2">
-                    <span class="text-sm font-medium">{variant(entry.kind)} · {money(entry.amountCents, selectedCurrency)}</span>
+                    <span class="text-sm font-medium">{variant(entry.kind)} · {money(entry.amountCents, selectedCurrencyDefinition)}</span>
                     <span class="text-xs text-sky-300">{variant(entry.status)}</span>
                   </div>
                   <div class="mt-1 text-xs text-slate-400">Recorded by {isMe(entry.proposedBy) ? 'you' : 'the other participant'}{entry.note ? ' · ' + entry.note : ''}</div>
@@ -893,7 +980,7 @@
                   </div>
                   {#if eventAmount != null}
                     <div class="mt-1 text-sm font-semibold text-sky-200" data-testid="loan-audit-amount">
-                      Amount: {money(eventAmount, selectedCurrency)}
+                      Amount: {money(eventAmount, selectedCurrencyDefinition)}
                     </div>
                   {/if}
                   {#if eventNote}
