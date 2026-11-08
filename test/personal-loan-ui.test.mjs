@@ -119,3 +119,16 @@ test('review: agreed loan due date is always formatted in UTC', () => {
   assert.match(page, /formatLoanUtcDate\(selected\.dueAt\[0\]\)/);
   assert.doesNotMatch(page, /selected\.dueAt\[0\].*toLocaleDateString/);
 });
+
+test('manually managed fiat and crypto assets use immutable loan precision', () => {
+  assert.match(page, /data-testid="loan-currency-manager"/);
+  assert.match(page, /getMyCurrencies\(\)/);
+  assert.match(page, /upsertMyCurrency\(/);
+  assert.match(page, /deleteMyCurrency\(/);
+  assert.match(page, /createPersonalLoanWithAsset\(/);
+  assert.match(page, /parseAmountMinor\(originalAmount, info\.decimals\)/);
+  assert.match(page, /parseAmountMinor\(entryAmount, currentLoanDecimals\(\)\)/);
+  assert.match(page, /data-testid="loan-immutable-currency"/);
+  assert.match(page, /loanCurrencyDefinitions\[String\(loan\.id\)\]/);
+  assert.match(page, /On-chain transfer \(self-reported\)/);
+});
