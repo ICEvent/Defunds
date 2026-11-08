@@ -123,9 +123,9 @@ test('review: agreed loan due date is always formatted in UTC', () => {
 test('manually managed fiat and crypto assets use immutable loan precision', () => {
   assert.match(page, /data-testid="loan-currency-manager"/);
   assert.match(page, /getMyCurrencies\(\)/);
-  assert.match(page, /upsertMyCurrency\(/);
+  assert.match(page, /upsertMyCurrencyWithReference\(/);
   assert.match(page, /deleteMyCurrency\(/);
-  assert.match(page, /createPersonalLoanWithAsset\(/);
+  assert.match(page, /createPersonalLoanWithReference\(/);
   assert.match(page, /parseAmountMinor\(originalAmount, info\.decimals\)/);
   assert.match(page, /parseAmountMinor\(entryAmount, currentLoanDecimals\(\)\)/);
   assert.match(page, /data-testid="loan-immutable-currency"/);
@@ -144,6 +144,19 @@ test('currency save gives immediate inline feedback instead of only page-top err
   assert.match(page, /role="alert"/);
   assert.match(page, /aria-live="polite"/);
   assert.match(page, /currencySaving \? 'Saving currency/);
-  assert.match(page, /unwrap\(await requestedActor\.upsertMyCurrency\(/);
+  assert.match(page, /unwrap\(await requestedActor\.upsertMyCurrencyWithReference\(/);
   assert.match(page, /customCurrencies = owned \?\? \[\]/);
+});
+
+test('new loans and parties show immutable asset network and contract identity', () => {
+  assert.match(page, /getMyAssetReferences\(\)/);
+  assert.match(page, /getLoanAssetReference\(loan\.id\)/);
+  assert.match(page, /assetReference\(/);
+  assert.match(page, /data-testid="currency-blockchain-reference-fields"/);
+  assert.match(page, /id="custom-network"/);
+  assert.match(page, /id="custom-contract"/);
+  assert.match(page, /data-testid="loan-immutable-asset-reference"/);
+  assert.match(page, /data-testid="loan-proposed-asset-reference"/);
+  assert.match(page, /getBuiltinCurrency\(/);
+  assert.match(page, /Contract \/ Ledger ID/);
 });
