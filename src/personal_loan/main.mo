@@ -156,11 +156,15 @@ persistent actor PersonalLoan {
   private func validEvmAddress(address : Text) : Bool {
     if (Text.size(address) != 42 or not Text.startsWith(address, #text "0x")) return false;
     var i : Nat = 0;
+    var nonzero : Bool = false;
     for (ch in Text.toIter(address)) {
-      if (i >= 2 and not isHex(ch)) return false;
+      if (i >= 2) {
+        if (not isHex(ch)) return false;
+        if (ch != '0') nonzero := true;
+      };
       i += 1;
     };
-    true;
+    nonzero; // 0x000…000 is not an allowed token contract
   };
 
   private func validLedgerId(address : Text) : Bool {
