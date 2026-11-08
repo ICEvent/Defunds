@@ -1,3 +1,5 @@
+import { parseAmountMinor } from './personal-loan-currency.js';
+
 // Loan presentation and amount selection. Never derive repayment amounts
 // from proposed/unconfirmed borrowings or from an audit-event count.
 export const LOAN_EVENT_LABELS = Object.freeze({
@@ -41,22 +43,16 @@ export function loanEventNote(kind, entry, loan) {
     : '';
 }
 
+// Original CAD callers keep the two-decimal API for backwards compatibility.
 export function parseLoanAmountCents(value) {
-  const input = String(value ?? '').trim();
-  if (!/^(0|[1-9][0-9]{0,11})(\.[0-9]{1,2})?$/.test(input)) {
-    throw new Error('Enter an amount with up to two decimal places');
-  }
-  const [dollars, fraction = ''] = input.split('.');
-  const cents = BigInt(dollars) * 100n + BigInt((fraction + '00').slice(0, 2));
-  if (cents <= 0n) throw new Error('Amount must be positive');
-  return cents;
+  return parseAmountMinor(value, 2);
 }
 
-export function getRepaymentCents(fullOutstanding, outstandingCents, enteredAmount) {
+export function getRepaymentCents(fullOutstanding, outstandingCents, enteredAmount, decimals = 2) {
   // Call with a FRESH getBalance() result immediately before submission.
   const balance = BigInt(outstandingCents ?? 0);
   if (balance <= 0n) throw new Error('There is no confirmed outstanding balance to repay');
-  const amount = fullOutstanding ? balance : parseLoanAmountCents(enteredAmount);
+  const amount = fullOutstanding ? balance : parseAmountMinor(enteredAmount, decimals);
   if (amount > balance) throw new Error('Repayment exceeds the confirmed outstanding balance');
   return amount;
 }
