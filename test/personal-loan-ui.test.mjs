@@ -132,3 +132,18 @@ test('manually managed fiat and crypto assets use immutable loan precision', () 
   assert.match(page, /loanCurrencyDefinitions\[String\(loan\.id\)\]/);
   assert.match(page, /On-chain transfer \(self-reported\)/);
 });
+
+test('currency save gives immediate inline feedback instead of only page-top errors', () => {
+  assert.match(page, /data-testid="loan-save-currency"/);
+  assert.match(page, /on:click=\{saveCustomCurrency\}/);
+  assert.match(page, /currencyFormNotice = 'Saving '/);
+  assert.match(page, /currencyFormNotice = 'Saved '/);
+  assert.match(page, /currencyFormError = \(saved/);
+  assert.match(page, /data-testid="loan-currency-save-error"/);
+  assert.match(page, /data-testid="loan-currency-save-status"/);
+  assert.match(page, /role="alert"/);
+  assert.match(page, /aria-live="polite"/);
+  assert.match(page, /currencySaving \? 'Saving currency/);
+  assert.match(page, /unwrap\(await requestedActor\.upsertMyCurrency\(/);
+  assert.match(page, /customCurrencies = owned \?\? \[\]/);
+});
