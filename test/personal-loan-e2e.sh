@@ -222,6 +222,9 @@ if ! grep -Fq 'decimals = 9' <<< "$(call_as "$LENDER_NAME" getLoanCurrencyDefini
 fi
 assert_err "$(call_as "$BORROWER_NAME" createPersonalLoanWithAsset "(principal \"$BORROWER\", principal \"$LENDER\", 1 : nat, $SOL_DEF, null, \"Old precision\", \"sol-old\")")"
 assert_ok "$(call_as "$BORROWER_NAME" deleteMyCurrency '("SOL")')"
+# A response can be lost. Retrying the exact original request must still
+# return the same loan even if its catalog entry was subsequently deleted.
+assert_ok "$(call_as "$BORROWER_NAME" createPersonalLoanWithAsset "$SOL_LOAN")"
 if ! grep -Fq 'decimals = 9' <<< "$(call_as "$LENDER_NAME" getLoanCurrencyDefinition '(6 : nat)')"; then
   echo "Deleting custom currency corrupted original loan definition" >&2; exit 1
 fi
