@@ -145,7 +145,7 @@ test('currency save gives immediate inline feedback instead of only page-top err
   assert.match(page, /aria-live="polite"/);
   assert.match(page, /currencySaving \? 'Saving currency/);
   assert.match(page, /unwrap\(await requestedActor\.upsertMyCurrencyWithReference\(/);
-  assert.match(page, /customCurrencies = owned \?\? \[\]/);
+  assert.match(page, /customCurrencies = unwrap\(owned\) \?\? \[\]/);
 });
 
 test('new loans and parties show immutable asset network and contract identity', () => {
