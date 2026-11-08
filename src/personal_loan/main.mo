@@ -83,22 +83,22 @@ persistent actor PersonalLoan {
     currency == "GBP" or currency == "CNY";
   };
 
-  private func currency(code : Text, symbol : Text, decimals : Nat, kind : Text) : Types.CurrencyDefinition {
+  private func makeCurrency(code : Text, symbol : Text, decimals : Nat, kind : Text) : Types.CurrencyDefinition {
     { code; symbol; decimals; kind };
   };
 
   private func builtinCurrency(code : Text) : ?Types.CurrencyDefinition {
     switch (code) {
-      case ("CAD") ?currency("CAD", "$", 2, "fiat");
-      case ("USD") ?currency("USD", "$", 2, "fiat");
-      case ("EUR") ?currency("EUR", "€", 2, "fiat");
-      case ("GBP") ?currency("GBP", "£", 2, "fiat");
-      case ("CNY") ?currency("CNY", "¥", 2, "fiat");
-      case ("BTC") ?currency("BTC", "₿", 8, "crypto");
-      case ("ETH") ?currency("ETH", "Ξ", 18, "crypto");
-      case ("ICP") ?currency("ICP", "ICP", 8, "crypto");
-      case ("CKBTC") ?currency("CKBTC", "ckBTC", 8, "crypto");
-      case ("CKETH") ?currency("CKETH", "ckETH", 18, "crypto");
+      case ("CAD") ?makeCurrency("CAD", "$", 2, "fiat");
+      case ("USD") ?makeCurrency("USD", "$", 2, "fiat");
+      case ("EUR") ?makeCurrency("EUR", "€", 2, "fiat");
+      case ("GBP") ?makeCurrency("GBP", "£", 2, "fiat");
+      case ("CNY") ?makeCurrency("CNY", "¥", 2, "fiat");
+      case ("BTC") ?makeCurrency("BTC", "₿", 8, "crypto");
+      case ("ETH") ?makeCurrency("ETH", "Ξ", 18, "crypto");
+      case ("ICP") ?makeCurrency("ICP", "ICP", 8, "crypto");
+      case ("CKBTC") ?makeCurrency("CKBTC", "ckBTC", 8, "crypto");
+      case ("CKETH") ?makeCurrency("CKETH", "ckETH", 18, "crypto");
       case (_) null;
     };
   };
@@ -108,7 +108,7 @@ persistent actor PersonalLoan {
         def.decimals > 18 or (def.kind != "fiat" and def.kind != "crypto")) return false;
     if (Text.contains(def.symbol, #char '\n') or Text.contains(def.symbol, #char '\r') or
         Text.contains(def.symbol, #char '\t')) return false;
-    for (ch in def.code.chars()) {
+    for (ch in Text.toIter(def.code)) {
       let n = Char.toNat32(ch);
       if (not ((n >= 65 and n <= 90) or (n >= 48 and n <= 57))) return false;
     };
@@ -154,7 +154,7 @@ persistent actor PersonalLoan {
       case (?(_, def)) def;
       case null switch (builtinCurrency(currencyOf(loanId))) {
         case (?preset) preset; // v0.1/v0.2 historic CAD, USD, EUR, GBP, CNY
-        case null currency(currencyOf(loanId), "", 2, "fiat");
+        case null makeCurrency(currencyOf(loanId), "", 2, "fiat");
       };
     };
   };
@@ -352,7 +352,11 @@ persistent actor PersonalLoan {
         if (existing.borrower == borrower and existing.lender == lender and
             existing.originalAmountCents == initialAmountCents and
             existing.dueAt == dueAt and existing.note == note and
-            currencyOf(existing.id) == currency) {
+            currencyOf(existing.id) == currency and
+            (switch (asset) {
+              case null true;
+              case (?def) sameDefinition(definitionOf(existing.id), def);
+            })) {
           return #ok(existing.id);
         };
         return #err("Request ID conflict");
@@ -382,7 +386,7 @@ persistent actor PersonalLoan {
       case (?def) def;
       case null switch (builtinCurrency(currency)) {
         case (?builtin) builtin;
-        case null currency(currency, "", 2, "fiat");
+        case null makeCurrency(currency, "", 2, "fiat");
       };
     };
     loanCurrencyDefinitions := Array.append<(Nat, Types.CurrencyDefinition)>(
