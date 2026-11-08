@@ -31,7 +31,7 @@ createPersonalLoanWithAsset(borrower, lender, amountMinor, definition, dueAt, no
 
 ## Asset scope and risks
 
-The chosen code and decimals are metadata for an **off-chain, jointly acknowledged debt ledger**, not verified wallet assets. `USDT` and `USDC`, for example, may have different decimals and contract addresses depending on blockchain. The UI intentionally asks users to verify network/contract before adding a custom code; a ticker alone is not enough to uniquely identify an instrument.
+The chosen code and decimals are metadata for an **off-chain, jointly acknowledged debt ledger**, not verified wallet assets. **For any future on-chain ICRC integration, query the actual token ledger's `icrc1_decimals` and `icrc1_metadata` at runtime and store the ledger canister ID/network; do not trust a manually entered ticker or static preset to authorize transfers.** DFINITY's ledger documentation explicitly recommends runtime querying because token precision can change. `USDT` and `USDC`, for example, may have different decimals and contract addresses depending on blockchain. The UI intentionally asks users to verify network/contract before adding a custom code; a ticker alone is not enough to uniquely identify an instrument.
 
 - Transfers, custody, digital signatures, exchange rates, oracle prices, proof of settlement, token approval, on-chain transaction verification, and real-time market valuation are **not implemented**.
 - `On-chain transfer (self-reported)` is only a human-entered method; it is not blockchain evidence. Do not include private keys, seed phrases or bank secrets in loan notes.
