@@ -37,6 +37,9 @@
   let currencyKind = 'crypto';
   let editingCurrency = false;
   let currencyDeleteCode = '';
+  let currencyFormError = '';
+  let currencyFormNotice = '';
+  let currencySaving = false;
   let selected = null;
   let selectedCurrency = 'CAD';
   let selectedCurrencyDefinition = getBuiltinCurrency('CAD');
@@ -142,6 +145,8 @@
         selectedCurrency = 'CAD';
         selectedCurrencyDefinition = getBuiltinCurrency('CAD');
         currencyManagerOpen = false;
+        currencyFormError = '';
+        currencyFormNotice = '';
       } else if (changed) {
         actor = null;
         void initialize();
@@ -325,6 +330,8 @@
     currencyDecimals = String(def.decimals);
     currencyKind = def.kind;
     currencyDeleteCode = '';
+    currencyFormError = '';
+    currencyFormNotice = '';
     editingCurrency = true;
   }
 
@@ -335,13 +342,27 @@
     currencyKind = 'crypto';
     editingCurrency = false;
     currencyDeleteCode = '';
+    currencyFormError = '';
+    currencyFormNotice = '';
   }
 
   async function saveCustomCurrency() {
-    if (!actor || busy) return;
-    error = '';
-    notice = '';
+    currencyFormError = '';
+    currencyFormNotice = '';
+    if (!actor) {
+      currencyFormError = 'Personal Loan is not connected. Please log in again.';
+      return;
+    }
+    if (busy || currencySaving) {
+      currencyFormError = 'Another operation is in progress.';
+      return;
+    }
+    let saved = false;
+    currencySaving = true;
     try {
+      if (currencyDecimals === '' || currencyDecimals == null) {
+        throw new Error('Enter decimal places between 0 and 18');
+      }
       const def = currencyDefinition({
         code: currencyCode, symbol: currencySymbol,
         decimals: currencyDecimals, kind: currencyKind
@@ -349,39 +370,59 @@
       if (getBuiltinCurrency(def.code)) {
         throw new Error('Built-in currencies cannot be edited. Use a unique custom code.');
       }
-      busy = true;
       const requestedActor = actor;
+      currencyFormNotice = 'Saving ' + def.code + '…';
       unwrap(await requestedActor.upsertMyCurrency({ ...def, decimals: BigInt(def.decimals) }));
+      saved = true;
+      if (actor !== requestedActor) throw new Error('Login changed during saving.');
+      currencyFormNotice = 'Saved ' + def.code + '. Refreshing list…';
       const owned = unwrap(await requestedActor.getMyCurrencies());
-      if (actor !== requestedActor) return;
+      if (actor !== requestedActor) throw new Error('Login changed during refresh.');
       customCurrencies = owned ?? [];
       loanCurrency = def.code;
-      notice = 'Currency saved for your account. Existing loans keep their original precision.';
       resetCurrencyForm();
+      currencyFormNotice = def.code + ' saved. Existing loan precision is unchanged.';
+      notice = 'Currency saved for your account.';
     } catch (e) {
-      error = e?.message ?? String(e);
+      currencyFormError = (saved
+        ? 'Saved successfully but unable to refresh the list: '
+        : 'Save failed: ') + (e?.message ?? String(e));
+      currencyFormNotice = '';
     } finally {
-      busy = false;
+      currencySaving = false;
     }
   }
 
   async function removeCustomCurrency(code) {
-    if (!actor || busy || currencyDeleteCode !== code) return;
-    error = '';
+    currencyFormError = '';
+    currencyFormNotice = '';
+    if (!actor) {
+      currencyFormError = 'Personal Loan is not connected. Please log in again.';
+      return;
+    }
+    if (busy || currencySaving || currencyDeleteCode !== code) return;
+    let removed = false;
+    currencySaving = true;
     try {
-      busy = true;
       const requestedActor = actor;
+      currencyFormNotice = 'Removing ' + code + '…';
       unwrap(await requestedActor.deleteMyCurrency(code));
+      removed = true;
+      if (actor !== requestedActor) throw new Error('Login changed during deletion.');
       const owned = unwrap(await requestedActor.getMyCurrencies());
-      if (actor !== requestedActor) return;
+      if (actor !== requestedActor) throw new Error('Login changed during refresh.');
       customCurrencies = owned ?? [];
       if (loanCurrency === code) loanCurrency = 'CAD';
       resetCurrencyForm();
-      notice = 'Removed from your catalog. Existing loans are unchanged.';
+      currencyFormNotice = code + ' removed. Existing loans are unchanged.';
+      notice = 'Currency removed from your catalog.';
     } catch (e) {
-      error = e?.message ?? String(e);
+      currencyFormError = (removed
+        ? 'Removed successfully but unable to refresh the list: '
+        : 'Remove failed: ') + (e?.message ?? String(e));
+      currencyFormNotice = '';
     } finally {
-      busy = false;
+      currencySaving = false;
     }
   }
 
@@ -703,11 +744,22 @@
               </div>
               <p class="text-xs text-amber-200">For tokens, verify contract and network decimals before adding. Codes alone do not identify a chain or contract.</p>
               <div class="flex flex-wrap gap-2">
-                <button disabled={busy || !currencyCode} on:click={saveCustomCurrency}
-                  class="rounded bg-sky-700 px-3 py-2 text-sm disabled:opacity-50">Save currency</button>
-                <button type="button" on:click={resetCurrencyForm}
+                <button type="button" data-testid="loan-save-currency"
+                  disabled={busy || currencySaving || !currencyCode.trim()} on:click={saveCustomCurrency}
+                  class="rounded bg-sky-700 px-3 py-2 text-sm disabled:opacity-50">
+                  {currencySaving ? 'Saving currency…' : (editingCurrency ? 'Update currency' : 'Save currency')}
+                </button>
+                <button type="button" disabled={currencySaving} on:click={resetCurrencyForm}
                   class="rounded border border-slate-600 px-3 py-2 text-sm">Clear</button>
               </div>
+              {#if currencyFormError}
+                <p role="alert" data-testid="loan-currency-save-error"
+                  class="rounded border border-red-700 bg-red-950/40 p-3 text-sm text-red-200">{currencyFormError}</p>
+              {/if}
+              {#if currencyFormNotice}
+                <p role="status" aria-live="polite" data-testid="loan-currency-save-status"
+                  class="rounded border border-sky-700 bg-sky-950/40 p-3 text-sm text-sky-100">{currencyFormNotice}</p>
+              {/if}
               {#if customCurrencies.length === 0}
                 <p class="text-xs text-slate-400">No custom currencies yet. BTC, ETH, ICP, ckBTC and ckETH are already included.</p>
               {/if}
@@ -721,7 +773,7 @@
                     <button type="button" on:click={() => editCustomCurrency(custom)}
                       class="rounded border border-slate-600 px-2 py-1 text-xs">Edit</button>
                     {#if currencyDeleteCode === custom.code}
-                      <button disabled={busy} on:click={() => removeCustomCurrency(custom.code)}
+                      <button type="button" disabled={busy || currencySaving} on:click={() => removeCustomCurrency(custom.code)}
                         class="rounded border border-red-500 px-2 py-1 text-xs text-red-200">Confirm remove</button>
                       <button type="button" on:click={() => currencyDeleteCode = ''}
                         class="rounded border border-slate-600 px-2 py-1 text-xs">Cancel</button>
