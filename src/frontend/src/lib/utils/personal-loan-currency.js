@@ -13,6 +13,63 @@ export const BUILTIN_CURRENCIES = Object.freeze([
   { code: 'CKETH', symbol: 'ckETH', decimals: 18, kind: 'crypto' }
 ].map(item => Object.freeze(item)));
 
+// Blockchain asset identity; token tickers are NOT globally unique.
+export const BUILTIN_ASSET_REFERENCES = Object.freeze({
+  CAD: { network: '', standard: 'fiat', address: '' },
+  USD: { network: '', standard: 'fiat', address: '' },
+  EUR: { network: '', standard: 'fiat', address: '' },
+  GBP: { network: '', standard: 'fiat', address: '' },
+  CNY: { network: '', standard: 'fiat', address: '' },
+  BTC: { network: 'bitcoin:mainnet', standard: 'native', address: '' },
+  ETH: { network: 'eip155:1', standard: 'native', address: '' },
+  ICP: { network: 'ic:mainnet', standard: 'icrc', address: 'ryjl3-tyaaa-aaaaa-aaaba-cai' },
+  CKBTC: { network: 'ic:mainnet', standard: 'icrc', address: 'mxzaz-hqaaa-aaaar-qaada-cai' },
+  CKETH: { network: 'ic:mainnet', standard: 'icrc', address: 'ss2fx-dyaaa-aaaar-qacoq-cai' }
+});
+
+export function builtinAssetReference(code) {
+  return BUILTIN_ASSET_REFERENCES[code] ? { ...BUILTIN_ASSET_REFERENCES[code] } : null;
+}
+
+export function assetReference(value, currency) {
+  const asset = currencyDefinition(currency);
+  const network = String(value?.network ?? '').trim().toLowerCase();
+  const standard = String(value?.standard ?? '').trim().toLowerCase();
+  const address = String(value?.address ?? '').trim();
+  if (asset.kind === 'fiat') {
+    if (network || address || standard !== 'fiat') {
+      throw new Error('Fiat currencies must not have a blockchain contract');
+    }
+    return { network: '', standard: 'fiat', address: '' };
+  }
+  if (!/^[a-z0-9:-]{4,64}$/.test(network)) {
+    throw new Error('Specify a valid blockchain network (e.g. eip155:1 or ic:mainnet)');
+  }
+  if (standard === 'native') {
+    if (address) throw new Error('Native cryptocurrency has no token contract address');
+    return { network, standard, address: '' };
+  }
+  if (standard === 'erc20') {
+    if (!/^eip155:[1-9][0-9]{0,10}$/.test(network)) {
+      throw new Error('ERC-20 requires a valid EVM Chain ID, for example eip155:1');
+    }
+    if (!/^0x[0-9a-fA-F]{40}$/.test(address) || /^0x0{40}$/i.test(address)) {
+      throw new Error('ERC-20 contract address must be a nonzero 0x followed by 40 hex characters');
+    }
+    return { network, standard, address };
+  }
+  if (standard === 'icrc') {
+    if (!['ic:mainnet', 'ic:local'].includes(network)) {
+      throw new Error('ICRC requires ic:mainnet or ic:local');
+    }
+    if (!/^[a-z2-7-]{10,64}$/.test(address)) {
+      throw new Error('ICRC requires a ledger canister Principal ID');
+    }
+    return { network, standard, address };
+  }
+  throw new Error('Choose Native, ERC-20 or ICRC and provide its network/identity');
+}
+
 export function currencyDefinition(value) {
   const code = String(value?.code ?? '').trim().toUpperCase();
   const symbol = String(value?.symbol ?? '').trim();
