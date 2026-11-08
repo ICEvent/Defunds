@@ -730,6 +730,22 @@
             {proposedCurrencyInfo.code} uses {Number(proposedCurrencyInfo.decimals)} decimal places.
             This page records debt but never transfers crypto or converts currencies.
           </p>
+          {#if proposedCurrencyInfo.kind === 'crypto'}
+            <div class="mb-3 rounded border border-slate-700 bg-slate-800/40 p-2 text-xs"
+              data-testid="loan-proposed-asset-reference">
+              {#if proposedAssetReference}
+                <div>Network: {proposedAssetReference.network}</div>
+                <div>Standard: {proposedAssetReference.standard}</div>
+                {#if proposedAssetReference.address}
+                  <div class="mt-1 break-all">Contract / Ledger ID: {proposedAssetReference.address}</div>
+                {:else}
+                  <div class="mt-1 text-slate-400">Native asset; no token contract address</div>
+                {/if}
+              {:else}
+                <div class="text-amber-200">This custom crypto has no saved network/contract. Update it in My currencies before proposing a loan.</div>
+              {/if}
+            </div>
+          {/if}
           <label class="mb-2 block text-xs text-slate-400" for="loan-amount">Initial amount ({loanCurrency})</label>
           <input id="loan-amount" bind:value={originalAmount} placeholder="10000.00" class="mb-3 w-full rounded bg-slate-800 p-2" />
           <label class="mb-2 block text-xs text-slate-400" for="loan-due-date">Due date (optional)</label>
@@ -784,7 +800,36 @@
                     class="mt-1 w-full rounded bg-slate-800 p-2 text-sm" />
                 </div>
               </div>
-              <p class="text-xs text-amber-200">For tokens, verify contract and network decimals before adding. Codes alone do not identify a chain or contract.</p>
+              {#if currencyKind === 'crypto'}
+                <div class="rounded border border-slate-700 bg-slate-800/40 p-3" data-testid="currency-blockchain-reference-fields">
+                  <label for="custom-standard" class="text-xs text-slate-400">Blockchain asset type</label>
+                  <select id="custom-standard" bind:value={currencyStandard} class="mt-1 w-full rounded bg-slate-800 p-2 text-sm">
+                    <option value="native">Native (BTC, ETH, SOL — no token contract)</option>
+                    <option value="erc20">ERC-20 token (EVM contract)</option>
+                    <option value="icrc">ICRC token (ICP ledger canister)</option>
+                  </select>
+                  <label for="custom-network" class="mt-3 block text-xs text-slate-400">
+                    {currencyStandard === 'erc20' ? 'EVM Chain ID' : 'Blockchain network'}
+                  </label>
+                  <input id="custom-network" bind:value={currencyNetwork}
+                    placeholder={currencyStandard === 'erc20' ? 'eip155:1' : (currencyStandard === 'icrc' ? 'ic:mainnet' : 'solana:mainnet')}
+                    class="mt-1 w-full rounded bg-slate-800 p-2 text-sm" />
+                  {#if currencyStandard !== 'native'}
+                    <label for="custom-contract" class="mt-3 block text-xs text-slate-400">
+                      {currencyStandard === 'erc20' ? 'Token contract address' : 'ICRC Ledger Canister ID'}
+                    </label>
+                    <input id="custom-contract" bind:value={currencyAddress} spellcheck="false"
+                      placeholder={currencyStandard === 'erc20' ? '0x + 40 hexadecimal characters' : 'aaaaa-aaaaa-...-cai'}
+                      class="mt-1 w-full rounded bg-slate-800 p-2 font-mono text-xs" />
+                  {/if}
+                  {#if currencyStandard === 'native'}
+                    <p class="mt-2 text-xs text-slate-400">Native assets have no token contract; the network is their identity.</p>
+                  {/if}
+                </div>
+              {/if}
+              <p class="text-xs text-amber-200">
+                Always verify the blockchain, contract/Ledger ID and precision independently. A ticker alone is not an asset identity; this form does not verify contracts on-chain.
+              </p>
               <div class="flex flex-wrap gap-2">
                 <button type="button" data-testid="loan-save-currency"
                   disabled={busy || currencySaving || !currencyCode.trim()} on:click={saveCustomCurrency}
@@ -810,6 +855,16 @@
                   <div class="min-w-0 text-sm">
                     <span class="font-medium">{custom.code}</span>
                     <span class="text-xs text-slate-400"> · {custom.kind} · {Number(custom.decimals)} decimals</span>
+                    {#if myAssetReferences[custom.code]}
+                      <div class="mt-1 break-all text-xs text-slate-400" data-testid="currency-saved-identity">
+                        {myAssetReferences[custom.code].network} · {myAssetReferences[custom.code].standard}
+                        {#if myAssetReferences[custom.code].address}
+                          · {myAssetReferences[custom.code].address}
+                        {/if}
+                      </div>
+                    {:else if custom.kind === 'crypto'}
+                      <div class="mt-1 text-xs text-amber-200">Unbound legacy asset — edit to add network and contract</div>
+                    {/if}
                   </div>
                   <div class="flex gap-2">
                     <button type="button" on:click={() => editCustomCurrency(custom)}
@@ -878,6 +933,20 @@
             {/if}
             <div class="mt-4 break-all text-xs text-slate-400">
               <div data-testid="loan-immutable-currency">Currency: {selectedCurrency} · {selectedCurrencyDefinition.kind} · {Number(selectedCurrencyDefinition.decimals)} decimals (fixed for this loan; no FX conversion)</div>
+              {#if selectedCurrencyDefinition.kind === 'crypto'}
+                <div class="mt-2 break-all" data-testid="loan-immutable-asset-reference">
+                  {#if selectedAssetReference?.standard === 'unverified' || !selectedAssetReference}
+                    <span class="text-amber-200">Legacy crypto identity is unverified — do not rely on this ticker for transfers</span>
+                  {:else}
+                    <div>Network: {selectedAssetReference.network} · {selectedAssetReference.standard}</div>
+                    {#if selectedAssetReference.address}
+                      <div>Contract / Ledger ID: {selectedAssetReference.address}</div>
+                    {:else}
+                      <div>Native cryptocurrency — no token contract</div>
+                    {/if}
+                  {/if}
+                </div>
+              {/if}
               <div class="mt-1">Borrower: {textId(selected.borrower)}</div>
               <div class="mt-1">Lender: {textId(selected.lender)}</div>
               <div class="mt-1">Due date: {selected.dueAt?.length ? formatLoanUtcDate(selected.dueAt[0]) : 'Not set'}</div>
