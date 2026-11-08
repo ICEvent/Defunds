@@ -1,4 +1,5 @@
 import Array "mo:base/Array";
+import Char "mo:base/Char";
 import Nat "mo:base/Nat";
 import Principal "mo:base/Principal";
 import Result "mo:base/Result";
@@ -21,6 +22,10 @@ persistent actor PersonalLoan {
   // stable Loan records created by v0.1 (which were implicitly CAD).
   // An absent entry always means CAD; the mapping is immutable per loan.
   var loanCurrencies : [(Nat, Text)] = [];
+  // New metadata snapshots are opt-in; legacy loans still default to CAD/2.
+  var loanCurrencyDefinitions : [(Nat, Types.CurrencyDefinition)] = [];
+  // Each authenticated caller owns a distinct editable currency catalog.
+  var userCurrencies : [(Principal, Types.CurrencyDefinition)] = [];
   var entries : [Entry] = [];
   var fundingCancellationRequests : [Types.FundingCancellationRequest] = [];
   var events : [Types.LoanEvent] = [];
@@ -71,18 +76,132 @@ persistent actor PersonalLoan {
     Text.size(note) <= 500;
   };
 
-  // Only currencies with 2 decimal minor units are supported in v0.2.
-  // No currency conversion is performed by this ledger.
+  // The original currency API remains fiat-only for legacy Candid clients.
+  // Custom and crypto definitions use createPersonalLoanWithAsset instead.
   private func supportedCurrency(currency : Text) : Bool {
     currency == "CAD" or currency == "USD" or currency == "EUR" or
     currency == "GBP" or currency == "CNY";
   };
 
+  private func currency(code : Text, symbol : Text, decimals : Nat, kind : Text) : Types.CurrencyDefinition {
+    { code; symbol; decimals; kind };
+  };
+
+  private func builtinCurrency(code : Text) : ?Types.CurrencyDefinition {
+    switch (code) {
+      case ("CAD") ?currency("CAD", "$", 2, "fiat");
+      case ("USD") ?currency("USD", "$", 2, "fiat");
+      case ("EUR") ?currency("EUR", "€", 2, "fiat");
+      case ("GBP") ?currency("GBP", "£", 2, "fiat");
+      case ("CNY") ?currency("CNY", "¥", 2, "fiat");
+      case ("BTC") ?currency("BTC", "₿", 8, "crypto");
+      case ("ETH") ?currency("ETH", "Ξ", 18, "crypto");
+      case ("ICP") ?currency("ICP", "ICP", 8, "crypto");
+      case ("CKBTC") ?currency("CKBTC", "ckBTC", 8, "crypto");
+      case ("CKETH") ?currency("CKETH", "ckETH", 18, "crypto");
+      case (_) null;
+    };
+  };
+
+  private func validDefinition(def : Types.CurrencyDefinition) : Bool {
+    if (Text.size(def.code) < 2 or Text.size(def.code) > 12 or Text.size(def.symbol) > 12 or
+        def.decimals > 18 or (def.kind != "fiat" and def.kind != "crypto")) return false;
+    if (Text.contains(def.symbol, #char '\n') or Text.contains(def.symbol, #char '\r') or
+        Text.contains(def.symbol, #char '\t')) return false;
+    for (ch in def.code.chars()) {
+      let n = Char.toNat32(ch);
+      if (not ((n >= 65 and n <= 90) or (n >= 48 and n <= 57))) return false;
+    };
+    true;
+  };
+
+  private func sameDefinition(a : Types.CurrencyDefinition, b : Types.CurrencyDefinition) : Bool {
+    a.code == b.code and a.symbol == b.symbol and
+    a.decimals == b.decimals and a.kind == b.kind;
+  };
+
+  private func ownedCurrency(owner : Principal, code : Text) : ?Types.CurrencyDefinition {
+    switch (Array.find<(Principal, Types.CurrencyDefinition)>(
+      userCurrencies, func(pair) { pair.0 == owner and pair.1.code == code }
+    )) {
+      case (?(_, def)) ?def;
+      case null null;
+    };
+  };
+
+  private func allowedDefinition(caller : Principal, def : Types.CurrencyDefinition) : Bool {
+    if (not validDefinition(def)) return false;
+    switch (builtinCurrency(def.code)) {
+      case (?preset) sameDefinition(def, preset);
+      case null switch (ownedCurrency(caller, def.code)) {
+        case (?custom) sameDefinition(def, custom);
+        case null false;
+      };
+    };
+  };
+
   private func currencyOf(loanId : Nat) : Text {
     switch (Array.find<(Nat, Text)>(loanCurrencies, func(pair) { pair.0 == loanId })) {
-      case (?(id, code)) code;
+      case (?(_, code)) code;
       case null "CAD"; // Legacy v0.1 loans were always CAD.
     };
+  };
+
+  private func definitionOf(loanId : Nat) : Types.CurrencyDefinition {
+    switch (Array.find<(Nat, Types.CurrencyDefinition)>(
+      loanCurrencyDefinitions, func(pair) { pair.0 == loanId }
+    )) {
+      case (?(_, def)) def;
+      case null switch (builtinCurrency(currencyOf(loanId))) {
+        case (?preset) preset; // v0.1/v0.2 historic CAD, USD, EUR, GBP, CNY
+        case null currency(currencyOf(loanId), "", 2, "fiat");
+      };
+    };
+  };
+
+  // User preferences do not affect the immutable metadata of existing loans.
+  public shared query ({ caller }) func getMyCurrencies() : async R<[Types.CurrencyDefinition]> {
+    if (Principal.isAnonymous(caller)) return #err("Authentication required");
+    #ok(Array.map<(Principal, Types.CurrencyDefinition), Types.CurrencyDefinition>(
+      Array.filter<(Principal, Types.CurrencyDefinition)>(
+        userCurrencies, func(pair) { pair.0 == caller }
+      ), func(pair) { pair.1 }
+    ));
+  };
+
+  public shared ({ caller }) func upsertMyCurrency(def : Types.CurrencyDefinition) : async R<()> {
+    if (Principal.isAnonymous(caller)) return #err("Authentication required");
+    if (not validDefinition(def)) return #err("Invalid code, symbol, kind or decimals (0–18)");
+    switch (builtinCurrency(def.code)) {
+      case (?_) return #err("Built-in currency definitions cannot be edited");
+      case null {};
+    };
+    switch (ownedCurrency(caller, def.code)) {
+      case null {
+        let count = Array.filter<(Principal, Types.CurrencyDefinition)>(
+          userCurrencies, func(pair) { pair.0 == caller }
+        ).size();
+        if (count >= 40) return #err("Maximum 40 custom currencies per user");
+        userCurrencies := Array.append(userCurrencies, [(caller, def)]);
+      };
+      case (?_) {
+        userCurrencies := Array.map<(Principal, Types.CurrencyDefinition), (Principal, Types.CurrencyDefinition)>(
+          userCurrencies, func(pair) {
+            if (pair.0 == caller and pair.1.code == def.code) (caller, def) else pair
+          }
+        );
+      };
+    };
+    #ok(());
+  };
+
+  public shared ({ caller }) func deleteMyCurrency(code : Text) : async R<()> {
+    if (Principal.isAnonymous(caller)) return #err("Authentication required");
+    if (ownedCurrency(caller, code) == null) return #err("Custom currency not found");
+    userCurrencies := Array.filter<(Principal, Types.CurrencyDefinition)>(
+      userCurrencies, func(pair) { not (pair.0 == caller and pair.1.code == code) }
+    );
+    #ok(());
   };
 
   private func replaceLoan(next : Loan) {
@@ -165,7 +284,7 @@ persistent actor PersonalLoan {
     note : Text,
     requestId : Text,
   ) : async R<Nat> {
-    createLoan(caller, borrower, lender, initialAmountCents, "CAD", dueAt, note, requestId);
+    createLoan(caller, borrower, lender, initialAmountCents, "CAD", null, dueAt, note, requestId);
   };
 
   public shared ({ caller }) func createPersonalLoanWithCurrency(
@@ -177,7 +296,21 @@ persistent actor PersonalLoan {
     note : Text,
     requestId : Text,
   ) : async R<Nat> {
-    createLoan(caller, borrower, lender, initialAmountMinor, currency, dueAt, note, requestId);
+    createLoan(caller, borrower, lender, initialAmountMinor, currency, null, dueAt, note, requestId);
+  };
+
+  // The new API accepts a caller-approved catalog definition. The exact
+  // decimals/symbol/type are snapshotted and visible to BOTH parties.
+  public shared ({ caller }) func createPersonalLoanWithAsset(
+    borrower : Principal,
+    lender : Principal,
+    amountMinor : Nat,
+    asset : Types.CurrencyDefinition,
+    dueAt : ?Int,
+    note : Text,
+    requestId : Text,
+  ) : async R<Nat> {
+    createLoan(caller, borrower, lender, amountMinor, asset.code, ?asset, dueAt, note, requestId);
   };
 
   private func createLoan(
@@ -186,6 +319,7 @@ persistent actor PersonalLoan {
     lender : Principal,
     initialAmountCents : Nat,
     currency : Text,
+    asset : ?Types.CurrencyDefinition,
     dueAt : ?Int,
     note : Text,
     requestId : Text,
@@ -196,8 +330,17 @@ persistent actor PersonalLoan {
     if (borrower == lender or (caller != borrower and caller != lender)) {
       return #err("Distinct borrower and lender required; creator must be a participant");
     };
-    if (not supportedCurrency(currency)) {
-      return #err("Unsupported currency (CAD, USD, EUR, GBP or CNY)");
+    switch (asset) {
+      case (null) {
+        if (not supportedCurrency(currency)) {
+          return #err("Use createPersonalLoanWithAsset for crypto or custom currencies");
+        };
+      };
+      case (?def) {
+        if (def.code != currency or not allowedDefinition(caller, def)) {
+          return #err("Currency definition is not in your catalog or has mismatched precision");
+        };
+      };
     };
     if (initialAmountCents == 0 or not validRequestId(requestId) or not validNote(note)) {
       return #err("Invalid amount, request ID or note");
@@ -235,6 +378,16 @@ persistent actor PersonalLoan {
     nextLoanId += 1;
     loans := Array.append<Loan>(loans, [loan]);
     loanCurrencies := Array.append<(Nat, Text)>(loanCurrencies, [(loan.id, currency)]);
+    let snapshot = switch (asset) {
+      case (?def) def;
+      case null switch (builtinCurrency(currency)) {
+        case (?builtin) builtin;
+        case null currency(currency, "", 2, "fiat");
+      };
+    };
+    loanCurrencyDefinitions := Array.append<(Nat, Types.CurrencyDefinition)>(
+      loanCurrencyDefinitions, [(loan.id, snapshot)]
+    );
     appendEvent(loan.id, null, #loanProposed, caller);
     #ok(loan.id);
   };
@@ -759,6 +912,15 @@ persistent actor PersonalLoan {
 
   public shared query ({ caller }) func getLoan(loanId : Nat) : async R<Loan> {
     requireParticipant(loanId, caller);
+  };
+
+  public shared query ({ caller }) func getLoanCurrencyDefinition(
+    loanId : Nat
+  ) : async R<Types.CurrencyDefinition> {
+    switch (requireParticipant(loanId, caller)) {
+      case (#err(e)) #err(e);
+      case (#ok(_)) #ok(definitionOf(loanId));
+    };
   };
 
   public shared query ({ caller }) func getLoanCurrency(loanId : Nat) : async R<Text> {
