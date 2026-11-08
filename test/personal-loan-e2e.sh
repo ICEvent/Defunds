@@ -173,6 +173,61 @@ assert_err "$(call_as "$LENDER_NAME" declareFunding '(3 : nat, 9 : nat, 18002000
 assert_ok "$(call_as "$BORROWER_NAME" requestClosure '(3 : nat)')"
 assert_ok "$(call_as "$LENDER_NAME" confirmClosure '(3 : nat)')"
 
+# Asset currency definitions are caller-managed and snapshotted per loan.
+# BTC smallest unit is one satoshi (8 decimals); ETH smallest unit is one wei
+# (18 decimals). No floating point, token transfers or FX conversion.
+BTC_DEF='record { code = "BTC"; symbol = "₿"; decimals = 8 : nat; kind = "crypto" }'
+BTC_LOAN="(principal \"$BORROWER\", principal \"$LENDER\", 1 : nat, $BTC_DEF, null, \"One satoshi\", \"btc-1\")"
+assert_ok "$(call_as "$BORROWER_NAME" createPersonalLoanWithAsset "$BTC_LOAN")" # Loan 4
+assert_ok "$(call_as "$BORROWER_NAME" createPersonalLoanWithAsset "$BTC_LOAN")" # idempotent
+if ! grep -Fq 'decimals = 8' <<< "$(call_as "$LENDER_NAME" getLoanCurrencyDefinition '(4 : nat)')"; then
+  echo "BTC loan precision not visible to counterpart" >&2; exit 1
+fi
+assert_err "$(call_as "$OUTSIDER_NAME" getLoanCurrencyDefinition '(4 : nat)')"
+assert_ok "$(call_as "$LENDER_NAME" acceptLoan '(4 : nat)')"
+assert_ok "$(call_as "$LENDER_NAME" declareFunding '(4 : nat, 11 : nat, 1800000000000000000 : int, "On-chain (reported)")')"
+assert_ok "$(call_as "$BORROWER_NAME" confirmFunding '(4 : nat, 11 : nat)')"
+if ! grep -Fq 'outstandingCents = 1' <<< "$(call_as "$LENDER_NAME" getBalance '(4 : nat)')"; then
+  echo "BTC one-satoshi balance was not exact" >&2; exit 1
+fi
+
+ETH_DEF='record { code = "ETH"; symbol = "Ξ"; decimals = 18 : nat; kind = "crypto" }'
+ETH_LOAN="(principal \"$BORROWER\", principal \"$LENDER\", 1 : nat, $ETH_DEF, null, \"One wei\", \"eth-1\")"
+assert_ok "$(call_as "$BORROWER_NAME" createPersonalLoanWithAsset "$ETH_LOAN")" # Loan 5
+assert_ok "$(call_as "$LENDER_NAME" acceptLoan '(5 : nat)')" # Entry 12
+assert_ok "$(call_as "$LENDER_NAME" declareFunding '(5 : nat, 12 : nat, 1800000000000000000 : int, "On-chain (reported)")')"
+assert_ok "$(call_as "$BORROWER_NAME" confirmFunding '(5 : nat, 12 : nat)')"
+assert_ok "$(call_as "$BORROWER_NAME" requestAdditionalBorrowing '(5 : nat, 1 : nat, "Second wei", "extra-wei")')" # Entry 13
+assert_ok "$(call_as "$LENDER_NAME" acceptAdditionalBorrowing '(5 : nat, 13 : nat)')"
+assert_ok "$(call_as "$LENDER_NAME" declareFunding '(5 : nat, 13 : nat, 1800000000000000000 : int, "On-chain (reported)")')"
+assert_ok "$(call_as "$BORROWER_NAME" confirmFunding '(5 : nat, 13 : nat)')"
+assert_ok "$(call_as "$BORROWER_NAME" submitRepayment '(5 : nat, 1 : nat, 1800000000000000000 : int, "On-chain (reported)", "One wei repaid", "rep-wei")')" # Entry 14
+assert_ok "$(call_as "$LENDER_NAME" confirmRepayment '(5 : nat, 14 : nat)')"
+if ! grep -Fq 'outstandingCents = 1' <<< "$(call_as "$LENDER_NAME" getBalance '(5 : nat)')"; then
+  echo "ETH one-wei repayment lost precision" >&2; exit 1
+fi
+
+SOL_DEF='record { code = "SOL"; symbol = "SOL"; decimals = 9 : nat; kind = "crypto" }'
+SOL_EDIT='record { code = "SOL"; symbol = "SOL"; decimals = 6 : nat; kind = "crypto" }'
+assert_ok "$(call_as "$BORROWER_NAME" upsertMyCurrency "($SOL_DEF)")"
+if grep -Fq 'code = "SOL"' <<< "$(call_as "$LENDER_NAME" getMyCurrencies '()')"; then
+  echo "Borrower currency catalog leaked into lender account" >&2; exit 1
+fi
+SOL_LOAN="(principal \"$BORROWER\", principal \"$LENDER\", 1 : nat, $SOL_DEF, null, \"One lamport\", \"sol-1\")"
+assert_ok "$(call_as "$BORROWER_NAME" createPersonalLoanWithAsset "$SOL_LOAN")" # Loan 6
+assert_err "$(call_as "$LENDER_NAME" createPersonalLoanWithAsset "$SOL_LOAN")" # not lender's catalog
+assert_ok "$(call_as "$BORROWER_NAME" upsertMyCurrency "($SOL_EDIT)")"
+if ! grep -Fq 'decimals = 9' <<< "$(call_as "$LENDER_NAME" getLoanCurrencyDefinition '(6 : nat)')"; then
+  echo "Editing owner catalog mutated existing loan precision" >&2; exit 1
+fi
+assert_err "$(call_as "$BORROWER_NAME" createPersonalLoanWithAsset "(principal \"$BORROWER\", principal \"$LENDER\", 1 : nat, $SOL_DEF, null, \"Old precision\", \"sol-old\")")"
+assert_ok "$(call_as "$BORROWER_NAME" deleteMyCurrency '("SOL")')"
+if ! grep -Fq 'decimals = 9' <<< "$(call_as "$LENDER_NAME" getLoanCurrencyDefinition '(6 : nat)')"; then
+  echo "Deleting custom currency corrupted original loan definition" >&2; exit 1
+fi
+assert_err "$(call_as "$BORROWER_NAME" upsertMyCurrency '(record { code = "BTC"; symbol = "fake"; decimals = 2 : nat; kind = "fiat" })')"
+assert_err "$(call_as "$BORROWER_NAME" upsertMyCurrency '(record { code = "INVALID CODE"; symbol = ""; decimals = 8 : nat; kind = "crypto" })')"
+
 # Persistent actor upgrade must retain the closed loan, payment totals and audit.
 dfx deploy personal_loan --mode upgrade
 if ! grep -Fq '"CAD"' <<< "$(call_as "$BORROWER_NAME" getLoanCurrency '(1 : nat)')"; then
@@ -183,6 +238,12 @@ if ! grep -Fq '"USD"' <<< "$(call_as "$LENDER_NAME" getLoanCurrency '(2 : nat)')
 fi
 assert_balance "$BORROWER_NAME" 0
 assert_balance "$LENDER_NAME" 0
+if ! grep -Fq 'decimals = 18' <<< "$(call_as "$BORROWER_NAME" getLoanCurrencyDefinition '(5 : nat)')"; then
+  echo "ETH precision snapshot did not survive canister upgrade" >&2; exit 1
+fi
+if ! grep -Fq 'decimals = 9' <<< "$(call_as "$LENDER_NAME" getLoanCurrencyDefinition '(6 : nat)')"; then
+  echo "Deleted custom currency's immutable snapshot did not survive canister upgrade" >&2; exit 1
+fi
 
 # Both parties can read the same historical events, outsider cannot.
 assert_ok "$(call_as "$BORROWER_NAME" getLoanEvents '(1 : nat, 0 : nat, 100 : nat)')"
