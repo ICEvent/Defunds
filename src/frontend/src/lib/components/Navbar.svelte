@@ -37,31 +37,34 @@
 			unsubscribe();
 		}
 	});
-	const handleAuthenticated = async (authClient) => {
-		const identity = authClient.getIdentity();
+  const localLoanTest = import.meta.env.DEV &&
+    import.meta.env.VITE_PERSONAL_LOAN_TEST_MODE === 'true';
+  const host = localLoanTest
+    ? import.meta.env.VITE_PERSONAL_LOAN_HOST
+    : HOST_MAINNET;
 
-		setAgent(
-			new HttpAgent({
-				identity,
-				host: HOST_MAINNET,
-			}),
-		);
-		globalStore.update((store) => {
-			return {
-				...store,
-				isAuthed: true,
-				principal: identity.getPrincipal(),
-			};
-		});
-	};
+  const handleAuthenticated = async (client) => {
+    const identity = client.getIdentity();
+    const agent = new HttpAgent({ identity, host });
+    if (localLoanTest) await agent.fetchRootKey();
+    setAgent(agent);
+    globalStore.update(store => ({
+      ...store,
+      isAuthed: true,
+      principal: identity.getPrincipal()
+    }));
+  };
 	const handleLogout = async () => {
 		if (authClient) {
 			await authClient.logout();
-			globalStore.set({
-				isAuthed: false,
-				principal: undefined,
-				agent: null,
-			});
+      const anonymousAgent = new HttpAgent({ host });
+      if (localLoanTest) await anonymousAgent.fetchRootKey();
+      setAgent(anonymousAgent);
+      globalStore.update(store => ({
+        ...store,
+        isAuthed: false,
+        principal: undefined
+      }));
 			// Optional: Redirect to home page
 			goto("/");
 		}
@@ -87,6 +90,7 @@
 	   </a>
 	   <div class="flex items-center space-x-4 text-sm font-medium">
 		   <a href="/funds" class="text-slate-300 hover:text-sky-300">Funds</a>
+		   <a href="/loans" class="text-slate-300 hover:text-sky-300">Loans</a>
 		   <!-- <a href="/ai-agent-fund" class="text-slate-300 hover:text-sky-300">AI Agent</a> -->
 		   {#if isAuthed}
 			   <button

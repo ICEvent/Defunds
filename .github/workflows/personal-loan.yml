@@ -1,0 +1,121 @@
+name: Personal Loan checks
+
+on:
+  push:
+    branches:
+      - "feat/personal-loan-ledger-20261105"
+  pull_request:
+    paths:
+      - "src/personal_loan/**"
+      - "src/frontend/**"
+      - "test/PersonalLoanLedger.test.mo"
+      - "test/personal-loan-date.test.mjs"
+      - "test/personal-loan-ui.test.mjs"
+      - "test/personal-loan-display.test.mjs"
+      - "test/personal-loan-e2e.sh"
+      - "test/personal-loan-legacy-upgrade.sh"
+      - "scripts/personal-loan-local.sh"
+      - "dfx.json"
+      - ".github/workflows/personal-loan.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  motoko:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install dfx 0.30.1
+        uses: dfinity/setup-dfx@e50c04f104ee4285ec010f10609483cf41e4d365
+        with:
+          dfx-version: '0.30.1'
+      - name: Disable legacy packtool for standalone base-only loan canister
+        # The repository's global mops packtool is only needed by other canisters.
+        # Mops v3 is not dfx-compatible. This CI-only copy uses built-in mo:base.
+        run: |
+          jq 'del(.defaults.build.packtool)' dfx.json > dfx.ci.json
+          mv dfx.ci.json dfx.json
+      - name: Validate canister build
+        run: dfx build personal_loan --check
+      - name: Run deterministic ledger fixtures
+        run: |
+          CACHE="$(dfx cache show)"
+          "$CACHE/moc" -r --package base "$CACHE/base" test/PersonalLoanLedger.test.mo
+      - name: Run isolated three-identity canister E2E
+        run: bash test/personal-loan-e2e.sh
+      - name: Verify existing v0.1 loans upgrade to per-loan currency model
+        run: bash test/personal-loan-legacy-upgrade.sh
+
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install dfx 0.30.1
+        uses: dfinity/setup-dfx@e50c04f104ee4285ec010f10609483cf41e4d365
+        with:
+          dfx-version: '0.30.1'
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Validate loan form date parsing
+        run: node --test test/personal-loan-date.test.mjs
+      - name: Validate confirmation modal and audit amount UI
+        run: node --test test/personal-loan-ui.test.mjs
+      - name: Validate full repayment and readable audit labels and notes
+        run: node --test test/personal-loan-display.test.mjs
+      - name: Generate local Candid declarations
+        run: |
+          jq 'del(.defaults.build.packtool)' dfx.json > dfx.ci.json
+          mv dfx.ci.json dfx.json
+          dfx start --clean --background
+          dfx canister create --all
+          # Custom external interfaces need their Candid build artifacts first.
+          dfx build icp_index --check
+          dfx build icrc1_ledger_canister --check
+          dfx generate backend
+          dfx generate governance
+          dfx generate personal_loan
+          dfx generate icp_index
+          dfx generate icrc1_ledger_canister
+          echo "VITE_PERSONAL_LOAN_CANISTER_ID=$(dfx canister id personal_loan)" >> "$GITHUB_ENV"
+      - name: Compile Personal Loan Svelte page in isolation
+        run: |
+          cd src/frontend
+          node --input-type=module <<'EOF'
+          import { compile } from 'svelte/compiler';
+          import { readFileSync } from 'node:fs';
+          const file = 'src/routes/loans/+page.svelte';
+          const result = compile(readFileSync(file, 'utf8'), { filename: file, generate: 'dom' });
+          for (const w of result.warnings) console.log('Svelte warning:', w.message);
+          console.log('Personal Loan Svelte compilation passed');
+          EOF
+      - name: Validate frontend build
+        run: |
+          cd src/frontend
+          npx svelte-kit sync
+          npx tsc --noEmit
+          npx vite build
+      - name: Stop local replica
+        if: always()
+        run: dfx stop || true
+
+  local_preview:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install dfx 0.30.1
+        uses: dfinity/setup-dfx@e50c04f104ee4285ec010f10609483cf41e4d365
+        with:
+          dfx-version: '0.30.1'
+      - name: Deploy isolated local II and verify /loans page
+        run: bash scripts/personal-loan-local.sh --smoke
+      - name: Stop test replica
+        if: always()
+        run: dfx stop || true

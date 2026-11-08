@@ -26,11 +26,12 @@ const config = {
         '/application/[id]',
         '/dao',
         '/donations',
-        '/profile'
+        '/profile',
+        '/loans'
       ]
     },
     alias: {
-			$declarations: './src/declarations'
+			$declarations: '../declarations'
 		}
   },
 };export default config;
