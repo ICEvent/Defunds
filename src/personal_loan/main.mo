@@ -330,18 +330,6 @@ persistent actor PersonalLoan {
     if (borrower == lender or (caller != borrower and caller != lender)) {
       return #err("Distinct borrower and lender required; creator must be a participant");
     };
-    switch (asset) {
-      case (null) {
-        if (not supportedCurrency(currency)) {
-          return #err("Use createPersonalLoanWithAsset for crypto or custom currencies");
-        };
-      };
-      case (?def) {
-        if (def.code != currency or not allowedDefinition(caller, def)) {
-          return #err("Currency definition is not in your catalog or has mismatched precision");
-        };
-      };
-    };
     if (initialAmountCents == 0 or not validRequestId(requestId) or not validNote(note)) {
       return #err("Invalid amount, request ID or note");
     };
@@ -362,6 +350,18 @@ persistent actor PersonalLoan {
         return #err("Request ID conflict");
       };
       case null {};
+    };
+    switch (asset) {
+      case (null) {
+        if (not supportedCurrency(currency)) {
+          return #err("Use createPersonalLoanWithAsset for crypto or custom currencies");
+        };
+      };
+      case (?def) {
+        if (def.code != currency or not allowedDefinition(caller, def)) {
+          return #err("Currency definition is not in your catalog or has mismatched precision");
+        };
+      };
     };
     let now = Time.now();
     let loan : Loan = {
