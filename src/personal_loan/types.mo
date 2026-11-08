@@ -99,6 +99,15 @@ module {
     createdAt : Int;
   };
 
+  // Immutable per-loan snapshot; separately persisted to retain the v0.1
+  // Loan/Entry/Balance record shapes and safe legacy upgrades.
+  public type CurrencyDefinition = {
+    code : Text; // 2-12 uppercase ASCII letters/digits; token/network alias
+    symbol : Text;
+    decimals : Nat; // 0..18; immutable for each created loan
+    kind : Text; // "fiat" | "crypto"
+  };
+
   public type Balance = {
     totalBorrowedCents : Nat;
     totalRepaidCents : Nat;
