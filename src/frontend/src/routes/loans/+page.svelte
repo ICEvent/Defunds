@@ -6,7 +6,7 @@
   import { parseLoanCalendarDay, LOAN_DATE_PARSER_VERSION } from '$lib/utils/personal-loan-date';
   import LoanConfirmationModal from '$lib/components/LoanConfirmationModal.svelte';
   import { currencyDefinition, currencyCatalog, getBuiltinCurrency,
-    parseAmountMinor, formatAmountMinor } from '$lib/utils/personal-loan-currency.js';
+    assetReference, builtinAssetReference, parseAmountMinor, formatAmountMinor } from '$lib/utils/personal-loan-currency.js';
   import {
     loanEventLabel,
     loanEventNote,
@@ -29,12 +29,17 @@
   let loans = [];
   let loanCurrencies = {};
   let loanCurrencyDefinitions = {};
+  let loanAssetReferences = {};
   let customCurrencies = [];
+  let myAssetReferences = {};
   let currencyManagerOpen = false;
   let currencyCode = '';
   let currencySymbol = '';
   let currencyDecimals = '8';
   let currencyKind = 'crypto';
+  let currencyNetwork = 'solana:mainnet';
+  let currencyStandard = 'native';
+  let currencyAddress = '';
   let editingCurrency = false;
   let currencyDeleteCode = '';
   let currencyFormError = '';
@@ -43,6 +48,7 @@
   let selected = null;
   let selectedCurrency = 'CAD';
   let selectedCurrencyDefinition = getBuiltinCurrency('CAD');
+  let selectedAssetReference = builtinAssetReference('CAD');
   let entries = [];
   let auditEvents = [];
   let fundingCancellationRequests = [];
@@ -77,6 +83,7 @@
   $: supportedCurrencies = currencyCatalog(customCurrencies);
   $: proposedCurrencyInfo =
     supportedCurrencies.find(c => c.code === loanCurrency) || getBuiltinCurrency('CAD');
+  $: proposedAssetReference = builtinAssetReference(loanCurrency) || myAssetReferences[loanCurrency] || null;
 
   const money = (raw, def = getBuiltinCurrency('CAD')) =>
     formatAmountMinor(raw, typeof def === 'string' ? getBuiltinCurrency(def) || getBuiltinCurrency('CAD') : def);
@@ -108,9 +115,13 @@
       actor = await connectPersonalLoan(me);
       if (!actor) throw new Error('Personal Loan session unavailable. Please sign in again.');
       const requestedActor = actor;
-      const owned = unwrap(await requestedActor.getMyCurrencies());
+      const [owned, references] = await Promise.all([
+        requestedActor.getMyCurrencies(),
+        requestedActor.getMyAssetReferences()
+      ]);
       if (actor !== requestedActor) return;
-      customCurrencies = owned ?? [];
+      customCurrencies = unwrap(owned) ?? [];
+      myAssetReferences = Object.fromEntries(unwrap(references) ?? []);
       await refresh();
     } catch (e) {
       error = e?.message ?? String(e);
@@ -135,7 +146,9 @@
         loans = [];
         loanCurrencies = {};
         loanCurrencyDefinitions = {};
+        loanAssetReferences = {};
         customCurrencies = [];
+        myAssetReferences = {};
         selected = null;
         entries = [];
         auditEvents = [];
@@ -144,6 +157,7 @@
         detailLoading = false;
         selectedCurrency = 'CAD';
         selectedCurrencyDefinition = getBuiltinCurrency('CAD');
+        selectedAssetReference = builtinAssetReference('CAD');
         currencyManagerOpen = false;
         currencyFormError = '';
         currencyFormNotice = '';
@@ -168,11 +182,13 @@
     const next = await requestedActor.getMyLoans();
     const pairs = await Promise.all(next.map(async loan => [
       String(loan.id),
-      unwrap(await requestedActor.getLoanCurrencyDefinition(loan.id))
+      unwrap(await requestedActor.getLoanCurrencyDefinition(loan.id)),
+      unwrap(await requestedActor.getLoanAssetReference(loan.id))
     ]));
     if (!isCurrent()) return; // another loan/identity was selected meanwhile
 
-    loanCurrencyDefinitions = Object.fromEntries(pairs);
+    loanCurrencyDefinitions = Object.fromEntries(pairs.map(([id, def]) => [id, def]));
+    loanAssetReferences = Object.fromEntries(pairs.map(([id, , ref]) => [id, ref]));
     loanCurrencies = Object.fromEntries(pairs.map(([id, def]) => [id, def.code]));
     loans = next;
     if (requestedLoanId == null) return;
@@ -186,12 +202,14 @@
       balance = null;
       selectedCurrency = 'CAD';
       selectedCurrencyDefinition = getBuiltinCurrency('CAD');
+      selectedAssetReference = builtinAssetReference('CAD');
       detailLoading = false;
       return;
     }
 
     selected = currentLoan;
     selectedCurrencyDefinition = loanCurrencyDefinitions[String(currentLoan.id)] || getBuiltinCurrency('CAD');
+    selectedAssetReference = loanAssetReferences[String(currentLoan.id)] || builtinAssetReference(selectedCurrencyDefinition.code);
     selectedCurrency = selectedCurrencyDefinition.code;
     const [entryResult, balanceResult, eventResult, cancellationResult] = await Promise.all([
       requestedActor.getLoanEntries(requestedLoanId),
@@ -233,6 +251,7 @@
     ++refreshVersion; // invalidate any already-running detail query
     selected = loan;
     selectedCurrencyDefinition = loanCurrencyDefinitions[String(loan.id)] || getBuiltinCurrency('CAD');
+    selectedAssetReference = loanAssetReferences[String(loan.id)] || builtinAssetReference(selectedCurrencyDefinition.code);
     selectedCurrency = selectedCurrencyDefinition.code;
     entries = [];
     auditEvents = [];
@@ -329,6 +348,10 @@
     currencySymbol = def.symbol;
     currencyDecimals = String(def.decimals);
     currencyKind = def.kind;
+    const ref = myAssetReferences[def.code] || { network: '', standard: 'native', address: '' };
+    currencyNetwork = ref.network;
+    currencyStandard = ref.standard;
+    currencyAddress = ref.address;
     currencyDeleteCode = '';
     currencyFormError = '';
     currencyFormNotice = '';
@@ -340,6 +363,9 @@
     currencySymbol = '';
     currencyDecimals = '8';
     currencyKind = 'crypto';
+    currencyNetwork = 'solana:mainnet';
+    currencyStandard = 'native';
+    currencyAddress = '';
     editingCurrency = false;
     currencyDeleteCode = '';
     currencyFormError = '';
@@ -370,15 +396,23 @@
       if (getBuiltinCurrency(def.code)) {
         throw new Error('Built-in currencies cannot be edited. Use a unique custom code.');
       }
+      const ref = assetReference({
+        network: def.kind === 'fiat' ? '' : currencyNetwork,
+        standard: def.kind === 'fiat' ? 'fiat' : currencyStandard,
+        address: def.kind === 'fiat' ? '' : currencyAddress
+      }, def);
       const requestedActor = actor;
       currencyFormNotice = 'Saving ' + def.code + '…';
-      unwrap(await requestedActor.upsertMyCurrency({ ...def, decimals: BigInt(def.decimals) }));
+      unwrap(await requestedActor.upsertMyCurrencyWithReference({ ...def, decimals: BigInt(def.decimals) }, ref));
       saved = true;
       if (actor !== requestedActor) throw new Error('Login changed during saving.');
       currencyFormNotice = 'Saved ' + def.code + '. Refreshing list…';
-      const owned = unwrap(await requestedActor.getMyCurrencies());
+      const [owned, refs] = await Promise.all([
+        requestedActor.getMyCurrencies(), requestedActor.getMyAssetReferences()
+      ]);
       if (actor !== requestedActor) throw new Error('Login changed during refresh.');
-      customCurrencies = owned ?? [];
+      customCurrencies = unwrap(owned) ?? [];
+      myAssetReferences = Object.fromEntries(unwrap(refs) ?? []);
       loanCurrency = def.code;
       resetCurrencyForm();
       currencyFormNotice = def.code + ' saved. Existing loan precision is unchanged.';
@@ -409,9 +443,12 @@
       unwrap(await requestedActor.deleteMyCurrency(code));
       removed = true;
       if (actor !== requestedActor) throw new Error('Login changed during deletion.');
-      const owned = unwrap(await requestedActor.getMyCurrencies());
+      const [owned, refs] = await Promise.all([
+        requestedActor.getMyCurrencies(), requestedActor.getMyAssetReferences()
+      ]);
       if (actor !== requestedActor) throw new Error('Login changed during refresh.');
-      customCurrencies = owned ?? [];
+      customCurrencies = unwrap(owned) ?? [];
+      myAssetReferences = Object.fromEntries(unwrap(refs) ?? []);
       if (loanCurrency === code) loanCurrency = 'CAD';
       resetCurrencyForm();
       currencyFormNotice = code + ' removed. Existing loans are unchanged.';
@@ -432,11 +469,16 @@
       const borrower = ownRole === 'borrower' ? me : other;
       const lender = ownRole === 'lender' ? me : other;
       const info = currencyDefinition(proposedCurrencyInfo);
+      const reference = proposedAssetReference;
+      if (!reference || reference.standard === 'unverified') {
+        throw new Error('Save the asset network and contract/ledger ID before proposing this currency');
+      }
+      const ref = assetReference(reference, info);
       const amount = parseAmountMinor(originalAmount, info.decimals);
       const due = dueDate ? [effectiveDay(dueDate, true)] : [];
-      const payload = [textId(borrower), textId(lender), String(amount), info.code, info.symbol, String(info.decimals), info.kind, dueDate, loanNote].join('|');
-      return actor.createPersonalLoanWithAsset(
-        borrower, lender, amount, { ...info, decimals: BigInt(info.decimals) },
+      const payload = [textId(borrower), textId(lender), String(amount), info.code, info.symbol, String(info.decimals), info.kind, ref.network, ref.standard, ref.address, dueDate, loanNote].join('|');
+      return actor.createPersonalLoanWithReference(
+        borrower, lender, amount, { ...info, decimals: BigInt(info.decimals) }, ref,
         due, loanNote, stableRequestId('create', payload)
       );
     }, async (loanId) => {
