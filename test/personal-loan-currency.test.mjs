@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   BUILTIN_CURRENCIES, currencyDefinition, currencyCatalog,
-  getBuiltinCurrency, parseAmountMinor, formatAmountMinor
+  getBuiltinCurrency, parseAmountMinor, formatAmountMinor,
+  assetReference, builtinAssetReference
 } from '../src/frontend/src/lib/utils/personal-loan-currency.js';
 import { getRepaymentCents, parseLoanAmountCents } from '../src/frontend/src/lib/utils/personal-loan-display.js';
 
@@ -62,4 +63,57 @@ test('manually maintained catalog includes presets and user definitions without 
   assert.equal(result.length, 11);
   assert.equal(result.find(x => x.code === 'BTC').decimals, 8);
   assert.equal(result.find(x => x.code === 'SOL').decimals, 9);
+});
+
+test('asset identity is network and token contract, not ticker', () => {
+  assert.deepEqual(builtinAssetReference('BTC'), {network:'bitcoin:mainnet', standard:'native', address:''});
+  assert.deepEqual(builtinAssetReference('ETH'), {network:'eip155:1', standard:'native', address:''});
+  assert.deepEqual(builtinAssetReference('CKBTC'), {
+    network:'ic:mainnet', standard:'icrc', address:'mxzaz-hqaaa-aaaar-qaada-cai'
+  });
+  assert.deepEqual(builtinAssetReference('CKETH'), {
+    network:'ic:mainnet', standard:'icrc', address:'ss2fx-dyaaa-aaaar-qacoq-cai'
+  });
+  const usdc = currencyDefinition({code:'USDC',symbol:'$',decimals:6,kind:'crypto'});
+  const address = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
+  assert.deepEqual(assetReference({network:'eip155:1',standard:'erc20',address}, usdc),
+    {network:'eip155:1',standard:'erc20',address});
+  assert.notDeepEqual(
+    assetReference({network:'eip155:1',standard:'erc20',address}, usdc),
+    assetReference({network:'eip155:137',standard:'erc20',address}, usdc)
+  );
+});
+
+test('reject missing/invalid contract address or chain ID for ERC-20 and ICRC', () => {
+  const erc = {code:'USDT',symbol:'',decimals:6,kind:'crypto'};
+  const ref = {network:'eip155:1',standard:'erc20',address:'0x' + 'ab'.repeat(20)};
+  assert.deepEqual(assetReference(ref, erc), ref);
+  for (const reference of [
+    {...ref,address:''},
+    {...ref,address:'0x1234'},
+    {...ref,address:'0x'+'0'.repeat(40)},
+    {...ref,address:'0x'+'GG'.repeat(20)},
+    {...ref,network:'solana:mainnet'},
+    {...ref,network:'eip155:abc'},
+    {...ref,network:'eip155:0'}
+  ]) {
+    assert.throws(() => assetReference(reference, erc));
+  }
+  assert.deepEqual(
+    assetReference({network:'ic:mainnet',standard:'icrc',address:'mxzaz-hqaaa-aaaar-qaada-cai'}, erc),
+    {network:'ic:mainnet',standard:'icrc',address:'mxzaz-hqaaa-aaaar-qaada-cai'}
+  );
+  assert.throws(() => assetReference({...ref,standard:'icrc'}, erc));
+});
+
+test('native assets have a network but deliberately no token contract', () => {
+  const sol = {code:'SOL',symbol:'SOL',decimals:9,kind:'crypto'};
+  assert.deepEqual(assetReference({network:'solana:mainnet',standard:'native',address:''}, sol),
+    {network:'solana:mainnet',standard:'native',address:''});
+  assert.throws(() => assetReference({network:'solana:mainnet',standard:'native',address:'0xdead'}, sol));
+  assert.throws(() => assetReference({network:'',standard:'native',address:''}, sol));
+  assert.deepEqual(assetReference({network:'',standard:'fiat',address:''},
+    {code:'CAD',symbol:'$',decimals:2,kind:'fiat'}), {network:'',standard:'fiat',address:''});
+  assert.throws(() => assetReference({network:'eip155:1',standard:'native',address:''},
+    {code:'CAD',symbol:'$',decimals:2,kind:'fiat'}));
 });
