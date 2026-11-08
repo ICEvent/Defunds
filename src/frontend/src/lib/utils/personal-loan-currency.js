@@ -52,7 +52,7 @@ export function parseAmountMinor(value, decimals) {
   const input = String(value ?? '').trim();
   // Reject exponents, signs, commas, very large values and truncated fractions.
   if (!/^(0|[1-9][0-9]{0,23})(?:\.([0-9]+))?$/.test(input)) {
-    throw new Error('Enter a positive plain-decimal amount');
+    throw new Error(`Enter a positive plain-decimal amount with up to ${decimals} decimal places`);
   }
   const [whole, fraction = ''] = input.split('.');
   if (fraction.length > decimals) {
