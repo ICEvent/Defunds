@@ -639,10 +639,14 @@
           <label class="mb-2 block text-xs text-slate-400" for="loan-currency">Currency</label>
           <select id="loan-currency" bind:value={loanCurrency}
             class="mb-3 w-full rounded bg-slate-800 p-2">
-            {#each supportedCurrencies as code}
-              <option value={code}>{code}</option>
+            {#each supportedCurrencies as asset (asset.code)}
+              <option value={asset.code}>{asset.code} · {asset.kind} · {Number(asset.decimals)} decimals</option>
             {/each}
           </select>
+          <p class="mb-3 text-xs text-slate-400" data-testid="loan-currency-precision">
+            {proposedCurrencyInfo.code} uses {Number(proposedCurrencyInfo.decimals)} decimal places.
+            This page records debt but never transfers crypto or converts currencies.
+          </p>
           <label class="mb-2 block text-xs text-slate-400" for="loan-amount">Initial amount ({loanCurrency})</label>
           <input id="loan-amount" bind:value={originalAmount} placeholder="10000.00" class="mb-3 w-full rounded bg-slate-800 p-2" />
           <label class="mb-2 block text-xs text-slate-400" for="loan-due-date">Due date (optional)</label>
@@ -658,6 +662,78 @@
           <button disabled={busy || !counterparty || !originalAmount}
             on:click={createLoan}
             class="w-full rounded bg-sky-600 p-2 font-semibold hover:bg-sky-500 disabled:opacity-40">Propose loan</button>
+        </section>
+
+        <section class="rounded-xl border border-slate-700 bg-slate-900 p-4" data-testid="loan-currency-manager">
+          <div class="flex items-center justify-between gap-2">
+            <h2 class="font-semibold">My currencies</h2>
+            <button type="button" class="rounded border border-slate-600 px-3 py-2 text-xs"
+              on:click={() => currencyManagerOpen = !currencyManagerOpen}>
+              {currencyManagerOpen ? 'Hide manager' : 'Manage currencies'}
+            </button>
+          </div>
+          <p class="mt-2 text-xs text-slate-400">
+            Add, edit or remove personal currency definitions. Presets cannot be changed.
+            Existing loans retain their original currency, decimals and symbol.
+          </p>
+          {#if currencyManagerOpen}
+            <div class="mt-4 space-y-3">
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label for="custom-code" class="text-xs text-slate-400">Code</label>
+                  <input id="custom-code" type="text" maxlength="12" disabled={editingCurrency}
+                    bind:value={currencyCode} placeholder="SOL" class="mt-1 w-full rounded bg-slate-800 p-2 text-sm disabled:opacity-50" />
+                </div>
+                <div>
+                  <label for="custom-symbol" class="text-xs text-slate-400">Symbol (optional)</label>
+                  <input id="custom-symbol" type="text" maxlength="12" bind:value={currencySymbol}
+                    placeholder="SOL" class="mt-1 w-full rounded bg-slate-800 p-2 text-sm" />
+                </div>
+                <div>
+                  <label for="custom-kind" class="text-xs text-slate-400">Type</label>
+                  <select id="custom-kind" bind:value={currencyKind} class="mt-1 w-full rounded bg-slate-800 p-2 text-sm">
+                    <option value="fiat">Fiat</option><option value="crypto">Crypto</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="custom-decimals" class="text-xs text-slate-400">Decimal places (0–18)</label>
+                  <input id="custom-decimals" type="number" min="0" max="18" step="1" bind:value={currencyDecimals}
+                    class="mt-1 w-full rounded bg-slate-800 p-2 text-sm" />
+                </div>
+              </div>
+              <p class="text-xs text-amber-200">For tokens, verify contract and network decimals before adding. Codes alone do not identify a chain or contract.</p>
+              <div class="flex flex-wrap gap-2">
+                <button disabled={busy || !currencyCode} on:click={saveCustomCurrency}
+                  class="rounded bg-sky-700 px-3 py-2 text-sm disabled:opacity-50">Save currency</button>
+                <button type="button" on:click={resetCurrencyForm}
+                  class="rounded border border-slate-600 px-3 py-2 text-sm">Clear</button>
+              </div>
+              {#if customCurrencies.length === 0}
+                <p class="text-xs text-slate-400">No custom currencies yet. BTC, ETH, ICP, ckBTC and ckETH are already included.</p>
+              {/if}
+              {#each customCurrencies as custom (custom.code)}
+                <div class="flex items-center justify-between gap-2 border-t border-slate-700 pt-3">
+                  <div class="min-w-0 text-sm">
+                    <span class="font-medium">{custom.code}</span>
+                    <span class="text-xs text-slate-400"> · {custom.kind} · {Number(custom.decimals)} decimals</span>
+                  </div>
+                  <div class="flex gap-2">
+                    <button type="button" on:click={() => editCustomCurrency(custom)}
+                      class="rounded border border-slate-600 px-2 py-1 text-xs">Edit</button>
+                    {#if currencyDeleteCode === custom.code}
+                      <button disabled={busy} on:click={() => removeCustomCurrency(custom.code)}
+                        class="rounded border border-red-500 px-2 py-1 text-xs text-red-200">Confirm remove</button>
+                      <button type="button" on:click={() => currencyDeleteCode = ''}
+                        class="rounded border border-slate-600 px-2 py-1 text-xs">Cancel</button>
+                    {:else}
+                      <button type="button" on:click={() => currencyDeleteCode = custom.code}
+                        class="rounded border border-slate-600 px-2 py-1 text-xs">Remove</button>
+                    {/if}
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
         </section>
       </div>
 
@@ -707,7 +783,7 @@
               </p>
             {/if}
             <div class="mt-4 break-all text-xs text-slate-400">
-              <div>Currency: {selectedCurrency} (fixed for this loan; no FX conversion)</div>
+              <div data-testid="loan-immutable-currency">Currency: {selectedCurrency} · {selectedCurrencyDefinition.kind} · {Number(selectedCurrencyDefinition.decimals)} decimals (fixed for this loan; no FX conversion)</div>
               <div class="mt-1">Borrower: {textId(selected.borrower)}</div>
               <div class="mt-1">Lender: {textId(selected.lender)}</div>
               <div class="mt-1">Due date: {selected.dueAt?.length ? formatLoanUtcDate(selected.dueAt[0]) : 'Not set'}</div>
@@ -790,7 +866,7 @@
                   </button>
                 {:else}
                   <p class="mb-4 text-xs text-slate-400">
-                    Record an off-chain repayment. The other participant must confirm it before the debt balance decreases.
+                    Record a repayment (bank, cash or crypto). The other participant must confirm it before the debt decreases.
                   </p>
                   <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/60 p-3 text-sm" for="repay-full">
                     <input id="repay-full" type="checkbox" bind:checked={repaymentFull} class="h-4 w-4 accent-emerald-600" />
@@ -812,9 +888,9 @@
                   <label class="mt-3 block text-xs text-slate-400" for="payment-date">Repayment date</label>
                   <input id="payment-date" type="date" bind:value={paymentDate}
                     class="mt-1 w-full rounded bg-slate-800 p-2" />
-                  <label class="mt-3 block text-xs text-slate-400" for="payment-method">Off-chain payment method</label>
+                  <label class="mt-3 block text-xs text-slate-400" for="payment-method">Reported repayment method (not verified)</label>
                   <select id="payment-method" bind:value={paymentMethod} class="mt-1 w-full rounded bg-slate-800 p-2">
-                    <option>Interac e-Transfer</option><option>Bank Transfer</option><option>Cash</option><option>Cheque</option><option>Other</option>
+                    <option>Interac e-Transfer</option><option>Bank Transfer</option><option>Cash</option><option>Cheque</option><option>On-chain transfer (self-reported)</option><option>Other</option>
                   </select>
                   <label class="mt-3 block text-xs text-slate-400" for="repayment-note">Repayment note (optional)</label>
                   <textarea id="repayment-note" maxlength="500" bind:value={repaymentNote}
@@ -928,7 +1004,7 @@
                       <label class="block text-xs text-slate-400" for="funding-method-{entry.id}">Funds delivery method</label>
                       <select id="funding-method-{entry.id}" bind:value={fundingMethod}
                         class="w-full rounded bg-slate-800 p-2 text-sm">
-                        <option>Interac e-Transfer</option><option>Bank Transfer</option><option>Cash</option><option>Cheque</option><option>Other</option>
+                        <option>Interac e-Transfer</option><option>Bank Transfer</option><option>Cash</option><option>Cheque</option><option>On-chain transfer (self-reported)</option><option>Other</option>
                       </select>
                       <button disabled={busy || !fundingDate} on:click={() => declareFunding(entry)}
                         class="rounded bg-sky-700 px-3 py-2 text-xs disabled:opacity-40">
