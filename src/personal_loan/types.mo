@@ -108,6 +108,17 @@ module {
     kind : Text; // "fiat" | "crypto"
   };
 
+  // Asset identity is versioned separately from CurrencyDefinition so that
+  // stable Loan / Entry / earlier catalog records remain upgrade-compatible.
+  // standard = "fiat" | "native" | "erc20" | "icrc".
+  // address = token contract on EVM, ledger canister Principal for ICRC,
+  // and empty for native or fiat. Network identifies the blockchain/chain.
+  public type AssetReference = {
+    network : Text;
+    standard : Text;
+    address : Text;
+  };
+
   public type Balance = {
     totalBorrowedCents : Nat;
     totalRepaidCents : Nat;
