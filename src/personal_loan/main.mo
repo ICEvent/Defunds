@@ -132,6 +132,22 @@ persistent actor PersonalLoan {
     true;
   };
 
+  private func validEvmNetwork(network : Text) : Bool {
+    if (not Text.startsWith(network, #text "eip155:")) return false;
+    let count = Text.size(network);
+    if (count < 8 or count > 18) return false;
+    var i : Nat = 0;
+    for (ch in Text.toIter(network)) {
+      if (i >= 7) {
+        let n = Char.toNat32(ch);
+        if (n < 48 or n > 57) return false;
+        if (i == 7 and n == 48) return false; // no zero/leading-zero chain ID
+      };
+      i += 1;
+    };
+    true;
+  };
+
   private func isHex(ch : Char) : Bool {
     let n = Char.toNat32(ch);
     (n >= 48 and n <= 57) or (n >= 65 and n <= 70) or (n >= 97 and n <= 102);
@@ -166,8 +182,7 @@ persistent actor PersonalLoan {
     switch (ref.standard) {
       case ("native") { ref.address == "" };
       case ("erc20") {
-        Text.startsWith(ref.network, #text "eip155:") and
-        Text.size(ref.network) > 7 and validEvmAddress(ref.address)
+        validEvmNetwork(ref.network) and validEvmAddress(ref.address)
       };
       case ("icrc") {
         (ref.network == "ic:mainnet" or ref.network == "ic:local") and
