@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - "feat/personal-loan-ledger-20261105"
+      - "feat/personal-loan-currency-catalog-crypto-20261108"
   pull_request:
     paths:
       - "src/personal_loan/**"
@@ -12,6 +13,7 @@ on:
       - "test/personal-loan-date.test.mjs"
       - "test/personal-loan-ui.test.mjs"
       - "test/personal-loan-display.test.mjs"
+      - "test/personal-loan-currency.test.mjs"
       - "test/personal-loan-e2e.sh"
       - "test/personal-loan-legacy-upgrade.sh"
       - "scripts/personal-loan-local.sh"
@@ -68,6 +70,8 @@ jobs:
         run: node --test test/personal-loan-ui.test.mjs
       - name: Validate full repayment and readable audit labels and notes
         run: node --test test/personal-loan-display.test.mjs
+      - name: Validate custom currency and crypto precision
+        run: node --test test/personal-loan-currency.test.mjs
       - name: Generate local Candid declarations
         run: |
           jq 'del(.defaults.build.packtool)' dfx.json > dfx.ci.json
