@@ -247,7 +247,9 @@ USDC_OTHER='record { network = "eip155:137"; standard = "erc20"; address = "0xA0
 USDC_BAD='record { network = "eip155:1"; standard = "erc20"; address = "0x123" }'
 USDC_BAD_CHAIN='record { network = "eip155:abc"; standard = "erc20"; address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" }'
 USDC_ZERO_CHAIN='record { network = "eip155:0"; standard = "erc20"; address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" }'
+USDC_ZERO_CONTRACT='record { network = "eip155:1"; standard = "erc20"; address = "0x0000000000000000000000000000000000000000" }'
 assert_err "$(call_as "$BORROWER_NAME" upsertMyCurrencyWithReference "($USDC_DEF, $USDC_BAD)")"
+assert_err "$(call_as "$BORROWER_NAME" upsertMyCurrencyWithReference "($USDC_DEF, $USDC_ZERO_CONTRACT)")"
 assert_err "$(call_as "$BORROWER_NAME" upsertMyCurrencyWithReference "($USDC_DEF, $USDC_BAD_CHAIN)")"
 assert_err "$(call_as "$BORROWER_NAME" upsertMyCurrencyWithReference "($USDC_DEF, $USDC_ZERO_CHAIN)")"
 assert_ok "$(call_as "$BORROWER_NAME" upsertMyCurrencyWithReference "($USDC_DEF, $USDC_REF)")"
