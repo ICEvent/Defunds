@@ -26,6 +26,10 @@ persistent actor PersonalLoan {
   var loanCurrencyDefinitions : [(Nat, Types.CurrencyDefinition)] = [];
   // Each authenticated caller owns a distinct editable currency catalog.
   var userCurrencies : [(Principal, Types.CurrencyDefinition)] = [];
+  // Blockchain identity is not a ticker. It is stored in separate persistent
+  // mappings so existing CurrencyDefinition stable shapes are unchanged.
+  var userAssetReferences : [(Principal, Text, Types.AssetReference)] = [];
+  var loanAssetReferences : [(Nat, Types.AssetReference)] = [];
   var entries : [Entry] = [];
   var fundingCancellationRequests : [Types.FundingCancellationRequest] = [];
   var events : [Types.LoanEvent] = [];
@@ -100,6 +104,105 @@ persistent actor PersonalLoan {
       case ("CKBTC") ?makeCurrency("CKBTC", "ckBTC", 8, "crypto");
       case ("CKETH") ?makeCurrency("CKETH", "ckETH", 18, "crypto");
       case (_) null;
+    };
+  };
+
+  private func assetRef(network : Text, standard : Text, address : Text) : Types.AssetReference {
+    { network; standard; address };
+  };
+
+  private func builtinAssetReference(code : Text) : ?Types.AssetReference {
+    switch (code) {
+      case ("CAD" or "USD" or "EUR" or "GBP" or "CNY") ?assetRef("", "fiat", "");
+      case ("BTC") ?assetRef("bitcoin:mainnet", "native", "");
+      case ("ETH") ?assetRef("eip155:1", "native", "");
+      case ("ICP") ?assetRef("ic:mainnet", "icrc", "ryjl3-tyaaa-aaaaa-aaaba-cai");
+      case ("CKBTC") ?assetRef("ic:mainnet", "icrc", "mxzaz-hqaaa-aaaar-qaada-cai");
+      case ("CKETH") ?assetRef("ic:mainnet", "icrc", "ss2fx-dyaaa-aaaar-qacoq-cai");
+      case (_) null;
+    };
+  };
+
+  private func validNetwork(network : Text) : Bool {
+    if (Text.size(network) < 4 or Text.size(network) > 64) return false;
+    for (ch in Text.toIter(network)) {
+      let n = Char.toNat32(ch);
+      if (not ((n >= 97 and n <= 122) or (n >= 48 and n <= 57) or n == 45 or n == 58)) return false;
+    };
+    true;
+  };
+
+  private func isHex(ch : Char) : Bool {
+    let n = Char.toNat32(ch);
+    (n >= 48 and n <= 57) or (n >= 65 and n <= 70) or (n >= 97 and n <= 102);
+  };
+
+  private func validEvmAddress(address : Text) : Bool {
+    if (Text.size(address) != 42 or not Text.startsWith(address, #text "0x")) return false;
+    var i : Nat = 0;
+    for (ch in Text.toIter(address)) {
+      if (i >= 2 and not isHex(ch)) return false;
+      i += 1;
+    };
+    true;
+  };
+
+  private func validLedgerId(address : Text) : Bool {
+    // Metadata-only structural validation. An actual transfer integration
+    // must validate Principal checksum and query the ledger's ICRC metadata.
+    if (Text.size(address) < 10 or Text.size(address) > 64) return false;
+    for (ch in Text.toIter(address)) {
+      let n = Char.toNat32(ch);
+      if (not ((n >= 97 and n <= 122) or (n >= 50 and n <= 55) or n == 45)) return false;
+    };
+    true;
+  };
+
+  private func validAssetReference(def : Types.CurrencyDefinition, ref : Types.AssetReference) : Bool {
+    if (def.kind == "fiat") {
+      return ref.standard == "fiat" and ref.network == "" and ref.address == "";
+    };
+    if (not validNetwork(ref.network)) return false;
+    switch (ref.standard) {
+      case ("native") { ref.address == "" };
+      case ("erc20") {
+        Text.startsWith(ref.network, #text "eip155:") and
+        Text.size(ref.network) > 7 and validEvmAddress(ref.address)
+      };
+      case ("icrc") {
+        (ref.network == "ic:mainnet" or ref.network == "ic:local") and
+        validLedgerId(ref.address)
+      };
+      case (_) false;
+    };
+  };
+
+  private func sameAssetReference(a : Types.AssetReference, b : Types.AssetReference) : Bool {
+    a.network == b.network and a.standard == b.standard and a.address == b.address;
+  };
+
+  private func userAssetReference(owner : Principal, code : Text) : ?Types.AssetReference {
+    switch (Array.find<(Principal, Text, Types.AssetReference)>(
+      userAssetReferences, func(entry) { entry.0 == owner and entry.1 == code }
+    )) {
+      case (?( _, _, ref )) ?ref;
+      case null null;
+    };
+  };
+
+  private func referenceOf(loanId : Nat) : Types.AssetReference {
+    switch (Array.find<(Nat, Types.AssetReference)>(
+      loanAssetReferences, func(entry) { entry.0 == loanId }
+    )) {
+      case (?( _, ref )) ref;
+      case null {
+        // Legacy custom crypto loans may predate on-chain asset identity:
+        // clearly mark as unverified, rather than inventing a contract ID.
+        switch (builtinAssetReference(currencyOf(loanId))) {
+          case (?ref) ref;
+          case null assetRef("", "unverified", "");
+        };
+      };
     };
   };
 
@@ -195,11 +298,67 @@ persistent actor PersonalLoan {
     #ok(());
   };
 
+  // New callers must save the definition AND network/contract atomically.
+  // Older upsertMyCurrency is retained for fiat/legacy clients only.
+  public shared ({ caller }) func upsertMyCurrencyWithReference(
+    def : Types.CurrencyDefinition, ref : Types.AssetReference
+  ) : async R<()> {
+    if (Principal.isAnonymous(caller)) return #err("Authentication required");
+    if (not validDefinition(def) or not validAssetReference(def, ref))
+      return #err("Invalid currency or network/contract/ledger reference");
+    switch (builtinCurrency(def.code)) {
+      case (?_) return #err("Built-in currency definitions cannot be edited");
+      case null {};
+    };
+    switch (ownedCurrency(caller, def.code)) {
+      case null {
+        let count = Array.filter<(Principal, Types.CurrencyDefinition)>(
+          userCurrencies, func(pair) { pair.0 == caller }
+        ).size();
+        if (count >= 40) return #err("Maximum 40 custom currencies per user");
+        userCurrencies := Array.append(userCurrencies, [(caller, def)]);
+      };
+      case (?_) {
+        userCurrencies := Array.map<(Principal, Types.CurrencyDefinition), (Principal, Types.CurrencyDefinition)>(
+          userCurrencies, func(pair) {
+            if (pair.0 == caller and pair.1.code == def.code) (caller, def) else pair
+          }
+        );
+      };
+    };
+    userAssetReferences := Array.append<(Principal, Text, Types.AssetReference)>(
+      Array.filter<(Principal, Text, Types.AssetReference)>(
+        userAssetReferences, func(entry) { not (entry.0 == caller and entry.1 == def.code) }
+      ),
+      [(caller, def.code, ref)]
+    );
+    #ok(());
+  };
+
+  public shared query ({ caller }) func getMyAssetReferences() : async R<[(Text, Types.AssetReference)]> {
+    if (Principal.isAnonymous(caller)) return #err("Authentication required");
+    #ok(Array.map<(Principal, Text, Types.AssetReference), (Text, Types.AssetReference)>(
+      Array.filter<(Principal, Text, Types.AssetReference)>(
+        userAssetReferences, func(entry) { entry.0 == caller }
+      ), func(entry) { (entry.1, entry.2) }
+    ));
+  };
+
+  public shared query ({ caller }) func getLoanAssetReference(loanId : Nat) : async R<Types.AssetReference> {
+    switch (requireParticipant(loanId, caller)) {
+      case (#err(e)) #err(e);
+      case (#ok(_)) #ok(referenceOf(loanId));
+    };
+  };
+
   public shared ({ caller }) func deleteMyCurrency(code : Text) : async R<()> {
     if (Principal.isAnonymous(caller)) return #err("Authentication required");
     if (ownedCurrency(caller, code) == null) return #err("Custom currency not found");
     userCurrencies := Array.filter<(Principal, Types.CurrencyDefinition)>(
       userCurrencies, func(pair) { not (pair.0 == caller and pair.1.code == code) }
+    );
+    userAssetReferences := Array.filter<(Principal, Text, Types.AssetReference)>(
+      userAssetReferences, func(entry) { not (entry.0 == caller and entry.1 == code) }
     );
     #ok(());
   };
