@@ -295,6 +295,11 @@ persistent actor PersonalLoan {
         );
       };
     };
+    // Legacy definition-only updates clear an old network binding to avoid
+    // silently reusing a stale contract or ledger identity.
+    userAssetReferences := Array.filter<(Principal, Text, Types.AssetReference)>(
+      userAssetReferences, func(entry) { not (entry.0 == caller and entry.1 == def.code) }
+    );
     #ok(());
   };
 
@@ -443,7 +448,7 @@ persistent actor PersonalLoan {
     note : Text,
     requestId : Text,
   ) : async R<Nat> {
-    createLoan(caller, borrower, lender, initialAmountCents, "CAD", null, dueAt, note, requestId);
+    createLoan(caller, borrower, lender, initialAmountCents, "CAD", null, null, dueAt, note, requestId);
   };
 
   public shared ({ caller }) func createPersonalLoanWithCurrency(
@@ -455,7 +460,7 @@ persistent actor PersonalLoan {
     note : Text,
     requestId : Text,
   ) : async R<Nat> {
-    createLoan(caller, borrower, lender, initialAmountMinor, currency, null, dueAt, note, requestId);
+    createLoan(caller, borrower, lender, initialAmountMinor, currency, null, null, dueAt, note, requestId);
   };
 
   // The new API accepts a caller-approved catalog definition. The exact
@@ -469,7 +474,20 @@ persistent actor PersonalLoan {
     note : Text,
     requestId : Text,
   ) : async R<Nat> {
-    createLoan(caller, borrower, lender, amountMinor, asset.code, ?asset, dueAt, note, requestId);
+    createLoan(caller, borrower, lender, amountMinor, asset.code, ?asset, null, dueAt, note, requestId);
+  };
+
+  public shared ({ caller }) func createPersonalLoanWithReference(
+    borrower : Principal,
+    lender : Principal,
+    amountMinor : Nat,
+    asset : Types.CurrencyDefinition,
+    reference : Types.AssetReference,
+    dueAt : ?Int,
+    note : Text,
+    requestId : Text,
+  ) : async R<Nat> {
+    createLoan(caller, borrower, lender, amountMinor, asset.code, ?asset, ?reference, dueAt, note, requestId);
   };
 
   private func createLoan(
@@ -479,6 +497,7 @@ persistent actor PersonalLoan {
     initialAmountCents : Nat,
     currency : Text,
     asset : ?Types.CurrencyDefinition,
+    reference : ?Types.AssetReference,
     dueAt : ?Int,
     note : Text,
     requestId : Text,
@@ -503,6 +522,10 @@ persistent actor PersonalLoan {
             (switch (asset) {
               case null true;
               case (?def) sameDefinition(definitionOf(existing.id), def);
+            }) and
+            (switch (reference) {
+              case null true;
+              case (?ref) sameAssetReference(referenceOf(existing.id), ref);
             })) {
           return #ok(existing.id);
         };
@@ -519,6 +542,42 @@ persistent actor PersonalLoan {
       case (?def) {
         if (def.code != currency or not allowedDefinition(caller, def)) {
           return #err("Currency definition is not in your catalog or has mismatched precision");
+        };
+        if (def.kind == "crypto" and builtinCurrency(def.code) == null and reference == null)
+          return #err("Custom crypto requires network and contract/ledger reference");
+      };
+    };
+    let snapshot = switch (asset) {
+      case (?def) def;
+      case null switch (builtinCurrency(currency)) {
+        case (?builtin) builtin;
+        case null makeCurrency(currency, "", 2, "fiat");
+      };
+    };
+    let snapshotReference = switch (reference) {
+      case (?ref) {
+        if (not validAssetReference(snapshot, ref)) return #err("Invalid network/contract/ledger reference");
+        switch (builtinAssetReference(currency)) {
+          case (?preset) {
+            if (not sameAssetReference(preset, ref)) return #err("Built-in asset identity is fixed");
+          };
+          case null switch (userAssetReference(caller, currency)) {
+            case (?registered) {
+              if (not sameAssetReference(registered, ref))
+                return #err("Asset identity must match your saved currency catalog");
+            };
+            case null return #err("Save the currency network and contract first");
+          };
+        };
+        ref;
+      };
+      case null {
+        switch (builtinAssetReference(currency)) {
+          case (?builtin) builtin;
+          case null {
+            if (snapshot.kind == "crypto") return #err("Custom crypto requires a registered blockchain asset");
+            assetRef("", "fiat", "");
+          };
         };
       };
     };
@@ -541,15 +600,11 @@ persistent actor PersonalLoan {
     nextLoanId += 1;
     loans := Array.append<Loan>(loans, [loan]);
     loanCurrencies := Array.append<(Nat, Text)>(loanCurrencies, [(loan.id, currency)]);
-    let snapshot = switch (asset) {
-      case (?def) def;
-      case null switch (builtinCurrency(currency)) {
-        case (?builtin) builtin;
-        case null makeCurrency(currency, "", 2, "fiat");
-      };
-    };
     loanCurrencyDefinitions := Array.append<(Nat, Types.CurrencyDefinition)>(
       loanCurrencyDefinitions, [(loan.id, snapshot)]
+    );
+    loanAssetReferences := Array.append<(Nat, Types.AssetReference)>(
+      loanAssetReferences, [(loan.id, snapshotReference)]
     );
     appendEvent(loan.id, null, #loanProposed, caller);
     #ok(loan.id);
