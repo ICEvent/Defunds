@@ -209,14 +209,22 @@ fi
 
 SOL_DEF='record { code = "SOL"; symbol = "SOL"; decimals = 9 : nat; kind = "crypto" }'
 SOL_EDIT='record { code = "SOL"; symbol = "SOL"; decimals = 6 : nat; kind = "crypto" }'
-assert_ok "$(call_as "$BORROWER_NAME" upsertMyCurrency "($SOL_DEF)")"
+SOL_REF='record { network = "solana:mainnet"; standard = "native"; address = "" }'
+assert_ok "$(call_as "$BORROWER_NAME" upsertMyCurrencyWithReference "($SOL_DEF, $SOL_REF)")"
+if ! grep -Fq '"solana:mainnet"' <<< "$(call_as "$BORROWER_NAME" getMyAssetReferences '()')"; then
+  echo "Borrower's SOL native chain reference was not saved" >&2; exit 1
+fi
+if grep -Fq '"solana:mainnet"' <<< "$(call_as "$LENDER_NAME" getMyAssetReferences '()')"; then
+  echo "Private SOL asset reference leaked" >&2; exit 1
+fi
 if grep -Fq 'code = "SOL"' <<< "$(call_as "$LENDER_NAME" getMyCurrencies '()')"; then
   echo "Borrower currency catalog leaked into lender account" >&2; exit 1
 fi
-SOL_LOAN="(principal \"$BORROWER\", principal \"$LENDER\", 1 : nat, $SOL_DEF, null, \"One lamport\", \"sol-1\")"
-assert_ok "$(call_as "$BORROWER_NAME" createPersonalLoanWithAsset "$SOL_LOAN")" # Loan 6
-assert_err "$(call_as "$LENDER_NAME" createPersonalLoanWithAsset "$SOL_LOAN")" # not lender's catalog
-assert_ok "$(call_as "$BORROWER_NAME" upsertMyCurrency "($SOL_EDIT)")"
+SOL_LOAN="(principal \"$BORROWER\", principal \"$LENDER\", 1 : nat, $SOL_DEF, $SOL_REF, null, \"One lamport\", \"sol-1\")"
+assert_err "$(call_as "$BORROWER_NAME" createPersonalLoanWithAsset "(principal \"$BORROWER\", principal \"$LENDER\", 1 : nat, $SOL_DEF, null, \"No asset ref\", \"sol-unbound\")")"
+assert_ok "$(call_as "$BORROWER_NAME" createPersonalLoanWithReference "$SOL_LOAN")" # Loan 6
+assert_err "$(call_as "$LENDER_NAME" createPersonalLoanWithReference "$SOL_LOAN")" # not lender's catalog
+assert_ok "$(call_as "$BORROWER_NAME" upsertMyCurrencyWithReference "($SOL_EDIT, $SOL_REF)")"
 if ! grep -Fq 'decimals = 9' <<< "$(call_as "$LENDER_NAME" getLoanCurrencyDefinition '(6 : nat)')"; then
   echo "Editing owner catalog mutated existing loan precision" >&2; exit 1
 fi
@@ -224,9 +232,40 @@ assert_err "$(call_as "$BORROWER_NAME" createPersonalLoanWithAsset "(principal \
 assert_ok "$(call_as "$BORROWER_NAME" deleteMyCurrency '("SOL")')"
 # A response can be lost. Retrying the exact original request must still
 # return the same loan even if its catalog entry was subsequently deleted.
-assert_ok "$(call_as "$BORROWER_NAME" createPersonalLoanWithAsset "$SOL_LOAN")"
+assert_ok "$(call_as "$BORROWER_NAME" createPersonalLoanWithReference "$SOL_LOAN")"
 if ! grep -Fq 'decimals = 9' <<< "$(call_as "$LENDER_NAME" getLoanCurrencyDefinition '(6 : nat)')"; then
   echo "Deleting custom currency corrupted original loan definition" >&2; exit 1
+fi
+if ! grep -Fq '"solana:mainnet"' <<< "$(call_as "$LENDER_NAME" getLoanAssetReference '(6 : nat)')"; then
+  echo "SOL Loan lost immutable native chain identity" >&2; exit 1
+fi
+
+# ERC-20: even the same ticker must be tied to its network and contract.
+USDC_DEF='record { code = "USDC"; symbol = "$"; decimals = 6 : nat; kind = "crypto" }'
+USDC_REF='record { network = "eip155:1"; standard = "erc20"; address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" }'
+USDC_OTHER='record { network = "eip155:137"; standard = "erc20"; address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" }'
+USDC_BAD='record { network = "eip155:1"; standard = "erc20"; address = "0x123" }'
+assert_err "$(call_as "$BORROWER_NAME" upsertMyCurrencyWithReference "($USDC_DEF, $USDC_BAD)")"
+assert_ok "$(call_as "$BORROWER_NAME" upsertMyCurrencyWithReference "($USDC_DEF, $USDC_REF)")"
+assert_err "$(call_as "$BORROWER_NAME" createPersonalLoanWithReference "(principal \"$BORROWER\", principal \"$LENDER\", 1 : nat, $USDC_DEF, $USDC_OTHER, null, \"Wrong chain\", \"usdc-wrong\")")"
+USDC_LOAN="(principal \"$BORROWER\", principal \"$LENDER\", 1 : nat, $USDC_DEF, $USDC_REF, null, \"USDC on Ethereum\", \"usdc-eth-1\")"
+assert_ok "$(call_as "$BORROWER_NAME" createPersonalLoanWithReference "$USDC_LOAN")" # Loan 7
+assert_err "$(call_as "$OUTSIDER_NAME" getLoanAssetReference '(7 : nat)')"
+if ! grep -Fq '"eip155:1"' <<< "$(call_as "$LENDER_NAME" getLoanAssetReference '(7 : nat)')"; then
+  echo "Counterparty cannot inspect USDC blockchain network" >&2; exit 1
+fi
+if ! grep -Fq '"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"' <<< "$(call_as "$LENDER_NAME" getLoanAssetReference '(7 : nat)')"; then
+  echo "Counterparty cannot inspect USDC contract address" >&2; exit 1
+fi
+# User catalog changes apply only to FUTURE loans, never the agreed asset.
+assert_ok "$(call_as "$BORROWER_NAME" upsertMyCurrencyWithReference "($USDC_DEF, $USDC_OTHER)")"
+if ! grep -Fq '"eip155:1"' <<< "$(call_as "$LENDER_NAME" getLoanAssetReference '(7 : nat)')"; then
+  echo "Editing contract network corrupted immutable USDC loan identity" >&2; exit 1
+fi
+assert_ok "$(call_as "$BORROWER_NAME" deleteMyCurrency '("USDC")')"
+assert_ok "$(call_as "$BORROWER_NAME" createPersonalLoanWithReference "$USDC_LOAN")" # replay after deletion
+if ! grep -Fq '"eip155:1"' <<< "$(call_as "$LENDER_NAME" getLoanAssetReference '(7 : nat)')"; then
+  echo "Deleting custom asset corrupted the loan contract reference" >&2; exit 1
 fi
 assert_err "$(call_as "$BORROWER_NAME" upsertMyCurrency '(record { code = "BTC"; symbol = "fake"; decimals = 2 : nat; kind = "fiat" })')"
 assert_err "$(call_as "$BORROWER_NAME" upsertMyCurrency '(record { code = "INVALID CODE"; symbol = ""; decimals = 8 : nat; kind = "crypto" })')"
@@ -246,6 +285,12 @@ if ! grep -Fq 'decimals = 18' <<< "$(call_as "$BORROWER_NAME" getLoanCurrencyDef
 fi
 if ! grep -Fq 'decimals = 9' <<< "$(call_as "$LENDER_NAME" getLoanCurrencyDefinition '(6 : nat)')"; then
   echo "Deleted custom currency's immutable snapshot did not survive canister upgrade" >&2; exit 1
+fi
+if ! grep -Fq '"eip155:1"' <<< "$(call_as "$BORROWER_NAME" getLoanAssetReference '(7 : nat)')"; then
+  echo "USDC loan contract network did not survive canister upgrade" >&2; exit 1
+fi
+if ! grep -Fq '"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"' <<< "$(call_as "$LENDER_NAME" getLoanAssetReference '(7 : nat)')"; then
+  echo "USDC contract address did not survive canister upgrade" >&2; exit 1
 fi
 
 # Both parties can read the same historical events, outsider cannot.
