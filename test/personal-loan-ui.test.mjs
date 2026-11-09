@@ -23,9 +23,9 @@ test('loan actions open a branded confirmation modal, never the native browser c
 test('audit timeline shows each associated entry amount and the loan currency', () => {
   assert.match(page, /entries\.find\(entry => entry\.id === event\.entryId\[0\]\)/);
   assert.match(page, /loan-audit-amount/);
-  assert.match(page, /Amount: \{money\(eventAmount, selectedCurrency\)\}/);
+  assert.match(page, /Amount: \{money\(eventAmount, selectedCurrencyDefinition\)\}/);
   assert.match(page, /selected\.originalAmountCents/);
-  assert.match(page, /getLoanCurrency\(loan\.id\)/);
+  assert.match(page, /getLoanCurrencyDefinition\(loan\.id\)/);
 });
 
 test('loan description appears in loan details and list preview', () => {
@@ -48,7 +48,7 @@ test('repay full outstanding requests an up-to-date balance before submission', 
   assert.match(page, /id="repay-full" type="checkbox" bind:checked=\{repaymentFull\}/);
   assert.match(page, /data-testid="full-repayment-amount"/);
   assert.match(page, /await actor\.getBalance\(loanId\)/);
-  assert.match(page, /getRepaymentCents\(full, latest\.outstandingCents, input\)/);
+  assert.match(page, /getRepaymentCents\(full, latest\.outstandingCents, input, currentLoanDecimals\(\)\)/);
 });
 
 test('audit shows friendly event names and original notes with each entry', () => {
@@ -118,4 +118,45 @@ test('review: accepted undelivered funding is cancellable only with bilateral ap
 test('review: agreed loan due date is always formatted in UTC', () => {
   assert.match(page, /formatLoanUtcDate\(selected\.dueAt\[0\]\)/);
   assert.doesNotMatch(page, /selected\.dueAt\[0\].*toLocaleDateString/);
+});
+
+test('manually managed fiat and crypto assets use immutable loan precision', () => {
+  assert.match(page, /data-testid="loan-currency-manager"/);
+  assert.match(page, /getMyCurrencies\(\)/);
+  assert.match(page, /upsertMyCurrencyWithReference\(/);
+  assert.match(page, /deleteMyCurrency\(/);
+  assert.match(page, /createPersonalLoanWithReference\(/);
+  assert.match(page, /parseAmountMinor\(originalAmount, info\.decimals\)/);
+  assert.match(page, /parseAmountMinor\(entryAmount, currentLoanDecimals\(\)\)/);
+  assert.match(page, /data-testid="loan-immutable-currency"/);
+  assert.match(page, /loanCurrencyDefinitions\[String\(loan\.id\)\]/);
+  assert.match(page, /On-chain transfer \(self-reported\)/);
+});
+
+test('currency save gives immediate inline feedback instead of only page-top errors', () => {
+  assert.match(page, /data-testid="loan-save-currency"/);
+  assert.match(page, /on:click=\{saveCustomCurrency\}/);
+  assert.match(page, /currencyFormNotice = 'Saving '/);
+  assert.match(page, /currencyFormNotice = 'Saved '/);
+  assert.match(page, /currencyFormError = \(saved/);
+  assert.match(page, /data-testid="loan-currency-save-error"/);
+  assert.match(page, /data-testid="loan-currency-save-status"/);
+  assert.match(page, /role="alert"/);
+  assert.match(page, /aria-live="polite"/);
+  assert.match(page, /currencySaving \? 'Saving currency/);
+  assert.match(page, /unwrap\(await requestedActor\.upsertMyCurrencyWithReference\(/);
+  assert.match(page, /customCurrencies = unwrap\(owned\) \?\? \[\]/);
+});
+
+test('new loans and parties show immutable asset network and contract identity', () => {
+  assert.match(page, /getMyAssetReferences\(\)/);
+  assert.match(page, /getLoanAssetReference\(loan\.id\)/);
+  assert.match(page, /assetReference\(/);
+  assert.match(page, /data-testid="currency-blockchain-reference-fields"/);
+  assert.match(page, /id="custom-network"/);
+  assert.match(page, /id="custom-contract"/);
+  assert.match(page, /data-testid="loan-immutable-asset-reference"/);
+  assert.match(page, /data-testid="loan-proposed-asset-reference"/);
+  assert.match(page, /getBuiltinCurrency\(/);
+  assert.match(page, /Contract \/ Ledger ID/);
 });

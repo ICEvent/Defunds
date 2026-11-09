@@ -5,10 +5,11 @@
   import { connectPersonalLoan, loanCanisterConfigured } from '$lib/api/personal-loan';
   import { parseLoanCalendarDay, LOAN_DATE_PARSER_VERSION } from '$lib/utils/personal-loan-date';
   import LoanConfirmationModal from '$lib/components/LoanConfirmationModal.svelte';
+  import { currencyDefinition, currencyCatalog, getBuiltinCurrency,
+    assetReference, builtinAssetReference, parseAmountMinor, formatAmountMinor } from '$lib/utils/personal-loan-currency.js';
   import {
     loanEventLabel,
     loanEventNote,
-    parseLoanAmountCents,
     getRepaymentCents,
     formatEntryPaymentDate,
     formatLoanUtcDate,
@@ -27,8 +28,27 @@
   let confirmation = null;
   let loans = [];
   let loanCurrencies = {};
+  let loanCurrencyDefinitions = {};
+  let loanAssetReferences = {};
+  let customCurrencies = [];
+  let myAssetReferences = {};
+  let currencyManagerOpen = false;
+  let currencyCode = '';
+  let currencySymbol = '';
+  let currencyDecimals = '8';
+  let currencyKind = 'crypto';
+  let currencyNetwork = 'solana:mainnet';
+  let currencyStandard = 'native';
+  let currencyAddress = '';
+  let editingCurrency = false;
+  let currencyDeleteCode = '';
+  let currencyFormError = '';
+  let currencyFormNotice = '';
+  let currencySaving = false;
   let selected = null;
   let selectedCurrency = 'CAD';
+  let selectedCurrencyDefinition = getBuiltinCurrency('CAD');
+  let selectedAssetReference = builtinAssetReference('CAD');
   let entries = [];
   let auditEvents = [];
   let fundingCancellationRequests = [];
@@ -60,18 +80,14 @@
   const textId = (value) => value?.toText?.() ?? String(value ?? '');
   const isMe = (value) => Boolean(me && textId(value) === textId(me));
 
-  const currencySymbols = { CAD: '$', USD: '$', EUR: '€', GBP: '£', CNY: '¥' };
-  const supportedCurrencies = ['CAD', 'USD', 'EUR', 'GBP', 'CNY'];
+  $: supportedCurrencies = currencyCatalog(customCurrencies);
+  $: proposedCurrencyInfo =
+    supportedCurrencies.find(c => c.code === loanCurrency) || getBuiltinCurrency('CAD');
+  $: proposedAssetReference = builtinAssetReference(loanCurrency) || myAssetReferences[loanCurrency] || null;
 
-  function money(raw, currency = 'CAD') {
-    const cents = BigInt(raw ?? 0);
-    const whole = cents / 100n;
-    const fractional = (cents % 100n).toString().padStart(2, '0');
-    return currency + ' ' + (currencySymbols[currency] || '') +
-      whole.toLocaleString('en-CA') + '.' + fractional;
-  }
-
-  const parseCents = parseLoanAmountCents;
+  const money = (raw, def = getBuiltinCurrency('CAD')) =>
+    formatAmountMinor(raw, typeof def === 'string' ? getBuiltinCurrency(def) || getBuiltinCurrency('CAD') : def);
+  const currentLoanDecimals = () => Number(selectedCurrencyDefinition?.decimals ?? 2);
 
   function unwrap(value) {
     if (value && 'err' in value) throw new Error(value.err);
@@ -98,6 +114,14 @@
     try {
       actor = await connectPersonalLoan(me);
       if (!actor) throw new Error('Personal Loan session unavailable. Please sign in again.');
+      const requestedActor = actor;
+      const [owned, references] = await Promise.all([
+        requestedActor.getMyCurrencies(),
+        requestedActor.getMyAssetReferences()
+      ]);
+      if (actor !== requestedActor) return;
+      customCurrencies = unwrap(owned) ?? [];
+      myAssetReferences = Object.fromEntries(unwrap(references) ?? []);
       await refresh();
     } catch (e) {
       error = e?.message ?? String(e);
@@ -121,6 +145,10 @@
         actor = null;
         loans = [];
         loanCurrencies = {};
+        loanCurrencyDefinitions = {};
+        loanAssetReferences = {};
+        customCurrencies = [];
+        myAssetReferences = {};
         selected = null;
         entries = [];
         auditEvents = [];
@@ -128,6 +156,11 @@
         balance = null;
         detailLoading = false;
         selectedCurrency = 'CAD';
+        selectedCurrencyDefinition = getBuiltinCurrency('CAD');
+        selectedAssetReference = builtinAssetReference('CAD');
+        currencyManagerOpen = false;
+        currencyFormError = '';
+        currencyFormNotice = '';
       } else if (changed) {
         actor = null;
         void initialize();
@@ -149,11 +182,14 @@
     const next = await requestedActor.getMyLoans();
     const pairs = await Promise.all(next.map(async loan => [
       String(loan.id),
-      unwrap(await requestedActor.getLoanCurrency(loan.id))
+      unwrap(await requestedActor.getLoanCurrencyDefinition(loan.id)),
+      unwrap(await requestedActor.getLoanAssetReference(loan.id))
     ]));
     if (!isCurrent()) return; // another loan/identity was selected meanwhile
 
-    loanCurrencies = Object.fromEntries(pairs);
+    loanCurrencyDefinitions = Object.fromEntries(pairs.map(([id, def]) => [id, def]));
+    loanAssetReferences = Object.fromEntries(pairs.map(([id, , ref]) => [id, ref]));
+    loanCurrencies = Object.fromEntries(pairs.map(([id, def]) => [id, def.code]));
     loans = next;
     if (requestedLoanId == null) return;
 
@@ -165,12 +201,16 @@
       fundingCancellationRequests = [];
       balance = null;
       selectedCurrency = 'CAD';
+      selectedCurrencyDefinition = getBuiltinCurrency('CAD');
+      selectedAssetReference = builtinAssetReference('CAD');
       detailLoading = false;
       return;
     }
 
     selected = currentLoan;
-    selectedCurrency = loanCurrencies[String(currentLoan.id)] || 'CAD';
+    selectedCurrencyDefinition = loanCurrencyDefinitions[String(currentLoan.id)] || getBuiltinCurrency('CAD');
+    selectedAssetReference = loanAssetReferences[String(currentLoan.id)] || builtinAssetReference(selectedCurrencyDefinition.code);
+    selectedCurrency = selectedCurrencyDefinition.code;
     const [entryResult, balanceResult, eventResult, cancellationResult] = await Promise.all([
       requestedActor.getLoanEntries(requestedLoanId),
       requestedActor.getBalance(requestedLoanId),
@@ -210,7 +250,9 @@
   async function selectLoan(loan) {
     ++refreshVersion; // invalidate any already-running detail query
     selected = loan;
-    selectedCurrency = loanCurrencies[String(loan.id)] || 'CAD';
+    selectedCurrencyDefinition = loanCurrencyDefinitions[String(loan.id)] || getBuiltinCurrency('CAD');
+    selectedAssetReference = loanAssetReferences[String(loan.id)] || builtinAssetReference(selectedCurrencyDefinition.code);
+    selectedCurrency = selectedCurrencyDefinition.code;
     entries = [];
     auditEvents = [];
     fundingCancellationRequests = [];
@@ -238,7 +280,7 @@
     confirmation = {
       title,
       description,
-      amount: options.amountCents == null ? '' : money(options.amountCents, selectedCurrency),
+      amount: options.amountCents == null ? '' : money(options.amountCents, selectedCurrencyDefinition),
       reference: options.reference || ('Loan #' + String(selected.id)),
       paymentDate: options.paymentDate || '',
       paymentMethod: options.paymentMethod || '',
@@ -300,16 +342,144 @@
     }
   }
 
+  function editCustomCurrency(def) {
+    currencyManagerOpen = true;
+    currencyCode = def.code;
+    currencySymbol = def.symbol;
+    currencyDecimals = String(def.decimals);
+    currencyKind = def.kind;
+    const ref = myAssetReferences[def.code] || { network: '', standard: 'native', address: '' };
+    currencyNetwork = ref.network;
+    currencyStandard = ref.standard;
+    currencyAddress = ref.address;
+    currencyDeleteCode = '';
+    currencyFormError = '';
+    currencyFormNotice = '';
+    editingCurrency = true;
+  }
+
+  function resetCurrencyForm() {
+    currencyCode = '';
+    currencySymbol = '';
+    currencyDecimals = '8';
+    currencyKind = 'crypto';
+    currencyNetwork = 'solana:mainnet';
+    currencyStandard = 'native';
+    currencyAddress = '';
+    editingCurrency = false;
+    currencyDeleteCode = '';
+    currencyFormError = '';
+    currencyFormNotice = '';
+  }
+
+  async function saveCustomCurrency() {
+    currencyFormError = '';
+    currencyFormNotice = '';
+    if (!actor) {
+      currencyFormError = 'Personal Loan is not connected. Please log in again.';
+      return;
+    }
+    if (busy || currencySaving) {
+      currencyFormError = 'Another operation is in progress.';
+      return;
+    }
+    let saved = false;
+    currencySaving = true;
+    try {
+      if (currencyDecimals === '' || currencyDecimals == null) {
+        throw new Error('Enter decimal places between 0 and 18');
+      }
+      const def = currencyDefinition({
+        code: currencyCode, symbol: currencySymbol,
+        decimals: currencyDecimals, kind: currencyKind
+      });
+      if (getBuiltinCurrency(def.code)) {
+        throw new Error('Built-in currencies cannot be edited. Use a unique custom code.');
+      }
+      const ref = assetReference({
+        network: def.kind === 'fiat' ? '' : currencyNetwork,
+        standard: def.kind === 'fiat' ? 'fiat' : currencyStandard,
+        address: def.kind === 'fiat' ? '' : currencyAddress
+      }, def);
+      const requestedActor = actor;
+      currencyFormNotice = 'Saving ' + def.code + '…';
+      unwrap(await requestedActor.upsertMyCurrencyWithReference({ ...def, decimals: BigInt(def.decimals) }, ref));
+      saved = true;
+      if (actor !== requestedActor) throw new Error('Login changed during saving.');
+      currencyFormNotice = 'Saved ' + def.code + '. Refreshing list…';
+      const [owned, refs] = await Promise.all([
+        requestedActor.getMyCurrencies(), requestedActor.getMyAssetReferences()
+      ]);
+      if (actor !== requestedActor) throw new Error('Login changed during refresh.');
+      customCurrencies = unwrap(owned) ?? [];
+      myAssetReferences = Object.fromEntries(unwrap(refs) ?? []);
+      loanCurrency = def.code;
+      resetCurrencyForm();
+      currencyFormNotice = def.code + ' saved. Existing loan precision is unchanged.';
+      notice = 'Currency saved for your account.';
+    } catch (e) {
+      currencyFormError = (saved
+        ? 'Saved successfully but unable to refresh the list: '
+        : 'Save failed: ') + (e?.message ?? String(e));
+      currencyFormNotice = '';
+    } finally {
+      currencySaving = false;
+    }
+  }
+
+  async function removeCustomCurrency(code) {
+    currencyFormError = '';
+    currencyFormNotice = '';
+    if (!actor) {
+      currencyFormError = 'Personal Loan is not connected. Please log in again.';
+      return;
+    }
+    if (busy || currencySaving || currencyDeleteCode !== code) return;
+    let removed = false;
+    currencySaving = true;
+    try {
+      const requestedActor = actor;
+      currencyFormNotice = 'Removing ' + code + '…';
+      unwrap(await requestedActor.deleteMyCurrency(code));
+      removed = true;
+      if (actor !== requestedActor) throw new Error('Login changed during deletion.');
+      const [owned, refs] = await Promise.all([
+        requestedActor.getMyCurrencies(), requestedActor.getMyAssetReferences()
+      ]);
+      if (actor !== requestedActor) throw new Error('Login changed during refresh.');
+      customCurrencies = unwrap(owned) ?? [];
+      myAssetReferences = Object.fromEntries(unwrap(refs) ?? []);
+      if (loanCurrency === code) loanCurrency = 'CAD';
+      resetCurrencyForm();
+      currencyFormNotice = code + ' removed. Existing loans are unchanged.';
+      notice = 'Currency removed from your catalog.';
+    } catch (e) {
+      currencyFormError = (removed
+        ? 'Removed successfully but unable to refresh the list: '
+        : 'Remove failed: ') + (e?.message ?? String(e));
+      currencyFormNotice = '';
+    } finally {
+      currencySaving = false;
+    }
+  }
+
   function createLoan() {
     return run(() => {
       const other = Principal.fromText(counterparty.trim());
       const borrower = ownRole === 'borrower' ? me : other;
       const lender = ownRole === 'lender' ? me : other;
-      const amount = parseCents(originalAmount);
+      const info = currencyDefinition(proposedCurrencyInfo);
+      const reference = proposedAssetReference;
+      if (!reference || reference.standard === 'unverified') {
+        throw new Error('Save the asset network and contract/ledger ID before proposing this currency');
+      }
+      const ref = assetReference(reference, info);
+      const amount = parseAmountMinor(originalAmount, info.decimals);
       const due = dueDate ? [effectiveDay(dueDate, true)] : [];
-      const payload = [textId(borrower), textId(lender), String(amount), loanCurrency, dueDate, loanNote].join('|');
-      return actor.createPersonalLoanWithCurrency(
-        borrower, lender, amount, loanCurrency, due, loanNote, stableRequestId('create', payload)
+      const payload = [textId(borrower), textId(lender), String(amount), info.code, info.symbol, String(info.decimals), info.kind, ref.network, ref.standard, ref.address, dueDate, loanNote].join('|');
+      return actor.createPersonalLoanWithReference(
+        borrower, lender, amount, { ...info, decimals: BigInt(info.decimals) }, ref,
+        due, loanNote, stableRequestId('create', payload)
       );
     }, async (loanId) => {
       delete pendingIds.create;
@@ -326,7 +496,7 @@
     if (!selected || !isMe(selected.borrower) || transactionMode !== 'borrow') return;
     const loanId = selected.id;
     return run(() => {
-      const amount = parseCents(entryAmount);
+      const amount = parseAmountMinor(entryAmount, currentLoanDecimals());
       const payload = [String(loanId), String(amount), borrowingNote].join('|');
       return actor.requestAdditionalBorrowing(loanId, amount, borrowingNote, stableRequestId('additional', payload));
     }, () => {
@@ -348,7 +518,7 @@
       // Confirmed outstanding may have changed since the page last refreshed.
       // Query it again immediately before creating the repayment record.
       const latest = unwrap(await actor.getBalance(loanId));
-      const amount = getRepaymentCents(full, latest.outstandingCents, input);
+      const amount = getRepaymentCents(full, latest.outstandingCents, input, currentLoanDecimals());
       const at = effectiveDay(date);
       const payload = [String(loanId), String(amount), date, method, note].join('|');
       return actor.submitRepayment(
@@ -405,7 +575,7 @@
     const method = fundingMethod;
     confirmLoanAction(
       'Declare funds delivered',
-      'Only proceed after you have actually transferred this amount to the borrower. Defunds records your declaration but does not transfer or verify bank funds.',
+      'Only proceed after delivery (bank, cash or crypto). Defunds records your declaration but does not transfer funds, verify blockchain settlements or check transaction hashes.',
       () => actor.declareFunding(loanId, entryId, effectiveDay(date), method),
       {
         amountCents: entry.amountCents,
@@ -533,7 +703,7 @@
                 <span class="font-medium">Loan #{String(loan.id)}</span>
                 <span class="text-xs text-sky-300">{variant(loan.status)}</span>
               </div>
-              <div class="mt-1 text-sm text-slate-300">{money(loan.originalAmountCents, loanCurrencies[String(loan.id)] || 'CAD')} agreed</div>
+              <div class="mt-1 text-sm text-slate-300">{money(loan.originalAmountCents, loanCurrencyDefinitions[String(loan.id)] || getBuiltinCurrency('CAD'))} agreed</div>
               {#if loan.note}
                 <div class="mt-2 truncate text-xs text-slate-400" title={loan.note}>{loan.note}</div>
               {/if}
@@ -552,10 +722,30 @@
           <label class="mb-2 block text-xs text-slate-400" for="loan-currency">Currency</label>
           <select id="loan-currency" bind:value={loanCurrency}
             class="mb-3 w-full rounded bg-slate-800 p-2">
-            {#each supportedCurrencies as code}
-              <option value={code}>{code}</option>
+            {#each supportedCurrencies as asset (asset.code)}
+              <option value={asset.code}>{asset.code} · {asset.kind} · {Number(asset.decimals)} decimals</option>
             {/each}
           </select>
+          <p class="mb-3 text-xs text-slate-400" data-testid="loan-currency-precision">
+            {proposedCurrencyInfo.code} uses {Number(proposedCurrencyInfo.decimals)} decimal places.
+            This page records debt but never transfers crypto or converts currencies.
+          </p>
+          {#if proposedCurrencyInfo.kind === 'crypto'}
+            <div class="mb-3 rounded border border-slate-700 bg-slate-800/40 p-2 text-xs"
+              data-testid="loan-proposed-asset-reference">
+              {#if proposedAssetReference}
+                <div>Network: {proposedAssetReference.network}</div>
+                <div>Standard: {proposedAssetReference.standard}</div>
+                {#if proposedAssetReference.address}
+                  <div class="mt-1 break-all">Contract / Ledger ID: {proposedAssetReference.address}</div>
+                {:else}
+                  <div class="mt-1 text-slate-400">Native asset; no token contract address</div>
+                {/if}
+              {:else}
+                <div class="text-amber-200">This custom crypto has no saved network/contract. Update it in My currencies before proposing a loan.</div>
+              {/if}
+            </div>
+          {/if}
           <label class="mb-2 block text-xs text-slate-400" for="loan-amount">Initial amount ({loanCurrency})</label>
           <input id="loan-amount" bind:value={originalAmount} placeholder="10000.00" class="mb-3 w-full rounded bg-slate-800 p-2" />
           <label class="mb-2 block text-xs text-slate-400" for="loan-due-date">Due date (optional)</label>
@@ -571,6 +761,128 @@
           <button disabled={busy || !counterparty || !originalAmount}
             on:click={createLoan}
             class="w-full rounded bg-sky-600 p-2 font-semibold hover:bg-sky-500 disabled:opacity-40">Propose loan</button>
+        </section>
+
+        <section class="rounded-xl border border-slate-700 bg-slate-900 p-4" data-testid="loan-currency-manager">
+          <div class="flex items-center justify-between gap-2">
+            <h2 class="font-semibold">My currencies</h2>
+            <button type="button" class="rounded border border-slate-600 px-3 py-2 text-xs"
+              on:click={() => currencyManagerOpen = !currencyManagerOpen}>
+              {currencyManagerOpen ? 'Hide manager' : 'Manage currencies'}
+            </button>
+          </div>
+          <p class="mt-2 text-xs text-slate-400">
+            Add, edit or remove personal currency definitions. Presets cannot be changed.
+            Existing loans retain their original currency, decimals and symbol.
+          </p>
+          {#if currencyManagerOpen}
+            <div class="mt-4 space-y-3">
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label for="custom-code" class="text-xs text-slate-400">Code</label>
+                  <input id="custom-code" type="text" maxlength="12" disabled={editingCurrency}
+                    bind:value={currencyCode} placeholder="SOL" class="mt-1 w-full rounded bg-slate-800 p-2 text-sm disabled:opacity-50" />
+                </div>
+                <div>
+                  <label for="custom-symbol" class="text-xs text-slate-400">Symbol (optional)</label>
+                  <input id="custom-symbol" type="text" maxlength="12" bind:value={currencySymbol}
+                    placeholder="SOL" class="mt-1 w-full rounded bg-slate-800 p-2 text-sm" />
+                </div>
+                <div>
+                  <label for="custom-kind" class="text-xs text-slate-400">Type</label>
+                  <select id="custom-kind" bind:value={currencyKind} class="mt-1 w-full rounded bg-slate-800 p-2 text-sm">
+                    <option value="fiat">Fiat</option><option value="crypto">Crypto</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="custom-decimals" class="text-xs text-slate-400">Decimal places (0–18)</label>
+                  <input id="custom-decimals" type="number" min="0" max="18" step="1" bind:value={currencyDecimals}
+                    class="mt-1 w-full rounded bg-slate-800 p-2 text-sm" />
+                </div>
+              </div>
+              {#if currencyKind === 'crypto'}
+                <div class="rounded border border-slate-700 bg-slate-800/40 p-3" data-testid="currency-blockchain-reference-fields">
+                  <label for="custom-standard" class="text-xs text-slate-400">Blockchain asset type</label>
+                  <select id="custom-standard" bind:value={currencyStandard} class="mt-1 w-full rounded bg-slate-800 p-2 text-sm">
+                    <option value="native">Native (BTC, ETH, SOL — no token contract)</option>
+                    <option value="erc20">ERC-20 token (EVM contract)</option>
+                    <option value="icrc">ICRC token (ICP ledger canister)</option>
+                  </select>
+                  <label for="custom-network" class="mt-3 block text-xs text-slate-400">
+                    {currencyStandard === 'erc20' ? 'EVM Chain ID' : 'Blockchain network'}
+                  </label>
+                  <input id="custom-network" bind:value={currencyNetwork}
+                    placeholder={currencyStandard === 'erc20' ? 'eip155:1' : (currencyStandard === 'icrc' ? 'ic:mainnet' : 'solana:mainnet')}
+                    class="mt-1 w-full rounded bg-slate-800 p-2 text-sm" />
+                  {#if currencyStandard !== 'native'}
+                    <label for="custom-contract" class="mt-3 block text-xs text-slate-400">
+                      {currencyStandard === 'erc20' ? 'Token contract address' : 'ICRC Ledger Canister ID'}
+                    </label>
+                    <input id="custom-contract" bind:value={currencyAddress} spellcheck="false"
+                      placeholder={currencyStandard === 'erc20' ? '0x + 40 hexadecimal characters' : 'aaaaa-aaaaa-...-cai'}
+                      class="mt-1 w-full rounded bg-slate-800 p-2 font-mono text-xs" />
+                  {/if}
+                  {#if currencyStandard === 'native'}
+                    <p class="mt-2 text-xs text-slate-400">Native assets have no token contract; the network is their identity.</p>
+                  {/if}
+                </div>
+              {/if}
+              <p class="text-xs text-amber-200">
+                Always verify the blockchain, contract/Ledger ID and precision independently. A ticker alone is not an asset identity; this form does not verify contracts on-chain.
+              </p>
+              <div class="flex flex-wrap gap-2">
+                <button type="button" data-testid="loan-save-currency"
+                  disabled={busy || currencySaving || !currencyCode.trim()} on:click={saveCustomCurrency}
+                  class="rounded bg-sky-700 px-3 py-2 text-sm disabled:opacity-50">
+                  {currencySaving ? 'Saving currency…' : (editingCurrency ? 'Update currency' : 'Save currency')}
+                </button>
+                <button type="button" disabled={currencySaving} on:click={resetCurrencyForm}
+                  class="rounded border border-slate-600 px-3 py-2 text-sm">Clear</button>
+              </div>
+              {#if currencyFormError}
+                <p role="alert" data-testid="loan-currency-save-error"
+                  class="rounded border border-red-700 bg-red-950/40 p-3 text-sm text-red-200">{currencyFormError}</p>
+              {/if}
+              {#if currencyFormNotice}
+                <p role="status" aria-live="polite" data-testid="loan-currency-save-status"
+                  class="rounded border border-sky-700 bg-sky-950/40 p-3 text-sm text-sky-100">{currencyFormNotice}</p>
+              {/if}
+              {#if customCurrencies.length === 0}
+                <p class="text-xs text-slate-400">No custom currencies yet. BTC, ETH, ICP, ckBTC and ckETH are already included.</p>
+              {/if}
+              {#each customCurrencies as custom (custom.code)}
+                <div class="flex items-center justify-between gap-2 border-t border-slate-700 pt-3">
+                  <div class="min-w-0 text-sm">
+                    <span class="font-medium">{custom.code}</span>
+                    <span class="text-xs text-slate-400"> · {custom.kind} · {Number(custom.decimals)} decimals</span>
+                    {#if myAssetReferences[custom.code]}
+                      <div class="mt-1 break-all text-xs text-slate-400" data-testid="currency-saved-identity">
+                        {myAssetReferences[custom.code].network} · {myAssetReferences[custom.code].standard}
+                        {#if myAssetReferences[custom.code].address}
+                          · {myAssetReferences[custom.code].address}
+                        {/if}
+                      </div>
+                    {:else if custom.kind === 'crypto'}
+                      <div class="mt-1 text-xs text-amber-200">Unbound legacy asset — edit to add network and contract</div>
+                    {/if}
+                  </div>
+                  <div class="flex gap-2">
+                    <button type="button" on:click={() => editCustomCurrency(custom)}
+                      class="rounded border border-slate-600 px-2 py-1 text-xs">Edit</button>
+                    {#if currencyDeleteCode === custom.code}
+                      <button type="button" disabled={busy || currencySaving} on:click={() => removeCustomCurrency(custom.code)}
+                        class="rounded border border-red-500 px-2 py-1 text-xs text-red-200">Confirm remove</button>
+                      <button type="button" on:click={() => currencyDeleteCode = ''}
+                        class="rounded border border-slate-600 px-2 py-1 text-xs">Cancel</button>
+                    {:else}
+                      <button type="button" on:click={() => currencyDeleteCode = custom.code}
+                        class="rounded border border-slate-600 px-2 py-1 text-xs">Remove</button>
+                    {/if}
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
         </section>
       </div>
 
@@ -594,20 +906,20 @@
             <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <div class="rounded-lg bg-slate-800 p-4" data-testid="agreed-loan-amount">
                 <div class="text-xs text-slate-400">Agreed Loan Amount</div>
-                <div class="text-lg font-semibold">{money(selected.originalAmountCents, selectedCurrency)}</div>
+                <div class="text-lg font-semibold">{money(selected.originalAmountCents, selectedCurrencyDefinition)}</div>
                 <div class="mt-1 text-xs text-slate-400">Original agreement; not necessarily funded</div>
               </div>
               <div class="rounded-lg bg-slate-800 p-4" data-testid="loan-total-borrowed">
                 <div class="text-xs text-slate-400">Total borrowed (confirmed)</div>
-                <div class="text-lg font-semibold">{balance ? money(balance.totalBorrowedCents, selectedCurrency) : 'Loading...'}</div>
+                <div class="text-lg font-semibold">{balance ? money(balance.totalBorrowedCents, selectedCurrencyDefinition) : 'Loading...'}</div>
               </div>
               <div class="rounded-lg bg-slate-800 p-4" data-testid="loan-total-repaid">
                 <div class="text-xs text-slate-400">Total repaid (confirmed)</div>
-                <div class="text-lg font-semibold">{balance ? money(balance.totalRepaidCents, selectedCurrency) : 'Loading...'}</div>
+                <div class="text-lg font-semibold">{balance ? money(balance.totalRepaidCents, selectedCurrencyDefinition) : 'Loading...'}</div>
               </div>
               <div class="rounded-lg bg-slate-800 p-4" data-testid="loan-outstanding">
                 <div class="text-xs text-slate-400">Outstanding (confirmed debt)</div>
-                <div class="text-xl font-semibold">{balance ? money(balance.outstandingCents, selectedCurrency) : 'Loading...'}</div>
+                <div class="text-xl font-semibold">{balance ? money(balance.outstandingCents, selectedCurrencyDefinition) : 'Loading...'}</div>
               </div>
             </div>
             {#if ['proposed','fundingPending'].includes(variant(selected.status))}
@@ -620,7 +932,21 @@
               </p>
             {/if}
             <div class="mt-4 break-all text-xs text-slate-400">
-              <div>Currency: {selectedCurrency} (fixed for this loan; no FX conversion)</div>
+              <div data-testid="loan-immutable-currency">Currency: {selectedCurrency} · {selectedCurrencyDefinition.kind} · {Number(selectedCurrencyDefinition.decimals)} decimals (fixed for this loan; no FX conversion)</div>
+              {#if selectedCurrencyDefinition.kind === 'crypto'}
+                <div class="mt-2 break-all" data-testid="loan-immutable-asset-reference">
+                  {#if selectedAssetReference?.standard === 'unverified' || !selectedAssetReference}
+                    <span class="text-amber-200">Legacy crypto identity is unverified — do not rely on this ticker for transfers</span>
+                  {:else}
+                    <div>Network: {selectedAssetReference.network} · {selectedAssetReference.standard}</div>
+                    {#if selectedAssetReference.address}
+                      <div>Contract / Ledger ID: {selectedAssetReference.address}</div>
+                    {:else}
+                      <div>Native cryptocurrency — no token contract</div>
+                    {/if}
+                  {/if}
+                </div>
+              {/if}
               <div class="mt-1">Borrower: {textId(selected.borrower)}</div>
               <div class="mt-1">Lender: {textId(selected.lender)}</div>
               <div class="mt-1">Due date: {selected.dueAt?.length ? formatLoanUtcDate(selected.dueAt[0]) : 'Not set'}</div>
@@ -703,7 +1029,7 @@
                   </button>
                 {:else}
                   <p class="mb-4 text-xs text-slate-400">
-                    Record an off-chain repayment. The other participant must confirm it before the debt balance decreases.
+                    Record a repayment (bank, cash or crypto). The other participant must confirm it before the debt decreases.
                   </p>
                   <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/60 p-3 text-sm" for="repay-full">
                     <input id="repay-full" type="checkbox" bind:checked={repaymentFull} class="h-4 w-4 accent-emerald-600" />
@@ -712,7 +1038,7 @@
                   {#if repaymentFull}
                     <div class="mt-3 rounded-lg bg-slate-800 p-4" data-testid="full-repayment-amount">
                       <div class="text-xs text-slate-400">Confirmed balance to repay</div>
-                      <div class="mt-1 text-xl font-semibold">{balance ? money(balance.outstandingCents, selectedCurrency) : 'Loading...'}</div>
+                      <div class="mt-1 text-xl font-semibold">{balance ? money(balance.outstandingCents, selectedCurrencyDefinition) : 'Loading...'}</div>
                       <p class="mt-1 text-xs text-slate-400">
                         The current confirmed balance will be checked again when submitted. Pending repayments are not yet deducted.
                       </p>
@@ -725,9 +1051,9 @@
                   <label class="mt-3 block text-xs text-slate-400" for="payment-date">Repayment date</label>
                   <input id="payment-date" type="date" bind:value={paymentDate}
                     class="mt-1 w-full rounded bg-slate-800 p-2" />
-                  <label class="mt-3 block text-xs text-slate-400" for="payment-method">Off-chain payment method</label>
+                  <label class="mt-3 block text-xs text-slate-400" for="payment-method">Reported repayment method (not verified)</label>
                   <select id="payment-method" bind:value={paymentMethod} class="mt-1 w-full rounded bg-slate-800 p-2">
-                    <option>Interac e-Transfer</option><option>Bank Transfer</option><option>Cash</option><option>Cheque</option><option>Other</option>
+                    <option>Interac e-Transfer</option><option>Bank Transfer</option><option>Cash</option><option>Cheque</option><option>On-chain transfer (self-reported)</option><option>Other</option>
                   </select>
                   <label class="mt-3 block text-xs text-slate-400" for="repayment-note">Repayment note (optional)</label>
                   <textarea id="repayment-note" maxlength="500" bind:value={repaymentNote}
@@ -755,7 +1081,7 @@
                 {@const pendingCancellation = fundingCancellationRequests.find(x => x.entryId === entry.id)}
                 <div class="rounded-lg border border-slate-700 p-3">
                   <div class="flex flex-wrap justify-between gap-2">
-                    <span class="text-sm font-medium">{variant(entry.kind)} · {money(entry.amountCents, selectedCurrency)}</span>
+                    <span class="text-sm font-medium">{variant(entry.kind)} · {money(entry.amountCents, selectedCurrencyDefinition)}</span>
                     <span class="text-xs text-sky-300">{variant(entry.status)}</span>
                   </div>
                   <div class="mt-1 text-xs text-slate-400">Recorded by {isMe(entry.proposedBy) ? 'you' : 'the other participant'}{entry.note ? ' · ' + entry.note : ''}</div>
@@ -841,7 +1167,7 @@
                       <label class="block text-xs text-slate-400" for="funding-method-{entry.id}">Funds delivery method</label>
                       <select id="funding-method-{entry.id}" bind:value={fundingMethod}
                         class="w-full rounded bg-slate-800 p-2 text-sm">
-                        <option>Interac e-Transfer</option><option>Bank Transfer</option><option>Cash</option><option>Cheque</option><option>Other</option>
+                        <option>Interac e-Transfer</option><option>Bank Transfer</option><option>Cash</option><option>Cheque</option><option>On-chain transfer (self-reported)</option><option>Other</option>
                       </select>
                       <button disabled={busy || !fundingDate} on:click={() => declareFunding(entry)}
                         class="rounded bg-sky-700 px-3 py-2 text-xs disabled:opacity-40">
@@ -893,7 +1219,7 @@
                   </div>
                   {#if eventAmount != null}
                     <div class="mt-1 text-sm font-semibold text-sky-200" data-testid="loan-audit-amount">
-                      Amount: {money(eventAmount, selectedCurrency)}
+                      Amount: {money(eventAmount, selectedCurrencyDefinition)}
                     </div>
                   {/if}
                   {#if eventNote}

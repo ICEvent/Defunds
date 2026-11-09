@@ -99,6 +99,26 @@ module {
     createdAt : Int;
   };
 
+  // Immutable per-loan snapshot; separately persisted to retain the v0.1
+  // Loan/Entry/Balance record shapes and safe legacy upgrades.
+  public type CurrencyDefinition = {
+    code : Text; // 2-12 uppercase ASCII letters/digits; token/network alias
+    symbol : Text;
+    decimals : Nat; // 0..18; immutable for each created loan
+    kind : Text; // "fiat" | "crypto"
+  };
+
+  // Asset identity is versioned separately from CurrencyDefinition so that
+  // stable Loan / Entry / earlier catalog records remain upgrade-compatible.
+  // standard = "fiat" | "native" | "erc20" | "icrc".
+  // address = token contract on EVM, ledger canister Principal for ICRC,
+  // and empty for native or fiat. Network identifies the blockchain/chain.
+  public type AssetReference = {
+    network : Text;
+    standard : Text;
+    address : Text;
+  };
+
   public type Balance = {
     totalBorrowedCents : Nat;
     totalRepaidCents : Nat;
