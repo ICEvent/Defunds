@@ -2,9 +2,17 @@
 
 When DFX builds the frontend with `dfx build --ic` (or `dfx build --network ic`), its build process sets `DFX_NETWORK=ic`. The Vite config now resolves
 
-`VITE_PERSONAL_LOAN_CANISTER_ID <- <repo root>/canister_ids.json["personal_loan"]["ic"]`
+`VITE_PERSONAL_LOAN_CANISTER_ID <- <repo root>/canister_ids.json["personal_loan"]` (flat), or `["personal_loan"]["ic"]` (nested)
 
-**without manually exporting the variable**. This happens at *build time*, not at runtime. Example local `canister_ids.json` entry:
+**without manually exporting the variable**. This happens at *build time*, not at runtime. It supports either of these local `canister_ids.json` shapes:
+
+```json
+{
+  "personal_loan": "ACTUAL-DEPLOYED-LOAN-CANISTER-PRINCIPAL"
+}
+```
+
+Or the standard network-qualified form:
 
 ```json
 {
@@ -12,13 +20,13 @@ When DFX builds the frontend with `dfx build --ic` (or `dfx build --network ic`)
 }
 ```
 
-The example above is not a real canister ID. Always use your own actual deployed ID from `dfx canister id personal_loan --network ic` and verify `dfx canister status personal_loan --network ic`. The project may keep `canister_ids.json` untracked or locally modified; this build feature reads but never rewrites it.
+The values above are placeholders, not real canister IDs. Always use your own actual deployed ID from `dfx canister id personal_loan --network ic` and verify `dfx canister status personal_loan --network ic`. The project may keep `canister_ids.json` untracked or locally modified; this build feature reads but never rewrites it.
 
 Verify the local record:
 
 ```bash
 cd ~/projects/Defund
-jq -r '.personal_loan.ic // "MISSING"' canister_ids.json
+jq -r 'if (.personal_loan | type) == "string" then .personal_loan else .personal_loan.ic // "MISSING" end' canister_ids.json
 dfx canister id personal_loan --network ic
 dfx canister status personal_loan --network ic
 dfx build --ic frontend
