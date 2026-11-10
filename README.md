@@ -39,3 +39,5 @@ A decentralized charity fund platform built on the Internet Computer blockchain 
 
 export DFX_WARNING=-mainnet_plaintext_identity
 dfx canister --ic install backend --mode upgrade --wasm-memory-persistence keep
+dfx canister --ic install governance --mode upgrade --wasm-memory-persistence keep
+dfx canister --ic install personal_loan --mode upgrade --wasm-memory-persistence keep
