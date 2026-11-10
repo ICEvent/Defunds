@@ -25,7 +25,16 @@ export function resolvePersonalLoanBuildId({
   // and DFX's network-qualified form:
   //   { "personal_loan": { "ic": "rrkah-fqaaa-aaaaa-aaaaq-cai" } }.
   const entry = json?.personal_loan;
-  const id = typeof entry === 'string' ? entry : entry?.ic;
+  if (entry == null) return { id: null, source: 'missing-id' };
+
+  // A present entry must be either a direct Principal string or a network
+  // mapping. Never silently treat a number/boolean/array as a missing ID.
+  const isNetworkMapping = typeof entry === 'object' && !Array.isArray(entry);
+  if (typeof entry !== 'string' && !isNetworkMapping) {
+    throw new Error('Invalid personal_loan ID in canister_ids.json; expected a Canister Principal');
+  }
+
+  const id = typeof entry === 'string' ? entry : entry.ic;
   if (id == null || id === '') return { id: null, source: 'missing-id' };
   if (typeof id !== 'string' || !/^[a-z2-7]+(?:-[a-z2-7]+)+$/.test(id) ||
       id === 'aaaaa-aa' || id === '2vxsx-fae') {
