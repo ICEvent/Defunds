@@ -48,7 +48,7 @@ test('malformed JSON and invalid canister IDs are rejected', () => {
   assert.throws(()=>resolvePersonalLoanBuildId({
     network:'ic', explicitId:'', readFile:()=>'{'
   }), /Cannot read canister_ids.json/);
-  for (const invalid of ['not a principal', 'aaaaa-aa', '2vxsx-fae', 123]) {
+  for (const invalid of ['not a principal', 'aaaaa-aa', '2vxsx-fae', 123, true, [], ['rrkah-fqaaa-aaaaa-aaaaq-cai']]) {
     assert.throws(()=>resolvePersonalLoanBuildId({
       network:'ic', explicitId:'', readFile:()=>JSON.stringify({personal_loan:{ic:invalid}})
     }), /Invalid personal_loan ID/);
