@@ -1,6 +1,6 @@
 # Group Portfolio 管理设计
 
-状态：设计方案，尚未实现或部署。代码基线：main / f72a44d，检查日期：2026-11-10。
+状态：设计与第一阶段实现，尚未部署。代码基线：main / f72a44d，检查日期：2026-11-10。
 
 ## 定位与当前代码
 
@@ -90,4 +90,22 @@ Treasury 接入前只展示人工资产，明确其为用户填报。未来同�
 - 老版本升级后既有 Fund/余额/提案不变；Portfolio 数据、计数、授权、幂等记录在再次升级后保留。回滚须在隔离副本验证稳定签名兼容性，不能假设旧 WASM 可直接恢复新数据。
 - Motoko 编译、Candid 兼容检查、前端构建，以及成员/管理员端到端流程全部通过后再考虑部署。
 
-本文只完成静态代码核对和实施设计，不代表上述验收已经运行。
+以上为完整目标验收清单；第一阶段已运行的检查及尚未运行的项目见 `GROUP_PORTFOLIO_VERIFICATION.md`。
+
+## 第一阶段实现记录（2026-11-10）
+
+以下实现替代前文的接口草案，尚未主网部署。Portfolio 以已有 Fund ID 为作用域，首次添加资产时开始记录，无需单独初始化 Portfolio 对象；独立 Group 和 personal 暂不开放。资产和日志存于独立持久化字段，既有 GroupFund 稳定记录不变。
+
+- `listFundPortfolioAssets(fundId, afterId, limit, includeArchived)`：按资产 ID 分页，最多 100 项。
+- `listFundPortfolioHistory(fundId, assetId, afterId, limit)`：按事件 ID 分页，最多 100 项。
+- `getFundPortfolioManagers(fundId)`、`setFundPortfolioManager(fundId, member, enabled)`：当前成员角色管理；creator 自带写权限。
+- `listFundPortfolioManagerHistory(fundId, offset, limit)`：授予、撤销及成员移除造成的撤销记录。
+- `writeFundPortfolio(fundId, requestId, operation)`：create 或携带 expectedRevision 的 change（increase/decrease/reverse/valuation/details/archive）。数量、事件和幂等回执原子更新，没有跨 canister await。
+
+首版 Fund 详情页以内嵌 Portfolio 区块提供入口，沿用当前产品英文 UI；不是此前概念图的完整布局复刻。支持新增、增减、更新整项估值、修改持有状态、归档/恢复、流水与冲销、管理员授权，以及未验证的 ICEvent 引用。数量与金额使用整数最小单位，精度最大 18。估值与流水使用服务端记录时间，不提供回填业务日期、附件、独立成本核算或自动行情。
+
+未验证引用只在同一 Fund 内按 network/canister/assetId 防重复（包含已归档项，需恢复原项）；它不是跨 Fund 所有权认证，也不能阻止其他 Fund 填写同一来源。正式绑定的唯一性须由 ICEvent 回执与反向索引验证。当前不调用 ICEvent，不缓存其私有资料，不改源资产删除逻辑；正式已验证绑定仍未开放。
+
+为限制单个 Fund 的初期数据量，最多 200 项资产（包含归档）、5,000 条资产事件、50 名资产管理员；幂等回执与事件一起保留。达到历史上限后拒绝新增资产写入，UI 显示后端原因。下一阶段在扩大容量前应改用索引化存储和可扩展分页；当前历史不可删。管理员授予历史达到 5,000 条后不再允许新授权，撤权与成员移除始终允许。
+
+不自动转账、不改变 Treasury balance 或 votingPower。公开 Fund 的非成员也无法读取 Portfolio。成员移除时清理经理授权；重新加入不会恢复旧授权。
