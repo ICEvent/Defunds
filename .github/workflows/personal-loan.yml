@@ -14,6 +14,7 @@ on:
       - "test/personal-loan-ui.test.mjs"
       - "test/personal-loan-display.test.mjs"
       - "test/personal-loan-currency.test.mjs"
+      - "test/personal-loan-mainnet-build-env.test.mjs"
       - "test/personal-loan-e2e.sh"
       - "test/personal-loan-legacy-upgrade.sh"
       - "scripts/personal-loan-local.sh"
@@ -72,6 +73,8 @@ jobs:
         run: node --test test/personal-loan-display.test.mjs
       - name: Validate custom currency and crypto precision
         run: node --test test/personal-loan-currency.test.mjs
+      - name: Verify automatic mainnet Personal Loan ID injection
+        run: node --test test/personal-loan-mainnet-build-env.test.mjs
       - name: Generate local Candid declarations
         run: |
           jq 'del(.defaults.build.packtool)' dfx.json > dfx.ci.json
