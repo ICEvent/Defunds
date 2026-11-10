@@ -20,11 +20,16 @@ export function resolvePersonalLoanBuildId({
     throw new Error('Cannot read canister_ids.json for mainnet Personal Loan: ' + e.message);
   }
 
-  const id = json?.personal_loan?.ic;
+  // Support both the caller's flat file:
+  //   { "personal_loan": "rrkah-fqaaa-aaaaa-aaaaq-cai" }
+  // and DFX's network-qualified form:
+  //   { "personal_loan": { "ic": "rrkah-fqaaa-aaaaa-aaaaq-cai" } }.
+  const entry = json?.personal_loan;
+  const id = typeof entry === 'string' ? entry : entry?.ic;
   if (id == null || id === '') return { id: null, source: 'missing-id' };
   if (typeof id !== 'string' || !/^[a-z2-7]+(?:-[a-z2-7]+)+$/.test(id) ||
       id === 'aaaaa-aa' || id === '2vxsx-fae') {
-    throw new Error('Invalid personal_loan.ic in canister_ids.json; expected a Canister Principal');
+    throw new Error('Invalid personal_loan ID in canister_ids.json; expected a Canister Principal');
   }
   return { id, source: 'canister_ids.json' };
 }
