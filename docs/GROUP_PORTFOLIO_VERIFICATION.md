@@ -35,3 +35,11 @@ ICEvent 引用仅是未验证 ID；不存在资源所有权认证、实时资料
 10. 在副本保存资产、估值、授权及幂等回执后升级，验证全部保留；对旧 WASM 的回滚仅在隔离副本测试。
 
 上述手工流程是待执行清单，不是测试通过声明。新增 Portfolio CI 工作流执行后端构建、Motoko 逻辑测试和精度测试；现有 frontend CI 负责全站构建。
+
+## 后续验证补充
+
+已检查第一阶段提交 aa428f4 的 GitHub CI：motoko、frontend、local_preview、ledger 全部成功；这些旧任务尚不包含 Portfolio canister E2E。
+
+新增 `test/portfolio-e2e.sh` 并接入 Portfolio workflow：在独立临时项目/端口建立测试 Fund，随后升级到不含测试接口的生产 WASM，验证实际 Portfolio API 权限、精确流水、幂等、跨 Fund 隔离、冲销、归档，以及持有资产/估值/授权/回执/历史后的重复升级。测试夹具只跳过 Fund 创建资格，Portfolio 接口使用生产源码，未向正式后端添加测试入口。重复升级使用 --upgrade-unchanged，避免相同 WASM 被跳过。
+
+新增脚本通过 bash 语法检查，生产 WASM、Candid 与生成的夹具通过 SDK 0.30.1 编译；本地实际执行仍在 dfx start 被 Unix socket 权限阻止。新 E2E 的最终结果以新增提交的 GitHub CI 为准，尚不能沿用旧提交的绿色状态。

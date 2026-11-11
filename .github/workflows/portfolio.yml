@@ -7,6 +7,7 @@ on:
       - 'src/frontend/src/lib/components/GroupPortfolio.svelte'
       - 'test/PortfolioLedger.test.mo'
       - 'test/portfolio-amount.test.mjs'
+      - 'test/portfolio-e2e.sh'
       - '.github/workflows/portfolio.yml'
   workflow_dispatch:
 permissions:
@@ -32,3 +33,5 @@ jobs:
           "$CACHE/moc" -r --package base "$CACHE/base" test/PortfolioLedger.test.mo
       - name: Test decimal precision and valuation summaries
         run: node --test test/portfolio-amount.test.mjs
+      - name: Test production Portfolio APIs and populated upgrade
+        run: bash test/portfolio-e2e.sh
