@@ -133,10 +133,10 @@
     <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
     <div class="overflow-x-auto" role="region" aria-label="Portfolio assets" tabindex="0"><table class="w-full text-left text-sm"><thead><tr class="border-b border-slate-200 text-slate-500"><th scope="col">Asset</th><th scope="col">Holding</th><th scope="col">Valuation</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody>
       {#each shown as asset (asset.id)}<tr class="border-b border-slate-100">
-        <td><strong>{asset.name}</strong><div class="mt-1 text-xs text-slate-500">{asset.category}{#if asset.source.length} · ICEvent reference (unverified){/if}</div></td>
-        <td>{formatUnits(asset.quantity, asset.decimals)} {asset.unit}</td><td>{value(asset)}{#if asset.valuation[0]}<div class="mt-1 text-xs text-slate-400">{date(asset.valuation[0].at)}</div>{/if}</td>
-        <td>{asset.archived ? 'Archived' : Object.keys(asset.status)[0]}</td>
-        <td><div class="flex flex-wrap gap-2">
+        <td data-label="Asset"><strong>{asset.name}</strong><div class="mt-1 text-xs text-slate-500">{asset.category}{#if asset.source.length} · ICEvent reference (unverified){/if}</div></td>
+        <td data-label="Holding">{formatUnits(asset.quantity, asset.decimals)} {asset.unit}</td><td data-label="Valuation">{value(asset)}{#if asset.valuation[0]}<div class="mt-1 text-xs text-slate-400">{date(asset.valuation[0].at)}</div>{/if}</td>
+        <td data-label="Status">{asset.archived ? 'Archived' : Object.keys(asset.status)[0]}</td>
+        <td data-label="Actions"><div class="flex flex-wrap gap-2">
           <button disabled={busy} on:click={() => showHistory(asset)} class="link">History</button>
           {#if canWrite && !asset.archived}<button disabled={busy} on:click={() => open('increase', asset)} class="link">Increase</button><button disabled={busy} on:click={() => open('decrease', asset)} class="link">Decrease</button><button disabled={busy} on:click={() => open('valuation', asset)} class="link">Revalue</button><button disabled={busy} on:click={() => open('details', asset)} class="link">Edit</button>{/if}
           {#if canWrite && (asset.quantity === 0n || asset.archived)}<button disabled={busy} on:click={() => open('archive', asset)} class="link">{asset.archived ? 'Restore' : 'Archive'}</button>{/if}
@@ -204,4 +204,14 @@
   .link { color: #0369a1; font-size: 12px; }
   button:disabled { opacity: .45; cursor: not-allowed; }
   button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid #0284c7; outline-offset: 3px; }
+  @media (max-width: 639px) {
+    table, tbody { display: block; }
+    thead { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
+    tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 16px; padding: 18px 0; }
+    td { padding: 0; min-width: 0; }
+    td::before { content: attr(data-label); display: block; color: #64748b; font-size: 12px; margin-bottom: 4px; }
+    td:first-child, td:nth-child(4), td:last-child { grid-column: 1 / -1; }
+    td:first-child::before { display: none; }
+    td:last-child .link { min-height: 44px; padding-right: 6px; white-space: nowrap; }
+  }
 </style>

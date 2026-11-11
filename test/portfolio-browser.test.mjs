@@ -60,6 +60,7 @@ try {
  await page.getByLabel('Test role').selectOption('owner');
  await page.getByRole('button',{name:'+ Add asset',exact:true}).waitFor();
  await page.setViewportSize({width:390,height:844});
+ assert.ok((await page.getByRole('cell',{name:'Shared rowing boat',exact:false}).boundingBox()).width>250,'Mobile asset name must use the full row');
  await page.screenshot({path:`${output}/mobile.png`,fullPage:true});
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'Page must not overflow mobile viewport');
  await page.getByRole('button',{name:'+ Add asset',exact:true}).click();
