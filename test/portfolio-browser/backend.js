@@ -7,15 +7,21 @@ export const state = { calls:[], managers:[], failNext:false, loseResponse:false
  {id:1n,fundId:1n,name:'Shared rowing boat',category:'equipment',unit:'boat',decimals:0,quantity:1n,quantityRevision:1n,revision:1n,status:{held:null},archived:false,source:[],createdAt:1n,valuation:[{amount:1200000n,currency:'CAD',decimals:2,quantityRevision:1n,at:1794355200000000000n,performedBy:Principal.fromText(owner)}]},
  {id:2n,fundId:1n,name:'ETH',category:'crypto',unit:'ETH',decimals:2,quantity:250n,quantityRevision:1n,revision:1n,status:{held:null},archived:false,source:[],createdAt:1n,valuation:[]}
 ], events:[]};
+function clone(value){
+ if(value && typeof value.toText === 'function')return Principal.fromText(value.toText());
+ if(Array.isArray(value))return value.map(clone);
+ if(value && typeof value === 'object')return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,clone(item)]));
+ return value;
+}
 export function makeBackend(caller){return {
- async listFundPortfolioAssets(_fund,after,limit,includeArchived){ return {ok:state.assets.filter(a=>a.id>after && (includeArchived || !a.archived)).slice(0,Number(limit))}; },
+ async listFundPortfolioAssets(_fund,after,limit,includeArchived){ return {ok:clone(state.assets.filter(a=>a.id>after && (includeArchived || !a.archived)).slice(0,Number(limit)))}; },
  async getFundPortfolioManagers(){return {ok:state.managers.map(p=>Principal.fromText(p))};},
  async setFundPortfolioManager(_fund,p,enabled){if(caller!==owner)return {err:'Denied'};state.managers=enabled?[...new Set([...state.managers,p.toText()])]:state.managers.filter(x=>x!==p.toText());return {ok:null};},
- async listFundPortfolioHistory(_fund,id,after,limit){return {ok:state.events.filter(e=>e.assetId===id&&e.id>after).slice(0,Number(limit))};},
+ async listFundPortfolioHistory(_fund,id,after,limit){return {ok:clone(state.events.filter(e=>e.assetId===id&&e.id>after).slice(0,Number(limit)))};},
  async writeFundPortfolio(fund,id,operation){
    state.calls.push({fund,id,operation});
    if(caller!==owner&&!state.managers.includes(caller))return {err:'Portfolio write access denied'};
-   if(state.receipts.has(id))return {ok:state.receipts.get(id)};
+   if(state.receipts.has(id))return {ok:clone(state.receipts.get(id))};
    if(state.failNext){state.failNext=false;return {err:'Asset changed; refresh before saving'};}
    let asset,kind,delta=0n;
    if(operation.create){const input=operation.create;asset={...input,id:nextId++,fundId:fund,quantityRevision:1n,revision:1n,status:{held:null},archived:false,valuation:[],createdAt:1n};state.assets.push(asset);kind={opening:null};delta=input.quantity;}
@@ -32,9 +38,9 @@ export function makeBackend(caller){return {
      if('archive'in c)asset.archived=c.archive;
      asset.revision++;
    }
-   state.events.push({id:BigInt(state.events.length+1),assetId:asset.id,fundId:fund,kind,delta,at:1794355200000000000n,performedBy:Principal.fromText(caller),note:operation.create?.note??operation.change.note,after:{...asset}});
-   state.receipts.set(id,asset);
+   state.events.push({id:BigInt(state.events.length+1),assetId:asset.id,fundId:fund,kind,delta,at:1794355200000000000n,performedBy:Principal.fromText(caller),note:operation.create?.note??operation.change.note,after:clone(asset)});
+   state.receipts.set(id,clone(asset));
    if(state.loseResponse){state.loseResponse=false;throw new Error('Response lost; retry with the same values');}
-   return {ok:asset};
+   return {ok:clone(asset)};
  }
 };}
