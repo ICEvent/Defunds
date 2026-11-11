@@ -15,7 +15,8 @@
   let reverseId = 0n;
   let managerPrincipal = '', historyMore = false, historyCursor = 0n;
   let context, epoch = 0, active = true, pendingRequest = null;
-  import { onDestroy } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
+  let formElement;
   onDestroy(() => { active = false; epoch++; });
   $: canWrite = isCreator || managers.some(p => p.toText() === principalText);
   $: summary = summarize(assets);
@@ -43,11 +44,14 @@
     } catch (e) { if (active && version === epoch) error = e.message || 'Unable to load portfolio'; }
     finally { if (active && version === epoch) loading = false; }
   }
-  function open(kind, asset = null) {
+  async function open(kind, asset = null) {
     form = kind; selected = asset; error = ''; success = ''; pendingRequest = null;
     name = asset?.name ?? ''; category = asset?.category ?? 'equipment'; unit = asset?.unit ?? 'item';
     decimals = Number(asset?.decimals ?? 0); quantity = ''; note = ''; amount = ''; currency = 'CAD'; valuationDecimals = 2;
     status = asset ? Object.keys(asset.status)[0] : 'held'; useSource = false; sourceNetwork = 'ic'; sourceCanister = ''; sourceAssetId = '';
+    await tick();
+    formElement?.scrollIntoView({ block: 'nearest' });
+    formElement?.querySelector('input, select, textarea, button')?.focus({ preventScroll: true });
   }
   async function write(operation) {
     const key = JSON.stringify(operation, (_, value) => typeof value === 'bigint' ? value.toString() : value);
@@ -117,7 +121,7 @@
     <div><h2 id="portfolio-heading" class="text-2xl font-semibold">Portfolio</h2><p class="mt-1 text-sm text-slate-500">Member-only asset records · manual valuations · no transfers</p></div>
     <div class="flex gap-2"><button disabled={busy || loading} on:click={load} class="secondary">Refresh</button>{#if canWrite}<button disabled={busy || loading} on:click={() => open('create')} class="primary">+ Add asset</button>{/if}</div>
   </div>
-  {#if error}<div role="alert" class="mt-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-800">{error}</div>{/if}
+  {#if error && !form}<div role="alert" class="mt-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-800">{error}</div>{/if}
   {#if success}<p role="status" class="mt-3 text-sm text-emerald-700">{success}</p>{/if}
   {#if loading}<p class="py-8 text-slate-500">Loading portfolio…</p>{:else}
     <div class="my-6 flex flex-wrap gap-x-10 gap-y-3 border-y border-slate-100 py-5">
@@ -125,7 +129,9 @@
       <div><div class="text-xs text-slate-500">Awaiting valuation</div><div class="mt-1 text-xl font-semibold">{summary.unvalued} assets</div></div>
     </div>
     <label class="mb-3 flex items-center gap-2 text-sm text-slate-500"><input type="checkbox" bind:checked={includeArchived} /> Show archived</label>
-    <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead><tr class="border-b border-slate-200 text-slate-500"><th>Asset</th><th>Holding</th><th>Valuation</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+    <!-- Keyboard focus lets users scroll the asset table without a pointer. -->
+    <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+    <div class="overflow-x-auto" role="region" aria-label="Portfolio assets" tabindex="0"><table class="w-full text-left text-sm"><thead><tr class="border-b border-slate-200 text-slate-500"><th scope="col">Asset</th><th scope="col">Holding</th><th scope="col">Valuation</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody>
       {#each shown as asset (asset.id)}<tr class="border-b border-slate-100">
         <td><strong>{asset.name}</strong><div class="mt-1 text-xs text-slate-500">{asset.category}{#if asset.source.length} · ICEvent reference (unverified){/if}</div></td>
         <td>{formatUnits(asset.quantity, asset.decimals)} {asset.unit}</td><td>{value(asset)}{#if asset.valuation[0]}<div class="mt-1 text-xs text-slate-400">{date(asset.valuation[0].at)}</div>{/if}</td>
@@ -139,8 +145,9 @@
     </tbody></table></div>
   {/if}
   {#if form && canWrite}
-    <form on:submit|preventDefault={submit} class="mt-6 border-t border-slate-200 pt-5">
-      <h3 class="text-lg font-semibold">{form === 'create' ? 'Add asset' : `${form.charAt(0).toUpperCase() + form.slice(1)} · ${selected.name}`}</h3>
+    <form bind:this={formElement} aria-labelledby="portfolio-form-heading" on:submit|preventDefault={submit} class="mt-6 border-t border-slate-200 pt-5">
+      <h3 id="portfolio-form-heading" class="text-lg font-semibold">{form === 'create' ? 'Add asset' : `${form.charAt(0).toUpperCase() + form.slice(1)} · ${selected.name}`}</h3>
+      {#if error}<div role="alert" class="mt-3 rounded-xl bg-rose-50 p-3 text-sm text-rose-800">{error}</div>{/if}
       <fieldset disabled={busy} class="mt-4 grid gap-4 sm:grid-cols-2">
         {#if form === 'create' || form === 'details'}
           <label>Name<input required maxlength="120" bind:value={name} /></label>
@@ -184,7 +191,9 @@
   </details>{/if}
 </section>
 <style>
+  fieldset { min-width: 0; }
   th, td { padding: 14px 12px 14px 0; vertical-align: top; }
+  td { overflow-wrap: anywhere; }
   th { font-weight: 500; white-space: nowrap; }
   label { display: grid; gap: 6px; font-size: 14px; }
   input:not([type=checkbox]), select, textarea { border: 1px solid #cbd5e1; border-radius: 10px; padding: 9px 12px; background: white; color: #0f172a; min-width: 0; }

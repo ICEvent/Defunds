@@ -8,6 +8,8 @@ on:
       - 'test/PortfolioLedger.test.mo'
       - 'test/portfolio-amount.test.mjs'
       - 'test/portfolio-e2e.sh'
+      - 'test/portfolio-browser/**'
+      - 'test/portfolio-browser.test.mjs'
       - '.github/workflows/portfolio.yml'
   workflow_dispatch:
 permissions:
@@ -35,3 +37,24 @@ jobs:
         run: node --test test/portfolio-amount.test.mjs
       - name: Test production Portfolio APIs and populated upgrade
         run: bash test/portfolio-e2e.sh
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install dependencies and browser test runtime
+        run: |
+          npm ci
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Test actual Portfolio component on desktop and mobile
+        env:
+          PORTFOLIO_SCREENSHOTS: /tmp/portfolio-browser-screenshots
+        run: node test/portfolio-browser.test.mjs
+      - name: Save browser screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portfolio-browser-screenshots
+          path: /tmp/portfolio-browser-screenshots
+          if-no-files-found: ignore
