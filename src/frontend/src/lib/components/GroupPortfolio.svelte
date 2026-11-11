@@ -159,7 +159,7 @@
         {#if ['create', 'increase', 'decrease'].includes(form)}<label>{form === 'create' ? 'Opening quantity' : 'Quantity'}<input required={form !== 'create'} inputmode="decimal" bind:value={quantity} placeholder="0" /></label>{/if}
         {#if form === 'valuation'}
           <p class="text-sm text-slate-500 sm:col-span-2">Record the total value of this entire holding, not a unit price.</p>
-          <label>Total valuation<input required inputmode="decimal" bind:value={amount} /></label><label>Currency code<input required pattern="[A-Za-z0-9]{1,12}" maxlength="12" bind:value={currency} /></label><label>Value decimal places<input required type="number" min="0" max="18" step="1" bind:value={valuationDecimals} /></label>
+          <label>Total valuation<input required inputmode="decimal" bind:value={amount} /></label><label>Currency code<input required pattern={'[A-Za-z0-9]{1,12}'} maxlength="12" bind:value={currency} /></label><label>Value decimal places<input required type="number" min="0" max="18" step="1" bind:value={valuationDecimals} /></label>
         {/if}
         {#if form === 'details'}<label>Holding status<select bind:value={status}><option value="held">Held</option><option value="locked">Locked</option><option value="disposed">Disposed (requires zero holding)</option></select></label>{/if}
         {#if form === 'create'}

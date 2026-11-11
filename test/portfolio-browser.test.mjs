@@ -29,6 +29,7 @@ try {
  await row.getByRole('button',{name:'Revalue',exact:true}).click();
  await page.getByLabel('Total valuation',{exact:true}).fill('7200');
  await page.getByLabel('Currency code').fill('USD');
+ assert.equal(await page.getByLabel('Currency code').evaluate(e=>e.checkValidity()),true);
  await page.getByRole('button',{name:'Save record'}).click();
  await page.getByRole('status').filter({hasText:'Portfolio saved'}).waitFor();
  assert.match(await row.innerText(),/USD 7200/);
