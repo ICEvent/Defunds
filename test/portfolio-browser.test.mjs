@@ -18,7 +18,7 @@ try {
  await page.goto('http://127.0.0.1:4182');
  await page.getByRole('cell',{name:'Shared rowing boat',exact:false}).waitFor();
  await page.screenshot({path:`${output}/desktop.png`,fullPage:true});
- const row=page.getByRole('row').filter({hasText:'ETH'});
+ const row=page.locator('tbody tr').filter({has:page.getByText('ETH',{exact:true})});
  await row.getByRole('button',{name:'Increase',exact:true}).click();
  await page.getByLabel('Quantity',{exact:true}).waitFor();
  assert.equal(await page.getByLabel('Quantity',{exact:true}).evaluate(e=>document.activeElement===e),true);
