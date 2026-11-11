@@ -9,11 +9,11 @@ const output=process.env.PORTFOLIO_SCREENSHOTS || '/tmp/portfolio-browser-screen
 await mkdir(output,{recursive:true});
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--config','test/portfolio-browser/vite.config.js'],{stdio:['ignore','pipe','pipe']});
 let logs='';server.stdout.on('data',d=>logs+=d);server.stderr.on('data',d=>logs+=d);
-let browser;
+let browser, page;
 try {
  for(let i=0;i<100;i++){try{if((await fetch('http://127.0.0.1:4182')).ok)break;}catch{}if(i===99)throw new Error(`Vite did not start: ${logs}`);await new Promise(r=>setTimeout(r,100));}
  browser=await chromium.launch({headless:true,...(process.env.PORTFOLIO_CHROMIUM ? {executablePath:process.env.PORTFOLIO_CHROMIUM}:{}),args:['--no-sandbox']});
- const page=await browser.newPage({viewport:{width:1440,height:1024}});
+ page=await browser.newPage({viewport:{width:1440,height:1024}});
  const failures=[];page.on('pageerror',e=>failures.push(e.message));
  await page.goto('http://127.0.0.1:4182');
  await page.getByRole('cell',{name:'Shared rowing boat',exact:false}).waitFor();
@@ -72,4 +72,6 @@ try {
  assert.deepEqual(failures,[]);
  console.log('PASS: desktop/mobile actual-component flows, valuation, errors, retry deduplication, history and member controls');
  console.log(`Screenshots: ${output}`);
-} catch(error) { console.error(error); console.error(logs); process.exitCode=1; } finally {await browser?.close();if(server.exitCode===null){const ended=once(server,'exit');server.kill('SIGTERM');await Promise.race([ended,new Promise(r=>setTimeout(r,3000))]);}}
+} catch(error) {
+ if(page){console.error('PAGE TEXT:',await page.locator('body').innerText().catch(()=>''));console.error('FORM VALIDITY:',await page.locator('form input').evaluateAll(inputs=>inputs.map(e=>({name:e.parentElement.textContent,value:e.value,valid:e.validity.valid,message:e.validationMessage}))).catch(()=>[]));await page.screenshot({path:`${output}/failure.png`,fullPage:true}).catch(()=>{});}
+ console.error(error); console.error(logs); process.exitCode=1; } finally {await browser?.close();if(server.exitCode===null){const ended=once(server,'exit');server.kill('SIGTERM');await Promise.race([ended,new Promise(r=>setTimeout(r,3000))]);}}
