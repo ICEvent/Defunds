@@ -126,9 +126,9 @@
   {#if loading}<p class="py-8 text-slate-500">Loading portfolio…</p>{:else}
     <div class="my-6 flex flex-wrap gap-x-10 gap-y-3 border-y border-slate-100 py-5">
       {#each summary.totals as total}<div><div class="text-xs text-slate-500">Known valuation · {total.currency}</div><div class="mt-1 text-xl font-semibold">{total.currency} {formatUnits(total.amount, 18)}</div></div>{/each}
-      <div><div class="text-xs text-slate-500">Awaiting valuation</div><div class="mt-1 text-xl font-semibold">{summary.unvalued} assets</div></div>
+      <div><div class="text-xs text-slate-500">Awaiting valuation</div><div class="mt-1 text-xl font-semibold">{summary.unvalued} {summary.unvalued === 1 ? 'asset' : 'assets'}</div></div>
     </div>
-    <label class="mb-3 flex items-center gap-2 text-sm text-slate-500"><input type="checkbox" bind:checked={includeArchived} /> Show archived</label>
+    <label class="checkbox-label mb-3 text-sm text-slate-500"><input type="checkbox" bind:checked={includeArchived} /> Show archived</label>
     <!-- Keyboard focus lets users scroll the asset table without a pointer. -->
     <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
     <div class="overflow-x-auto" role="region" aria-label="Portfolio assets" tabindex="0"><table class="w-full text-left text-sm"><thead><tr class="border-b border-slate-200 text-slate-500"><th scope="col">Asset</th><th scope="col">Holding</th><th scope="col">Valuation</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody>
@@ -163,7 +163,7 @@
         {/if}
         {#if form === 'details'}<label>Holding status<select bind:value={status}><option value="held">Held</option><option value="locked">Locked</option><option value="disposed">Disposed (requires zero holding)</option></select></label>{/if}
         {#if form === 'create'}
-          <label class="flex items-center gap-2 sm:col-span-2"><input type="checkbox" bind:checked={useSource} /> Add an ICEvent resource reference</label>
+          <label class="checkbox-label sm:col-span-2"><input type="checkbox" bind:checked={useSource} /> Add an ICEvent resource reference</label>
           {#if useSource}<p class="text-sm text-amber-800 sm:col-span-2">Reference only. This does not verify ownership or grant access to ICEvent data.</p><label>Network / local instance<input required maxlength="64" bind:value={sourceNetwork} /></label><label>ICEvent ledger canister<input required bind:value={sourceCanister} /></label><label>Asset ID<input required inputmode="numeric" bind:value={sourceAssetId} /></label>{/if}
         {/if}
         {#if form === 'reverse'}<p class="text-sm text-slate-600 sm:col-span-2">Reverse transaction #{reverseId.toString()}? This adds a correction entry and keeps the original record.</p>{/if}
@@ -192,6 +192,7 @@
 </section>
 <style>
   fieldset { min-width: 0; }
+  .checkbox-label { display: flex; align-items: center; gap: 8px; }
   th, td { padding: 14px 12px 14px 0; vertical-align: top; }
   td { overflow-wrap: anywhere; }
   th { font-weight: 500; white-space: nowrap; }
