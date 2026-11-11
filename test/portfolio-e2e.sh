@@ -51,7 +51,7 @@ contains() { if ! grep -Fq "$2" <<< "${1//_/}"; then echo "Missing '$2' in: $1" 
 call portfolio-test-owner portfolioTestCreateFund '()' >/dev/null
 call portfolio-test-outsider portfolioTestCreateFund '()' >/dev/null
 # Preserve fixture-created groups through the real upgrade hooks.
-dfx canister install "$FIXTURE_CANISTER" --mode upgrade --upgrade-unchanged --wasm "$TASK_TMP/production.wasm" --network local --identity portfolio-test-owner
+dfx canister install "$FIXTURE_CANISTER" --mode upgrade --wasm-memory-persistence keep --upgrade-unchanged --wasm "$TASK_TMP/production.wasm" --network local --identity portfolio-test-owner
 cp "$TASK_TMP/production.did" "$TASK_TMP/.dfx/local/canisters/$FIXTURE_CANISTER/$FIXTURE_CANISTER.did"
 ok "$(call portfolio-test-owner addGroupMember "(1, \"Observer\", principal \"$MEMBER\", 0)")"
 CREATE='(1, "create-asset", variant { create = record { name="ETH"; category="crypto"; unit="ETH"; decimals=2:nat8; quantity=200; source=null; note="opening" } })'
@@ -74,7 +74,7 @@ ok "$(call portfolio-test-owner writeFundPortfolio '(1, "value", variant {change
 # Upgrade populated Portfolio: assets, valuations, grants, receipts and histories persist.
 BEFORE="$(call portfolio-test-owner listFundPortfolioAssets "$READ")"
 HISTORY="$(call portfolio-test-owner listFundPortfolioHistory '(1,1,0,100)')"
-dfx canister install "$FIXTURE_CANISTER" --mode upgrade --upgrade-unchanged --wasm "$TASK_TMP/production.wasm" --network local --identity portfolio-test-owner
+dfx canister install "$FIXTURE_CANISTER" --mode upgrade --wasm-memory-persistence keep --upgrade-unchanged --wasm "$TASK_TMP/production.wasm" --network local --identity portfolio-test-owner
 AFTER="$(call portfolio-test-owner listFundPortfolioAssets "$READ")"
 [[ "$BEFORE" == "$AFTER" ]] || { echo 'Assets changed across upgrade' >&2; exit 1; }
 [[ "$HISTORY" == "$(call portfolio-test-owner listFundPortfolioHistory '(1,1,0,100)')" ]] || { echo 'History changed across upgrade' >&2; exit 1; }
