@@ -28,8 +28,79 @@ import Grants "./grant";
 
 import GroupTypes "./group/types";
 import Groups "./group";
+import PortfolioTypes "./portfolio/types";
+import PortfolioLedger "./portfolio/ledger";
+import PortfolioPermissions "./portfolio/permissions";
 
 persistent actor Defunds{
+  // Separate persistent fields preserve the existing GroupFund stable shape.
+  var portfolioState : PortfolioTypes.State = PortfolioLedger.empty;
+  var portfolioManagers : [(Nat, Principal)] = [];
+  var portfolioManagerEvents : [PortfolioTypes.ManagerEvent] = [];
+
+  private func portfolioAccess(fundId : Nat, caller : Principal, write : Bool) : Bool {
+    if (Principal.isAnonymous(caller)) return false;
+    switch (groups.getGroup(fundId)) {
+      case null false;
+      case (?fund) {
+        let members = Array.map<GroupTypes.Member, Principal>(fund.members, func(m) { m.principal });
+        let managers = Array.map<(Nat, Principal), Principal>(Array.filter<(Nat, Principal)>(portfolioManagers, func((id, _)) { id == fundId }), func((_, p)) { p });
+        PortfolioPermissions.canAccess(caller, fund.creator, members, managers, write)
+      };
+    }
+  };
+
+  public shared query ({ caller }) func listFundPortfolioAssets(fundId : Nat, afterId : Nat, limit : Nat, includeArchived : Bool) : async Result.Result<[PortfolioTypes.Asset], Text> {
+    if (not portfolioAccess(fundId, caller, false)) return #err("Portfolio access denied");
+    if (limit == 0 or limit > 100) return #err("Limit must be 1..100");
+    let found = Array.filter<PortfolioTypes.Asset>(portfolioState.assets, func(a) { a.fundId == fundId and a.id > afterId and (includeArchived or not a.archived) });
+    #ok(Array.tabulate<PortfolioTypes.Asset>(Nat.min(limit, found.size()), func(i) { found[i] }))
+  };
+
+  public shared query ({ caller }) func listFundPortfolioHistory(fundId : Nat, assetId : Nat, afterId : Nat, limit : Nat) : async Result.Result<[PortfolioTypes.Event], Text> {
+    if (not portfolioAccess(fundId, caller, false)) return #err("Portfolio access denied");
+    if (limit == 0 or limit > 100) return #err("Limit must be 1..100");
+    let found = Array.filter<PortfolioTypes.Event>(portfolioState.events, func(e) { e.fundId == fundId and e.assetId == assetId and e.id > afterId });
+    #ok(Array.tabulate<PortfolioTypes.Event>(Nat.min(limit, found.size()), func(i) { found[i] }))
+  };
+
+  public shared query ({ caller }) func getFundPortfolioManagers(fundId : Nat) : async Result.Result<[Principal], Text> {
+    if (not portfolioAccess(fundId, caller, false)) return #err("Portfolio access denied");
+    #ok(Array.map<(Nat, Principal), Principal>(Array.filter<(Nat, Principal)>(portfolioManagers, func((id, _)) { id == fundId }), func((_, p)) { p }))
+  };
+
+  public shared query ({ caller }) func listFundPortfolioManagerHistory(fundId : Nat, offset : Nat, limit : Nat) : async Result.Result<[PortfolioTypes.ManagerEvent], Text> {
+    if (not portfolioAccess(fundId, caller, false)) return #err("Portfolio access denied");
+    if (limit == 0 or limit > 100) return #err("Limit must be 1..100");
+    let found = Array.filter<PortfolioTypes.ManagerEvent>(portfolioManagerEvents, func(e) { e.fundId == fundId });
+    let count = if (offset >= found.size()) 0 else Nat.min(limit, found.size() - offset);
+    #ok(Array.tabulate<PortfolioTypes.ManagerEvent>(count, func(i) { found[offset + i] }))
+  };
+
+  public shared ({ caller }) func setFundPortfolioManager(fundId : Nat, member : Principal, enabled : Bool) : async Result.Result<(), Text> {
+    let fund = switch (groups.getGroup(fundId)) { case null return #err("Portfolio access denied"); case (?g) g };
+    if (Principal.isAnonymous(caller) or fund.creator != caller) return #err("Only the fund creator can manage portfolio roles");
+    if (Principal.isAnonymous(member) or not groups.isMember(fund.members, member)) return #err("Manager must be a current fund member");
+    let exists = Array.find<(Nat, Principal)>(portfolioManagers, func((id, p)) { id == fundId and p == member }) != null;
+    if (exists == enabled) return #ok(());
+    let managers = Array.filter<(Nat, Principal)>(portfolioManagers, func((id, _)) { id == fundId });
+    if (enabled and managers.size() >= 50) return #err("Manager limit reached");
+    let history = Array.filter<PortfolioTypes.ManagerEvent>(portfolioManagerEvents, func(e) { e.fundId == fundId });
+    if (enabled and history.size() >= 5_000) return #err("Manager history limit reached; revocation remains available");
+    portfolioManagers := Array.filter<(Nat, Principal)>(portfolioManagers, func((id, p)) { not (id == fundId and p == member) });
+    if (enabled) portfolioManagers := Array.append<(Nat, Principal)>(portfolioManagers, [(fundId, member)]);
+    portfolioManagerEvents := Array.append<PortfolioTypes.ManagerEvent>(portfolioManagerEvents, [{ fundId; principal = member; granted = enabled; performedBy = caller; at = Time.now() }]);
+    #ok(())
+  };
+
+  public shared ({ caller }) func writeFundPortfolio(fundId : Nat, requestId : Text, operation : PortfolioTypes.Operation) : async Result.Result<PortfolioTypes.Asset, Text> {
+    if (not portfolioAccess(fundId, caller, true)) return #err("Portfolio write access denied");
+    switch (PortfolioLedger.apply(portfolioState, fundId, caller, requestId, operation, Time.now())) {
+      case (#err(e)) #err(e);
+      case (#ok((next, asset))) { portfolioState := next; #ok(asset) };
+    }
+  };
+
 
 	type Donation = Types.Donation;
 	type VotingPower = Types.VotingPower;
@@ -2243,7 +2314,15 @@ persistent actor Defunds{
 					} else if (groups.hasActiveProposals(groupId)) {
 						#err("Voting membership is frozen while a proposal is active");
 					} else {
-						groups.removeMember(groupId, memberPrincipal);
+						switch (groups.removeMember(groupId, memberPrincipal)) {
+              case (#err(e)) #err(e);
+              case (#ok()) {
+                let wasManager = Array.find<(Nat, Principal)>(portfolioManagers, func((id, p)) { id == groupId and p == memberPrincipal }) != null;
+                portfolioManagers := Array.filter<(Nat, Principal)>(portfolioManagers, func((id, p)) { not (id == groupId and p == memberPrincipal) });
+                if (wasManager) portfolioManagerEvents := Array.append<PortfolioTypes.ManagerEvent>(portfolioManagerEvents, [{ fundId = groupId; principal = memberPrincipal; granted = false; performedBy = caller; at = Time.now() }]);
+                #ok(())
+              };
+            };
 					};
 				};
 			};

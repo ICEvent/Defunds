@@ -1,0 +1,60 @@
+name: Portfolio checks
+on:
+  pull_request:
+    paths:
+      - 'src/backend/**'
+      - 'src/frontend/src/lib/portfolio/**'
+      - 'src/frontend/src/lib/components/GroupPortfolio.svelte'
+      - 'test/PortfolioLedger.test.mo'
+      - 'test/portfolio-amount.test.mjs'
+      - 'test/portfolio-e2e.sh'
+      - 'test/portfolio-browser/**'
+      - 'test/portfolio-browser.test.mjs'
+      - '.github/workflows/portfolio.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ledger:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: dfinity/setup-dfx@e50c04f104ee4285ec010f10609483cf41e4d365
+        with:
+          dfx-version: '0.30.1'
+      - name: Use SDK base library
+        run: |
+          jq 'del(.defaults.build.packtool)' dfx.json > dfx.ci.json
+          mv dfx.ci.json dfx.json
+      - name: Compile backend
+        run: dfx build backend --check
+      - name: Test ledger transitions and authorization policy
+        run: |
+          CACHE="$(dfx cache show)"
+          "$CACHE/moc" -r --package base "$CACHE/base" test/PortfolioLedger.test.mo
+      - name: Test decimal precision and valuation summaries
+        run: node --test test/portfolio-amount.test.mjs
+      - name: Test production Portfolio APIs and populated upgrade
+        run: bash test/portfolio-e2e.sh
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install dependencies and browser test runtime
+        run: |
+          npm ci --ignore-scripts
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          command -v google-chrome
+      - name: Test actual Portfolio component on desktop and mobile
+        env:
+          PORTFOLIO_SCREENSHOTS: /tmp/portfolio-browser-screenshots
+        run: PORTFOLIO_CHROMIUM="$(command -v google-chrome)" node test/portfolio-browser.test.mjs
+      - name: Save browser screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portfolio-browser-screenshots
+          path: /tmp/portfolio-browser-screenshots
+          if-no-files-found: ignore

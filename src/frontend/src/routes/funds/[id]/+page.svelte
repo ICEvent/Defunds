@@ -1,5 +1,6 @@
 <script>
   import { onMount } from "svelte";
+  import GroupPortfolio from "$lib/components/GroupPortfolio.svelte";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import { Principal } from "@dfinity/principal";
@@ -471,6 +472,10 @@
         </div>
       </div>
     </section>
+
+    {#if isAuthed && (isCreator || isMember)}
+      <GroupPortfolio {backend} fundId={groupId} {principalText} {isCreator} members={canonicalMembers} />
+    {/if}
 
     {#if showEditFund && isCreator}
       <section class="mt-6 rounded-2xl border border-sky-200 bg-sky-50/70 p-5 shadow-sm sm:p-6">
