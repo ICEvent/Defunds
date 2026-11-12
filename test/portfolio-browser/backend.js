@@ -3,7 +3,7 @@
 import { Principal } from '@dfinity/principal';
 export const owner='aaaaa-aa', member='rrkah-fqaaa-aaaaa-aaaaq-cai';
 let nextId=3n;
-export const state = { calls:[], managers:[], failNext:false, loseResponse:false, receipts:new Map(), assets:[
+export const state = { chainBalance:2500000n, currencies:[{id:"ic:rrkah-fqaaa-aaaaa-aaaaq-cai",symbol:"TEST",name:"Test ledger",decimals:6,ledger:[Principal.fromText(member)],enabled:true}], calls:[], managers:[], failNext:false, loseResponse:false, receipts:new Map(), assets:[
  {id:1n,fundId:1n,name:'Shared rowing boat',category:'equipment',unit:'boat',decimals:0,quantity:1n,quantityRevision:1n,revision:1n,status:{held:null},archived:false,source:[],createdAt:1n,valuation:[{amount:1200000n,currency:'CAD',decimals:2,quantityRevision:1n,at:1794355200000000000n,performedBy:Principal.fromText(owner)}]},
  {id:2n,fundId:1n,name:'ETH',category:'crypto',unit:'ETH',decimals:2,quantity:250n,quantityRevision:1n,revision:1n,status:{held:null},archived:false,source:[],createdAt:1n,valuation:[]}
 ], events:[]};
@@ -14,6 +14,11 @@ function clone(value){
  return value;
 }
 export function makeBackend(caller){return {
+ async getFundCurrencies(){return {ok:clone(state.currencies)};},
+ async getFundTreasuryAccount(){return {ok:{owner:Principal.fromText(owner),subaccount:new Uint8Array(32)}};},
+ async getFundTreasuryBalances(){return {ok:[{currency:clone(state.currencies[0]),balance:{ok:state.chainBalance},checkedAt:1794355200000000000n}]};},
+ async addFundManualCurrency(_fund,code,name,decimals){if(caller!==owner)return {err:'Denied'};const c={id:'manual:'+code,symbol:code,name,decimals,ledger:[],enabled:true};state.currencies.push(c);return {ok:clone(c)};},
+ async setFundCurrencyEnabled(_fund,id,enabled){if(caller!==owner)return {err:'Denied'};state.currencies.find(c=>c.id===id).enabled=enabled;return {ok:null};},
  async listFundPortfolioAssets(_fund,after,limit,includeArchived){ return {ok:clone(state.assets.filter(a=>a.id>after && (includeArchived || !a.archived)).slice(0,Number(limit)))}; },
  async getFundPortfolioManagers(){return {ok:state.managers.map(p=>Principal.fromText(p))};},
  async setFundPortfolioManager(_fund,p,enabled){if(caller!==owner)return {err:'Denied'};state.managers=enabled?[...new Set([...state.managers,p.toText()])]:state.managers.filter(x=>x!==p.toText());return {ok:null};},

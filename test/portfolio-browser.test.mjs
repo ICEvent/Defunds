@@ -17,6 +17,17 @@ try {
  const failures=[];page.on('pageerror',e=>failures.push(e.message));
  await page.goto('http://127.0.0.1:4182');
  await page.getByRole('cell',{name:'Shared rowing boat',exact:false}).waitFor();
+ const treasury=page.getByRole('region',{name:'Portfolio · Fund treasury'});
+ await treasury.getByText('2.5 TEST',{exact:true}).waitFor();
+ await page.evaluate(()=>window.portfolioFixture.chainBalance=3250000n);
+ await treasury.getByRole('button',{name:'Refresh balances',exact:true}).click();
+ await treasury.getByText('3.25 TEST',{exact:true}).waitFor();
+ await treasury.getByText('Fund currencies',{exact:true}).click();
+ await treasury.getByLabel('Currency type').selectOption('manual');
+ await treasury.getByRole('button',{name:'Add currency',exact:true}).click();
+ await treasury.getByText('manual:CAD',{exact:true}).waitFor();
+ await treasury.getByText('Fund currencies',{exact:true}).click();
+
  await page.screenshot({path:`${output}/desktop.png`,fullPage:true});
  const row=page.locator('tbody tr').filter({has:page.getByText('ETH',{exact:true})});
  await row.getByRole('button',{name:'Increase',exact:true}).click();
@@ -64,7 +75,7 @@ try {
  await page.screenshot({path:`${output}/mobile.png`,fullPage:true});
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'Page must not overflow mobile viewport');
  await page.getByRole('button',{name:'+ Add asset',exact:true}).click();
- await page.getByLabel('Name',{exact:true}).fill('Shared camping equipment');
+ await page.getByRole('form',{name:'Add asset',exact:true}).getByLabel('Name',{exact:true}).fill('Shared camping equipment');
  await page.getByLabel('Opening quantity').fill('1');
  await page.screenshot({path:`${output}/mobile-form.png`,fullPage:true});
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'Form must not overflow mobile viewport');

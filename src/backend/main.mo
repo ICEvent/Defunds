@@ -29,11 +29,109 @@ import Grants "./grant";
 import GroupTypes "./group/types";
 import Groups "./group";
 import PortfolioTypes "./portfolio/types";
+import FundCurrencyTypes "./fund_currency/types";
+import FundCurrencies "./fund_currency/lib";
+import Error "mo:base/Error";
 import PortfolioLedger "./portfolio/ledger";
 import PortfolioPermissions "./portfolio/permissions";
 
 persistent actor Defunds{
   // Separate persistent fields preserve the existing GroupFund stable shape.
+  var fundCurrencyEntries : [FundCurrencyTypes.Entry] = [];
+  // Snapshots live outside GroupProposal to preserve old stable layouts.
+  var proposalCurrencySnapshots : [(Nat, FundCurrencyTypes.Currency)] = [];
+
+  private func fundCurrencyList(fund : GroupTypes.GroupFund) : [FundCurrencyTypes.Currency] {
+    FundCurrencies.list(fundCurrencyEntries, fund.id, fund.currency)
+  };
+  private func proposalCurrency(proposal : GroupTypes.GroupProposal) : FundCurrencyTypes.Currency {
+    switch (Array.find<(Nat, FundCurrencyTypes.Currency)>(proposalCurrencySnapshots,func((id,_)){id == proposal.id})) {
+      case (?(_,currency)) currency;
+      case null { switch (groups.getGroup(proposal.groupId)) { case (?fund) FundCurrencies.legacy(fund.currency); case null FundCurrencies.legacy(#ICP) } };
+    }
+  };
+  private func putFundCurrency(fundId : Nat, currency : FundCurrencyTypes.Currency) {
+    fundCurrencyEntries := Array.append<FundCurrencyTypes.Entry>(Array.filter<FundCurrencyTypes.Entry>(fundCurrencyEntries,func(e){not(e.fundId == fundId and e.currency.id == currency.id)}),[{fundId;currency}]);
+  };
+  public shared query ({caller}) func getFundCurrencies(fundId : Nat) : async Result.Result<[FundCurrencyTypes.Currency],Text> {
+    let fund = switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g) g};
+    if(not canReadGroup(caller,fund)) return #err("Fund access denied");
+    #ok(fundCurrencyList(fund))
+  };
+  public shared query ({caller}) func getFundTreasuryAccount(fundId : Nat) : async Result.Result<{owner:Principal;subaccount:Blob},Text> {
+    let fund = switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g) g};
+    if(not portfolioAccess(fundId,caller,false)) return #err("Fund access denied");
+    #ok({owner=Principal.fromActor(Defunds);subaccount=Blob.fromArray(fund.account)})
+  };
+  public shared ({caller}) func addFundManualCurrency(fundId : Nat, code : Text, name : Text, decimals : Nat8) : async Result.Result<FundCurrencyTypes.Currency,Text> {
+    let fund = switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g) g};
+    if(Principal.isAnonymous(caller) or fund.creator != caller) return #err("Only fund creator can configure currencies");
+    if(not FundCurrencies.validSymbol(code) or not FundCurrencies.validName(name) or Nat8.toNat(decimals) > 18) return #err("Invalid currency code, name or precision");
+    let id="manual:" # code;
+    if(FundCurrencies.find(fundCurrencyEntries,fundId,fund.currency,id)!=null) return #err("Currency already configured; its precision is immutable");
+    if(fundCurrencyList(fund).size() >= FundCurrencies.limit) return #err("Currency limit reached");
+    let currency : FundCurrencyTypes.Currency={id;symbol=code;name;decimals;ledger=null;enabled=true};
+    putFundCurrency(fundId,currency);#ok(currency)
+  };
+  public shared ({caller}) func addFundLedgerCurrency(fundId : Nat, ledgerId : Principal) : async Result.Result<FundCurrencyTypes.Currency,Text> {
+    let fund = switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g) g};
+    if(Principal.isAnonymous(caller) or fund.creator != caller) return #err("Only fund creator can configure currencies");
+    if(Principal.isAnonymous(ledgerId) or ledgerId == Principal.fromActor(Defunds)) return #err("Invalid ledger");
+    let id=FundCurrencies.ledgerId(ledgerId);
+    if(Array.find<FundCurrencyTypes.Entry>(fundCurrencyEntries,func(e){e.fundId==fundId and e.currency.id==id})!=null) return #err("Ledger already configured");
+    if(fundCurrencyList(fund).size() >= FundCurrencies.limit) return #err("Currency limit reached");
+    let ledger : actor {icrc1_symbol:shared query ()->async Text;icrc1_name:shared query ()->async Text;icrc1_decimals:shared query ()->async Nat8}=actor(Principal.toText(ledgerId));
+    let (symbol,name,decimals) = try { (await ledger.icrc1_symbol(),await ledger.icrc1_name(),await ledger.icrc1_decimals()) } catch(e){return #err("Ledger metadata unavailable: " # Error.message(e))};
+    let current = switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g) g};
+    if(current.creator != caller) return #err("Fund access changed");
+    if(not FundCurrencies.validMetadata(symbol,name,decimals)) return #err("Ledger metadata exceeds supported limits");
+    if(Array.find<FundCurrencyTypes.Entry>(fundCurrencyEntries,func(e){e.fundId==fundId and e.currency.id==id})!=null) return #err("Ledger already configured");
+    if(fundCurrencyList(current).size() >= FundCurrencies.limit) return #err("Currency limit reached");
+    let currency : FundCurrencyTypes.Currency={id;symbol;name;decimals;ledger=?ledgerId;enabled=true};
+    putFundCurrency(fundId,currency);#ok(currency)
+  };
+  public shared ({caller}) func setFundCurrencyEnabled(fundId:Nat,id:Text,enabled:Bool) : async Result.Result<(),Text> {
+    let fund=switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g)g};
+    if(Principal.isAnonymous(caller) or fund.creator != caller) return #err("Only fund creator can configure currencies");
+    let currency=switch(FundCurrencies.find(fundCurrencyEntries,fundId,fund.currency,id)){case null return #err("Currency not found");case (?c)c};
+    putFundCurrency(fundId,{currency with enabled});#ok(())
+  };
+  public shared ({caller}) func getFundTreasuryBalances(fundId:Nat) : async Result.Result<[FundCurrencyTypes.Balance],Text> {
+    let fund=switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g)g};
+    if(not portfolioAccess(fundId,caller,false)) return #err("Fund access denied");
+    let currencies=fundCurrencyList(fund);
+    let output=Buffer.Buffer<FundCurrencyTypes.Balance>(currencies.size());
+    for(currency in currencies.vals()){
+      switch(currency.ledger){
+        case null {};
+        case (?id){
+          let ledger:actor {icrc1_balance_of:shared query {owner:Principal;subaccount:?Blob}->async Nat}=actor(Principal.toText(id));
+          let balance : {#ok:Nat;#err:Text}=try{#ok(await ledger.icrc1_balance_of({owner=Principal.fromActor(Defunds);subaccount=?Blob.fromArray(fund.account)}))}catch(e){#err(Error.message(e))};
+          output.add({currency;balance;checkedAt=Time.now()});
+        };
+      }
+    };
+    // Recheck live membership after every external await has completed.
+    if(not portfolioAccess(fundId,caller,false)) return #err("Fund access changed");
+    #ok(Buffer.toArray(output))
+  };
+  public shared query ({caller}) func getGroupProposalsWithCurrency(fundId:Nat) : async Result.Result<[{proposal:GroupTypes.GroupProposal;currency:FundCurrencyTypes.Currency}],Text> {
+    let fund=switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g)g};
+    if(not canReadGroup(caller,fund)) return #err("Fund access denied");
+    #ok(Array.map<GroupTypes.GroupProposal,{proposal:GroupTypes.GroupProposal;currency:FundCurrencyTypes.Currency}>(groups.getGroupProposals(fundId),func(proposal){{proposal;currency=proposalCurrency(proposal)}}))
+  };
+  public shared ({caller}) func createGroupProposalWithCurrency(fundId:Nat,title:Text,description:Text,recipient:Principal,amount:Nat,currencyId:Text) : async Result.Result<GroupTypes.GroupProposal,Text> {
+    if(Principal.isAnonymous(caller)) return #err("Authentication required");
+    let fund=switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g)g};
+    let currency=switch(FundCurrencies.find(fundCurrencyEntries,fundId,fund.currency,currencyId)){case null return #err("Currency not configured");case (?c)c};
+    if(not currency.enabled) return #err("Currency disabled for new proposals");
+    if(amount > 10 ** 36 or Principal.isAnonymous(recipient)) return #err("Invalid proposal amount or recipient");
+    switch(groups.createGroupProposal(caller,fundId,title,description,recipient,amount)){
+      case (#err(e)) #err(e);
+      case (#ok(proposal)){proposalCurrencySnapshots:=Array.append<(Nat,FundCurrencyTypes.Currency)>(proposalCurrencySnapshots,[(proposal.id,currency)]);#ok(proposal)};
+    }
+  };
+
   var portfolioState : PortfolioTypes.State = PortfolioLedger.empty;
   var portfolioManagers : [(Nat, Principal)] = [];
   var portfolioManagerEvents : [PortfolioTypes.ManagerEvent] = [];
@@ -2417,7 +2515,14 @@ persistent actor Defunds{
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot create proposals");
 		} else {
-			groups.createGroupProposal(caller, groupId, title, description, recipient, amount);
+			let fund=switch(groups.getGroup(groupId)){case null return #err("Fund not found");case (?g)g};
+      let legacy=FundCurrencies.legacy(fund.currency);
+      let configured=switch(FundCurrencies.find(fundCurrencyEntries,groupId,fund.currency,legacy.id)){case null legacy;case (?c)c};
+      if(not configured.enabled) return #err("Currency disabled for new proposals");
+      switch(groups.createGroupProposal(caller,groupId,title,description,recipient,amount)){
+        case (#err(e)) #err(e);
+        case (#ok(proposal)){proposalCurrencySnapshots:=Array.append<(Nat,FundCurrencyTypes.Currency)>(proposalCurrencySnapshots,[(proposal.id,legacy)]);#ok(proposal)};
+      };
 		};
 	};
 
@@ -2554,7 +2659,13 @@ persistent actor Defunds{
 		if (Principal.isAnonymous(caller)) {
 			return #err("Anonymous users cannot run AI evaluations");
 		};
-		groups.evaluateProposals(groupId, caller);
+		let fund=switch(groups.getGroup(groupId)){case null return #err("Fund not found");case (?g)g};
+    let legacy=FundCurrencies.legacy(fund.currency);
+    for(proposal in groups.getGroupProposals(groupId).vals()){
+      let denomination=proposalCurrency(proposal);
+      if(denomination.id != legacy.id or denomination.decimals != legacy.decimals) return #err("AI budget scoring is unavailable for mixed-currency proposals");
+    };
+    groups.evaluateProposals(groupId, caller);
 	};
 
 	public query ({ caller }) func getAIAgentFund(groupId : Nat) : async ?GroupTypes.AIAgentFund {

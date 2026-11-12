@@ -6,6 +6,9 @@ on:
       - 'src/frontend/src/lib/portfolio/**'
       - 'src/frontend/src/lib/components/GroupPortfolio.svelte'
       - 'test/PortfolioLedger.test.mo'
+      - 'test/FundCurrencies.test.mo'
+      - 'test/fixtures/**'
+      - 'src/frontend/src/lib/components/FundCurrencies.svelte'
       - 'test/portfolio-amount.test.mjs'
       - 'test/portfolio-e2e.sh'
       - 'test/portfolio-browser/**'
@@ -33,6 +36,7 @@ jobs:
         run: |
           CACHE="$(dfx cache show)"
           "$CACHE/moc" -r --package base "$CACHE/base" test/PortfolioLedger.test.mo
+          "$CACHE/moc" -r --package base "$CACHE/base" test/FundCurrencies.test.mo
       - name: Test decimal precision and valuation summaries
         run: node --test test/portfolio-amount.test.mjs
       - name: Test production Portfolio APIs and populated upgrade
