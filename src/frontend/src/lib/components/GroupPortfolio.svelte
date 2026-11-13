@@ -5,8 +5,8 @@
   export let positions = [];
   export let locations = [];
   $: definitionsOnly = view === 'definitions';
-  function isDefinition(asset) { return positions.some(p => p.asset.id === asset.id && 'asset' in p.definition && p.definition.asset === asset.id); }
-  function place(asset) { const p = positions.find(p => p.asset.id === asset.id); return p?.locationId ? locations.find(l => l.id === p.locationId)?.name ?? 'Unknown location' : 'Unassigned'; }
+  function isDefinition(asset, snapshot) { return snapshot.some(p => p.asset.id === asset.id && 'asset' in p.definition && p.definition.asset === asset.id); }
+  function place(asset, snapshot, places) { const p = snapshot.find(p => p.asset.id === asset.id); return p?.locationId ? places.find(l => l.id === p.locationId)?.name ?? 'Unknown location' : 'Unassigned'; }
   export let refreshToken = 0;
   export let blockedReversals = [];
   export let backend;
@@ -30,7 +30,7 @@
   onDestroy(() => { active = false; epoch++; });
   $: canWrite = isCreator || managers.some(p => p.toText() === principalText);
   $: summary = summarize(view === 'holdings' ? shown : assets);
-  $: shown = assets.filter(a => (includeArchived || !a.archived) && (definitionsOnly ? isDefinition(a) : view === 'holdings' ? !(isDefinition(a) && place(a) === 'Unassigned' && a.quantity === 0n) : true));
+  $: shown = assets.filter(a => (includeArchived || !a.archived) && (definitionsOnly ? isDefinition(a, positions) : view === 'holdings' ? !(isDefinition(a, positions) && place(a, positions, locations) === 'Unassigned' && a.quantity === 0n) : true));
   $: if (backend && fundId !== undefined && principalText && (context?.actor !== backend || context?.id !== fundId || context?.principal !== principalText || context?.refreshToken !== refreshToken)) {
     context = { actor: backend, id: fundId, principal: principalText, refreshToken };
     void load();
@@ -147,7 +147,7 @@
         <td data-label="Asset"><strong>{asset.name}</strong><div class="mt-1 text-xs text-slate-500">{asset.category}{#if asset.source.length} · ICEvent reference (unverified){/if}</div></td>
         {#if definitionsOnly}<td data-label="Unit / precision">{asset.unit} · {asset.decimals} decimals</td>{:else}<td data-label="Holding">{formatUnits(asset.quantity, asset.decimals)} {asset.unit}</td><td data-label="Valuation">{value(asset)}{#if asset.valuation[0]}<div class="mt-1 text-xs text-slate-400">{date(asset.valuation[0].at)}</div>{/if}</td>
         <td data-label="Status">{asset.archived ? 'Archived' : Object.keys(asset.status)[0]}</td>
-        {#if view === 'holdings'}<td data-label="Location">{place(asset)}</td>{/if}{/if}
+        {#if view === 'holdings'}<td data-label="Location">{place(asset, positions, locations)}</td>{/if}{/if}
         <td data-label="Actions"><div class="flex flex-wrap gap-2">
           <button disabled={busy} on:click={() => showHistory(asset)} class="link">History</button>
           {#if canWrite && !asset.archived}{#if !definitionsOnly}<button disabled={busy} on:click={() => open('increase', asset)} class="link">Increase</button><button disabled={busy} on:click={() => open('decrease', asset)} class="link">Decrease</button><button disabled={busy} on:click={() => open('valuation', asset)} class="link">Revalue</button>{/if}{#if view !== 'holdings'}<button disabled={busy} on:click={() => open('details', asset)} class="link">Edit</button>{/if}{/if}
