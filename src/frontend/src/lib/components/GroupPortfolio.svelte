@@ -1,6 +1,12 @@
 <script>
   import { Principal } from '@dfinity/principal';
   import { parseUnits, formatUnits, summarize } from '$lib/portfolio/amount';
+  export let view = 'ledger';
+  export let positions = [];
+  export let locations = [];
+  $: definitionsOnly = view === 'definitions';
+  function isDefinition(asset) { return positions.some(p => p.asset.id === asset.id && 'asset' in p.definition && p.definition.asset === asset.id); }
+  function place(asset) { const p = positions.find(p => p.asset.id === asset.id); return p?.locationId ? locations.find(l => l.id === p.locationId)?.name ?? 'Unknown location' : 'Unassigned'; }
   export let refreshToken = 0;
   export let blockedReversals = [];
   export let backend;
@@ -19,11 +25,12 @@
   let context, epoch = 0, active = true, pendingRequest = null;
   import { onDestroy, tick, createEventDispatcher } from 'svelte';
   const dispatch = createEventDispatcher();
-  let formElement;
+  let formElement, previousView;
+  $: if (previousView !== view) { previousView = view; form = ''; historyAsset = null; }
   onDestroy(() => { active = false; epoch++; });
   $: canWrite = isCreator || managers.some(p => p.toText() === principalText);
-  $: summary = summarize(assets);
-  $: shown = assets.filter(a => includeArchived || !a.archived);
+  $: summary = summarize(view === 'holdings' ? shown : assets);
+  $: shown = assets.filter(a => (includeArchived || !a.archived) && (definitionsOnly ? isDefinition(a) : view === 'holdings' ? !(isDefinition(a) && place(a) === 'Unassigned' && a.quantity === 0n) : true));
   $: if (backend && fundId !== undefined && principalText && (context?.actor !== backend || context?.id !== fundId || context?.principal !== principalText || context?.refreshToken !== refreshToken)) {
     context = { actor: backend, id: fundId, principal: principalText, refreshToken };
     void load();
@@ -77,7 +84,7 @@
           if (!/^\d+$/.test(sourceAssetId) || sourceAssetId.length > 40) throw new Error('Enter a valid ICEvent asset ID');
           source = [{ network: sourceNetwork.trim(), canisterId: Principal.fromText(sourceCanister.trim()), assetId: BigInt(sourceAssetId) }];
         }
-        operation = { create: { name: name.trim(), category: category.trim(), unit: unit.trim(), decimals: Number(decimals), quantity: parseUnits(quantity || '0', decimals), source, note } };
+        operation = { create: { name: name.trim(), category: category.trim(), unit: unit.trim(), decimals: Number(decimals), quantity: definitionsOnly ? 0n : parseUnits(quantity || '0', decimals), source, note } };
       } else {
         let change;
         if (form === 'increase' || form === 'decrease') change = { [form]: parseUnits(quantity, selected.decimals) };
@@ -121,35 +128,37 @@
 
 <section class="mt-6 rounded-2xl bg-white p-5 text-slate-950 sm:p-6" aria-labelledby="portfolio-heading">
   <div class="flex flex-wrap items-start justify-between gap-4">
-    <div><h2 id="portfolio-heading" class="text-2xl font-semibold">Portfolio</h2><p class="mt-1 text-sm text-slate-500">Member-only asset records · manual valuations · no transfers</p></div>
-    <div class="flex gap-2"><button disabled={busy || loading} on:click={load} class="secondary">Refresh</button>{#if canWrite}<button disabled={busy || loading} on:click={() => open('create')} class="primary">+ Add asset</button>{/if}</div>
+    <div><h2 id="portfolio-heading" class="text-2xl font-semibold">{definitionsOnly ? 'Asset definitions' : view === 'holdings' ? 'Holding records' : 'Portfolio'}</h2><p class="mt-1 text-sm text-slate-500">{definitionsOnly ? 'Step 1 · Define a name, category, unit and precision. Add locations next, then record quantities in Holdings.' : view === 'holdings' ? 'Edit the quantity and valuation of each holding. Existing unassigned balances are preserved; assign them to a location instead of adding them again.' : 'Member-only asset records · manual valuations · no transfers'}</p></div>
+    <div class="flex gap-2"><button disabled={busy || loading} on:click={load} class="secondary">Refresh</button>{#if canWrite && view !== 'holdings'}<button disabled={busy || loading} on:click={() => open('create')} class="primary">{definitionsOnly ? '+ Add asset definition' : '+ Add asset'}</button>{/if}</div>
   </div>
   {#if error && !form}<div role="alert" class="mt-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-800">{error}</div>{/if}
   {#if success}<p role="status" class="mt-3 text-sm text-emerald-700">{success}</p>{/if}
   {#if loading}<p class="py-8 text-slate-500">Loading portfolio…</p>{:else}
-    <div class="my-6 flex flex-wrap gap-x-10 gap-y-3 border-y border-slate-100 py-5">
+    {#if !definitionsOnly}<div class="my-6 flex flex-wrap gap-x-10 gap-y-3 border-y border-slate-100 py-5">
       {#each summary.totals as total}<div><div class="text-xs text-slate-500">Known valuation · {total.currency}</div><div class="mt-1 text-xl font-semibold">{total.currency} {formatUnits(total.amount, 18)}</div></div>{/each}
       <div><div class="text-xs text-slate-500">Awaiting valuation</div><div class="mt-1 text-xl font-semibold">{summary.unvalued} {summary.unvalued === 1 ? 'asset' : 'assets'}</div></div>
     </div>
+    {/if}
     <label class="checkbox-label mb-3 text-sm text-slate-500"><input type="checkbox" bind:checked={includeArchived} /> Show archived</label>
     <!-- Keyboard focus lets users scroll the asset table without a pointer. -->
     <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
-    <div class="overflow-x-auto" role="region" aria-label="Portfolio assets" tabindex="0"><table class="w-full text-left text-sm"><thead><tr class="border-b border-slate-200 text-slate-500"><th scope="col">Asset</th><th scope="col">Holding</th><th scope="col">Valuation</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody>
+    <div class="overflow-x-auto" role="region" aria-label="Portfolio assets" tabindex="0"><table class="w-full text-left text-sm"><thead><tr class="border-b border-slate-200 text-slate-500"><th scope="col">Asset</th>{#if definitionsOnly}<th scope="col">Unit / precision</th>{:else}<th scope="col">Holding</th><th scope="col">Valuation</th><th scope="col">Status</th>{#if view === 'holdings'}<th scope="col">Location</th>{/if}{/if}<th scope="col">Actions</th></tr></thead><tbody>
       {#each shown as asset (asset.id)}<tr class="border-b border-slate-100">
         <td data-label="Asset"><strong>{asset.name}</strong><div class="mt-1 text-xs text-slate-500">{asset.category}{#if asset.source.length} · ICEvent reference (unverified){/if}</div></td>
-        <td data-label="Holding">{formatUnits(asset.quantity, asset.decimals)} {asset.unit}</td><td data-label="Valuation">{value(asset)}{#if asset.valuation[0]}<div class="mt-1 text-xs text-slate-400">{date(asset.valuation[0].at)}</div>{/if}</td>
+        {#if definitionsOnly}<td data-label="Unit / precision">{asset.unit} · {asset.decimals} decimals</td>{:else}<td data-label="Holding">{formatUnits(asset.quantity, asset.decimals)} {asset.unit}</td><td data-label="Valuation">{value(asset)}{#if asset.valuation[0]}<div class="mt-1 text-xs text-slate-400">{date(asset.valuation[0].at)}</div>{/if}</td>
         <td data-label="Status">{asset.archived ? 'Archived' : Object.keys(asset.status)[0]}</td>
+        {#if view === 'holdings'}<td data-label="Location">{place(asset)}</td>{/if}{/if}
         <td data-label="Actions"><div class="flex flex-wrap gap-2">
           <button disabled={busy} on:click={() => showHistory(asset)} class="link">History</button>
-          {#if canWrite && !asset.archived}<button disabled={busy} on:click={() => open('increase', asset)} class="link">Increase</button><button disabled={busy} on:click={() => open('decrease', asset)} class="link">Decrease</button><button disabled={busy} on:click={() => open('valuation', asset)} class="link">Revalue</button><button disabled={busy} on:click={() => open('details', asset)} class="link">Edit</button>{/if}
-          {#if canWrite && (asset.quantity === 0n || asset.archived)}<button disabled={busy} on:click={() => open('archive', asset)} class="link">{asset.archived ? 'Restore' : 'Archive'}</button>{/if}
+          {#if canWrite && !asset.archived}{#if !definitionsOnly}<button disabled={busy} on:click={() => open('increase', asset)} class="link">Increase</button><button disabled={busy} on:click={() => open('decrease', asset)} class="link">Decrease</button><button disabled={busy} on:click={() => open('valuation', asset)} class="link">Revalue</button>{/if}{#if view !== 'holdings'}<button disabled={busy} on:click={() => open('details', asset)} class="link">Edit</button>{/if}{/if}
+          {#if canWrite && !definitionsOnly && (asset.quantity === 0n || asset.archived)}<button disabled={busy} on:click={() => open('archive', asset)} class="link">{asset.archived ? 'Restore' : 'Archive'}</button>{/if}
         </div></td>
-      </tr>{:else}<tr><td colspan="5" class="py-10 text-center text-slate-500">No assets yet.</td></tr>{/each}
+      </tr>{:else}<tr><td colspan={definitionsOnly ? 3 : view === 'holdings' ? 6 : 5} class="py-10 text-center text-slate-500">No assets yet.</td></tr>{/each}
     </tbody></table></div>
   {/if}
   {#if form && canWrite}
     <form bind:this={formElement} aria-labelledby="portfolio-form-heading" on:submit|preventDefault={submit} class="mt-6 border-t border-slate-200 pt-5">
-      <h3 id="portfolio-form-heading" class="text-lg font-semibold">{form === 'create' ? 'Add asset' : `${form.charAt(0).toUpperCase() + form.slice(1)} · ${selected.name}`}</h3>
+      <h3 id="portfolio-form-heading" class="text-lg font-semibold">{form === 'create' ? definitionsOnly ? 'Add asset definition' : 'Add asset' : `${form.charAt(0).toUpperCase() + form.slice(1)} · ${selected.name}`}</h3>
       {#if error}<div role="alert" class="mt-3 rounded-xl bg-rose-50 p-3 text-sm text-rose-800">{error}</div>{/if}
       <fieldset disabled={busy} class="mt-4 grid gap-4 sm:grid-cols-2">
         {#if form === 'create' || form === 'details'}
@@ -159,12 +168,12 @@
         {#if form === 'create'}
           <label>Unit<input required maxlength="32" bind:value={unit} /></label><label>Quantity decimal places<input required type="number" min="0" max="18" step="1" bind:value={decimals} /></label>
         {/if}
-        {#if ['create', 'increase', 'decrease'].includes(form)}<label>{form === 'create' ? 'Opening quantity' : 'Quantity'}<input required={form !== 'create'} inputmode="decimal" bind:value={quantity} placeholder="0" /></label>{/if}
+        {#if ['create', 'increase', 'decrease'].includes(form) && !definitionsOnly}<label>{form === 'create' ? 'Opening quantity' : 'Quantity'}<input required={form !== 'create'} inputmode="decimal" bind:value={quantity} placeholder="0" /></label>{/if}
         {#if form === 'valuation'}
           <p class="text-sm text-slate-500 sm:col-span-2">Record the total value of this entire holding, not a unit price.</p>
           <label>Total valuation<input required inputmode="decimal" bind:value={amount} /></label><label>Currency code<input required pattern={'[A-Za-z0-9]{1,12}'} maxlength="12" bind:value={currency} /></label><label>Value decimal places<input required type="number" min="0" max="18" step="1" bind:value={valuationDecimals} /></label>
         {/if}
-        {#if form === 'details'}<label>Holding status<select bind:value={status}><option value="held">Held</option><option value="locked">Locked</option><option value="disposed">Disposed (requires zero holding)</option></select></label>{/if}
+        {#if form === 'details' && !definitionsOnly}<label>Holding status<select bind:value={status}><option value="held">Held</option><option value="locked">Locked</option><option value="disposed">Disposed (requires zero holding)</option></select></label>{/if}
         {#if form === 'create'}
           <label class="checkbox-label sm:col-span-2"><input type="checkbox" bind:checked={useSource} /> Add an ICEvent resource reference</label>
           {#if useSource}<p class="text-sm text-amber-800 sm:col-span-2">Reference only. This does not verify ownership or grant access to ICEvent data.</p><label>Network / local instance<input required maxlength="64" bind:value={sourceNetwork} /></label><label>ICEvent ledger canister<input required bind:value={sourceCanister} /></label><label>Asset ID<input required inputmode="numeric" bind:value={sourceAssetId} /></label>{/if}
