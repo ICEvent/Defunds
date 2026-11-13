@@ -17,6 +17,7 @@ MEMBER="$(dfx identity get-principal --identity portfolio-test-member)"
 OUTSIDER="$(dfx identity get-principal --identity portfolio-test-outsider)"
 # A separate project and state directory keep this from resetting any developer replica.
 cp -R src/backend "$TASK_TMP/backend"
+cp test/fixtures/FundLedger.mo "$TASK_TMP/FundLedger.mo"
 python3 - "$TASK_TMP" <<'PY'
 import json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
@@ -29,10 +30,16 @@ s = s.replace(needle, needle + '''
   public shared ({ caller }) func portfolioTestCreateFund() : async Nat {
     groups.createGroupFund(caller, "Portfolio test", "Local fixture", true, #ICP).id
   };
+  public shared ({ caller }) func portfolioTestCreateAIFund() : async Nat {
+    groups.createAIAgentFund(caller, "AI test", "Local fixture", true, {
+      strategy = #balanced; riskTolerance = 50; maxAllocationPct = 25;
+      autoApproveThreshold = 75; enabled = true;
+    }).groupFund.id
+  };
 ''')
 p.write_text(s)
 (root / 'dfx.json').write_text(json.dumps({
- 'canisters': {'portfolio-e2e': {'type':'motoko','main':'backend/main.mo','args':'--enhanced-orthogonal-persistence'}},
+ 'canisters': {'portfolio-e2e': {'type':'motoko','main':'backend/main.mo','args':'--enhanced-orthogonal-persistence'}, 'fund-test-ledger': {'type':'motoko','main':'FundLedger.mo','args':'--enhanced-orthogonal-persistence'}},
  'networks': {'local': {'bind':'127.0.0.1:4957','type':'ephemeral'}}, 'version': 1
 }))
 PY
@@ -50,6 +57,7 @@ err() { if ! grep -Eq '(^|[[:space:]])err([[:space:]]|=|\})' <<< "$1"; then echo
 contains() { if ! grep -Fq "$2" <<< "${1//_/}"; then echo "Missing '$2' in: $1" >&2; exit 1; fi; }
 call portfolio-test-owner portfolioTestCreateFund '()' >/dev/null
 call portfolio-test-outsider portfolioTestCreateFund '()' >/dev/null
+call portfolio-test-owner portfolioTestCreateAIFund '()' >/dev/null
 # Preserve fixture-created groups through the real upgrade hooks.
 dfx canister install "$FIXTURE_CANISTER" --mode upgrade --wasm-memory-persistence keep --upgrade-unchanged --wasm "$TASK_TMP/production.wasm" --network local --identity portfolio-test-owner
 cp "$TASK_TMP/production.did" "$TASK_TMP/.dfx/local/canisters/$FIXTURE_CANISTER/$FIXTURE_CANISTER.did"
@@ -91,4 +99,60 @@ ok "$(call portfolio-test-owner writeFundPortfolio '(1, "exit", variant {change=
 ok "$(call portfolio-test-owner writeFundPortfolio '(1, "archive", variant {change=record {assetId=1;expectedRevision=6;change=variant {archive=true};note="archive"}})')"
 RESULT="$(call portfolio-test-owner listFundPortfolioAssets "$READ")"; ok "$RESULT"; contains "$RESULT" 'vec {}'
 ok "$(call portfolio-test-owner listFundPortfolioHistory '(1,1,0,100)')"
-echo 'PASS: production Portfolio APIs, authorization, idempotency and populated upgrade'
+
+# Multi-currency configuration and proposal snapshots use production endpoints.
+err "$(call portfolio-test-member addFundManualCurrency '(1,"CAD","Canadian dollar",2:nat8)')"
+ok "$(call portfolio-test-owner addFundManualCurrency '(1,"CAD","Canadian dollar",2:nat8)')"
+err "$(call portfolio-test-owner addFundManualCurrency '(1,"CAD","Different precision",3:nat8)')"
+err "$(call portfolio-test-owner addFundManualCurrency '(1,"bad code","Invalid",2:nat8)')"
+ok "$(call portfolio-test-owner createGroupProposalWithCurrency "(1,\"CAD expense\",\"Accounting proposal\",principal \"$MEMBER\",12345,\"manual:CAD\")")"
+ok "$(call portfolio-test-owner setFundCurrencyEnabled '(1,"manual:CAD",false)')"
+err "$(call portfolio-test-owner createGroupProposalWithCurrency "(1,\"Disabled\",\"Must fail\",principal \"$MEMBER\",1,\"manual:CAD\")")"
+RESULT="$(call portfolio-test-owner getGroupProposalsWithCurrency '(1)')"; ok "$RESULT"; contains "$RESULT" 'amount = 12345'; contains "$RESULT" 'symbol = "CAD"'; contains "$RESULT" 'decimals = 2'
+dfx deploy fund-test-ledger --identity portfolio-test-owner
+LEDGER="$(dfx canister id fund-test-ledger --network local)"
+ok "$(call portfolio-test-owner addFundLedgerCurrency "(1,principal \"$LEDGER\")")"
+err "$(call portfolio-test-owner addFundLedgerCurrency "(1,principal \"$LEDGER\")")"
+ACCOUNT="$(call portfolio-test-owner getFundTreasuryAccount '(1)')"; ok "$ACCOUNT"
+SUBACCOUNT="$(python3 - "$ACCOUNT" <<'PY_SUB'
+import re,sys
+m=re.search(r'subaccount\s*=\s*(blob\s+"(?:\\.|[^"\\])*")',sys.argv[1])
+assert m, 'Missing fund subaccount in Candid output'
+print(m.group(1))
+PY_SUB
+)"
+BACKEND="$(dfx canister id "$FIXTURE_CANISTER" --network local)"
+dfx canister call fund-test-ledger setTestBalance "(record {owner=principal \"$BACKEND\";subaccount=opt $SUBACCOUNT},2500000)" --network local >/dev/null
+RESULT="$(call portfolio-test-owner getFundTreasuryBalances '(1)')"; ok "$RESULT"; contains "$RESULT" 'symbol = "TEST"'; contains "$RESULT" 'ok = 2500000'; contains "$RESULT" 'decimals = 6'
+# Repeated reads are snapshots, not additive manual credits.
+RESULT="$(call portfolio-test-owner getFundTreasuryBalances '(1)')"; contains "$RESULT" 'ok = 2500000'
+err "$(call portfolio-test-outsider getFundTreasuryBalances '(1)')"
+err "$(call anonymous getFundTreasuryBalances '(1)')"
+ok "$(call portfolio-test-outsider addFundLedgerCurrency "(2,principal \"$LEDGER\")")"
+RESULT="$(call portfolio-test-outsider getFundTreasuryBalances '(2)')"; contains "$RESULT" 'ok = 0'
+# Disabling a token stops new proposals but must not hide an existing balance.
+ok "$(call portfolio-test-owner setFundCurrencyEnabled "(1,\"ic:$LEDGER\",false)")"
+RESULT="$(call portfolio-test-owner getFundTreasuryBalances '(1)')"; contains "$RESULT" 'ok = 2500000'
+CURRENCIES="$(call portfolio-test-owner getFundCurrencies '(1)')"
+PROPOSALS="$(call portfolio-test-owner getGroupProposalsWithCurrency '(1)')"
+dfx canister install "$FIXTURE_CANISTER" --mode upgrade --wasm-memory-persistence keep --upgrade-unchanged --wasm "$TASK_TMP/production.wasm" --network local --identity portfolio-test-owner
+[[ "$CURRENCIES" == "$(call portfolio-test-owner getFundCurrencies '(1)')" ]] || { echo 'Currencies lost across upgrade' >&2; exit 1; }
+[[ "$PROPOSALS" == "$(call portfolio-test-owner getGroupProposalsWithCurrency '(1)')" ]] || { echo 'Proposal denomination lost across upgrade' >&2; exit 1; }
+RESULT="$(call portfolio-test-owner getFundTreasuryBalances '(1)')"; contains "$RESULT" 'ok = 2500000'
+# AI scoring must ignore non-active foreign-currency proposal history.
+# Existing CAD proposal is #1; the AI fixture was seeded as Fund #3.
+ok "$(call portfolio-test-owner createGroupProposal "(3,\"Default asset proposal\",\"AI eligible\",principal \"$MEMBER\",100)")"
+ok "$(call portfolio-test-owner addFundManualCurrency '(3,"CAD","Canadian dollar",2:nat8)')"
+ok "$(call portfolio-test-owner createGroupProposalWithCurrency "(3,\"Foreign currency\",\"Blocks only while active\",principal \"$MEMBER\",100,\"manual:CAD\")")"
+err "$(call portfolio-test-owner runAIEvaluation '(3)')"
+ok "$(call portfolio-test-owner cancelGroupProposal '(3,3)')"
+RESULT="$(call portfolio-test-owner runAIEvaluation '(3)')"; ok "$RESULT"; contains "$RESULT" 'proposalId = 2'
+ok "$(call portfolio-test-owner createGroupProposalWithCurrency "(3,\"Approved foreign\",\"Closed by vote\",principal \"$MEMBER\",100,\"manual:CAD\")")"
+err "$(call portfolio-test-owner runAIEvaluation '(3)')"
+ok "$(call portfolio-test-owner voteOnProposal '(3,4,true)')"
+RESULT="$(call portfolio-test-owner runAIEvaluation '(3)')"; ok "$RESULT"; contains "$RESULT" 'proposalId = 2'
+ok "$(call portfolio-test-owner createGroupProposalWithCurrency "(3,\"Rejected foreign\",\"Closed by vote\",principal \"$MEMBER\",100,\"manual:CAD\")")"
+err "$(call portfolio-test-owner runAIEvaluation '(3)')"
+ok "$(call portfolio-test-owner voteOnProposal '(3,5,false)')"
+RESULT="$(call portfolio-test-owner runAIEvaluation '(3)')"; ok "$RESULT"; contains "$RESULT" 'proposalId = 2'
+echo 'PASS: production Portfolio, multi-currency proposals, ledger snapshots, populated upgrades and AI history guard'
