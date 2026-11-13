@@ -486,7 +486,7 @@
     {#if isAuthed && (isCreator || isMember)}
       <FundCurrencies {backend} fundId={groupId} {principalText} {isCreator} on:balances={(event)=>treasury=event.detail} on:changed={()=>locationRefresh++} on:currencies={(event) => { fundCurrencies = event.detail.currencies; if (!fundCurrencies.some(c => c.id === proposalCurrencyId && c.enabled)) proposalCurrencyId = fundCurrencies.find(c => c.enabled)?.id ?? ""; }} />
       <LocationPortfolio {backend} fundId={groupId} {principalText} {treasury} refreshToken={locationRefresh} on:links={(event)=>linkedMovementEvents=event.detail} on:changed={()=>assetRefresh++} />
-      <FundInvestments {backend} fundId={groupId} {principalText} refreshToken={locationRefresh} />
+      <FundInvestments {backend} fundId={groupId} {principalText} refreshToken={locationRefresh + assetRefresh} />
       <GroupPortfolio {backend} fundId={groupId} {principalText} {isCreator} members={canonicalMembers} refreshToken={assetRefresh} blockedReversals={linkedMovementEvents} on:changed={()=>locationRefresh++} />
     {/if}
 

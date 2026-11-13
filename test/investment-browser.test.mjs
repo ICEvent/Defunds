@@ -21,6 +21,30 @@ try{
   await region.getByRole('status').waitFor();
   async function start(name){await region.getByRole('button',{name,exact:true}).click();}
   async function save(){await region.getByRole('button',{name:'Save investment',exact:true}).click();await region.getByRole('status').waitFor();}
+  // Changing the adjacent location configuration must refresh the investment
+  // selectors without using Refresh investments (PR review regression).
+  const places=page.getByRole('region',{name:'Asset locations & holdings',exact:true});
+  await places.getByRole('button',{name:'+ Add location',exact:true}).click();
+  await places.getByLabel('Location name',{exact:true}).fill('Wallet C');
+  await places.getByLabel('Location type').selectOption('other');
+  await places.getByLabel('Location reference').fill('external-c');
+  await places.getByRole('button',{name:'Save location record',exact:true}).click();
+  await places.getByRole('status').filter({hasText:'Location portfolio saved'}).waitFor();
+  await start('Buy / add');
+  await region.getByLabel('Investment location',{exact:true}).selectOption({label:'Wallet C'});
+  await region.getByRole('button',{name:'Cancel investment',exact:true}).click();
+  await places.getByText('Manage locations',{exact:true}).click();
+  await places.locator('li').filter({hasText:'Wallet C'}).getByRole('button',{name:'Disable location',exact:true}).click();
+  await places.getByRole('status').filter({hasText:'Location portfolio saved'}).waitFor();
+  await start('Buy / add');
+  assert.equal(await region.getByLabel('Investment location',{exact:true}).locator('option').filter({hasText:'Wallet C'}).count(),0);
+  await region.getByRole('button',{name:'Cancel investment',exact:true}).click();
+  await places.getByText('Manage locations',{exact:true}).click();
+  await places.locator('li').filter({hasText:'Wallet C'}).getByRole('button',{name:'Restore location',exact:true}).click();
+  await places.getByRole('status').filter({hasText:'Location portfolio saved'}).waitFor();
+  await start('Buy / add');
+  await region.getByLabel('Investment location',{exact:true}).selectOption({label:'Wallet C'});
+  await region.getByRole('button',{name:'Cancel investment',exact:true}).click();
   await start('Buy / add');await region.getByLabel('Investment quantity (ETH)').fill('100');await region.getByLabel('Investment amount (TEST)').fill('1000');
   await page.evaluate(()=>window.investmentFixture.loseResponse=true);
   await region.getByRole('button',{name:'Save investment',exact:true}).click();await region.getByRole('alert').filter({hasText:'Response lost'}).waitFor();await save();

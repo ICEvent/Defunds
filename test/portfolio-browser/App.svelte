@@ -19,5 +19,5 @@
  <FundCurrencies {backend} fundId={1n} {principalText} isCreator={role === 'owner'} on:balances={(e)=>treasury=e.detail} on:changed={()=>locationRefresh++}/>
  <LocationPortfolio {backend} fundId={1n} {principalText} {treasury} refreshToken={locationRefresh} on:links={(event)=>linkedMovementEvents=event.detail} on:changed={()=>assetRefresh++}/>
  <GroupPortfolio {backend} fundId={1n} {principalText} isCreator={role === 'owner'} {members} refreshToken={assetRefresh} blockedReversals={linkedMovementEvents} on:changed={()=>locationRefresh++}/>
- <FundInvestments {backend} fundId={1n} {principalText} refreshToken={locationRefresh}/>
+ <FundInvestments {backend} fundId={1n} {principalText} refreshToken={locationRefresh + assetRefresh}/>
 </main>
