@@ -13,13 +13,15 @@
   import { hideProgress, showProgress } from "$lib/stores/progress";
   import { getCurrencyName, getDecimalsByCurrency } from "$lib/utils/currency.utils";
 
-  let activeSection = "treasury";
+  let activeSection = "portfolio";
+  let locationPositions = [], fundLocations = [], manageHoldings = false;
   $: fundSections = [
     ...(isAuthed && (isCreator || isMember) ? [
-      { id: "treasury", label: "Treasury" },
-      { id: "locations", label: "Locations & holdings" },
+      { id: "definitions", label: "1 · Asset definitions" },
+      { id: "locations", label: "2 · Locations" },
+      { id: "portfolio", label: "3 · Portfolio" },
+      { id: "treasury", label: "Treasury & currencies" },
       { id: "investments", label: "Investments" },
-      { id: "assets", label: "Asset ledger" },
     ] : [{ id: "treasury", label: "Treasury identity" }]),
     { id: "proposals", label: `Proposals (${proposals.length})` },
     { id: "members", label: `Members (${canonicalMembers.length})` },
@@ -527,25 +529,27 @@
 
     <nav aria-label="Fund sections" class="mt-5 flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
       {#each fundSections as section (section.id)}
-        <button type="button" aria-pressed={activeSection === section.id} aria-controls={section.id === "treasury" && isAuthed && (isCreator || isMember) ? "fund-treasury-balances fund-treasury" : `fund-${section.id}`} on:click={() => activeSection = section.id}
+        <button type="button" aria-pressed={activeSection === section.id} aria-controls={["locations", "portfolio"].includes(section.id) ? "fund-location-workspace" : section.id === "definitions" ? "fund-asset-workspace fund-treasury-balances" : section.id === "treasury" && isAuthed && (isCreator || isMember) ? "fund-treasury-balances fund-treasury" : `fund-${section.id}`} on:click={() => activeSection = section.id}
           class="rounded-xl px-4 py-2.5 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 {activeSection === section.id ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'}">{section.label}</button>
       {/each}
     </nav>
 
     <!-- Keep dependent portfolios mounted so balance and reversal events stay in sync. -->
     {#if isAuthed && (isCreator || isMember)}
-      <div id="fund-treasury-balances" hidden={activeSection !== "treasury"} class="min-w-0">
-        <FundCurrencies {backend} fundId={groupId} {principalText} {isCreator} on:balances={(event)=>treasury=event.detail} on:changed={()=>locationRefresh++} on:currencies={(event) => { fundCurrencies = event.detail.currencies; if (!fundCurrencies.some(c => c.id === proposalCurrencyId && c.enabled)) proposalCurrencyId = fundCurrencies.find(c => c.enabled)?.id ?? ""; }} />
+
+      <div id="fund-treasury-balances" hidden={!["treasury", "definitions"].includes(activeSection)} class="min-w-0">
+        <FundCurrencies catalogOnly={activeSection === "definitions"} {backend} fundId={groupId} {principalText} {isCreator} on:balances={(event)=>treasury=event.detail} on:changed={()=>locationRefresh++} on:currencies={(event) => { fundCurrencies = event.detail.currencies; if (!fundCurrencies.some(c => c.id === proposalCurrencyId && c.enabled)) proposalCurrencyId = fundCurrencies.find(c => c.enabled)?.id ?? ""; }} />
       </div>
-      <div id="fund-locations" hidden={activeSection !== "locations"} class="min-w-0">
-        <LocationPortfolio {backend} fundId={groupId} {principalText} {treasury} refreshToken={locationRefresh} on:links={(event)=>linkedMovementEvents=event.detail} on:changed={()=>assetRefresh++} />
+      <div id="fund-location-workspace" hidden={!["locations", "portfolio"].includes(activeSection)} class="min-w-0">
+        <LocationPortfolio {manageHoldings} on:manageholdings={()=>manageHoldings=!manageHoldings} view={activeSection} on:snapshot={(event)=>{locationPositions=event.detail.positions;fundLocations=event.detail.locations;}} {backend} fundId={groupId} {principalText} {treasury} refreshToken={locationRefresh} on:links={(event)=>linkedMovementEvents=event.detail} on:changed={()=>assetRefresh++} />
+      </div>
+      <div id="fund-asset-workspace" hidden={!(activeSection === "definitions" || (activeSection === "portfolio" && manageHoldings))} class="min-w-0">
+        <GroupPortfolio view={activeSection === "definitions" ? "definitions" : "holdings"} positions={locationPositions} locations={fundLocations} {backend} fundId={groupId} {principalText} {isCreator} members={canonicalMembers} refreshToken={assetRefresh} blockedReversals={linkedMovementEvents} on:changed={()=>locationRefresh++} />
       </div>
       <div id="fund-investments" hidden={activeSection !== "investments"} class="min-w-0">
         <FundInvestments {backend} fundId={groupId} {principalText} refreshToken={locationRefresh + assetRefresh} />
       </div>
-      <div id="fund-assets" hidden={activeSection !== "assets"} class="min-w-0">
-        <GroupPortfolio {backend} fundId={groupId} {principalText} {isCreator} members={canonicalMembers} refreshToken={assetRefresh} blockedReversals={linkedMovementEvents} on:changed={()=>locationRefresh++} />
-      </div>
+
     {/if}
 
     <div id="fund-treasury" hidden={activeSection !== "treasury"}>

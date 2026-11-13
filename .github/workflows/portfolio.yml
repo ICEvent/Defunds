@@ -21,6 +21,8 @@ on:
       - 'test/portfolio-e2e.sh'
       - 'test/portfolio-browser/**'
       - 'test/portfolio-browser.test.mjs'
+      - 'test/asset-workflow-browser.test.mjs'
+      - 'src/frontend/src/routes/funds/[id]/+page.svelte'
       - '.github/workflows/portfolio.yml'
   workflow_dispatch:
 permissions:
@@ -70,6 +72,7 @@ jobs:
         run: |
           PORTFOLIO_CHROMIUM="$(command -v google-chrome)" node test/portfolio-browser.test.mjs
           PORTFOLIO_CHROMIUM="$(command -v google-chrome)" node test/investment-browser.test.mjs
+          PORTFOLIO_CHROMIUM="$(command -v google-chrome)" node test/asset-workflow-browser.test.mjs
       - name: Save browser screenshots
         if: always()
         uses: actions/upload-artifact@v4
