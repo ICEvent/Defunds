@@ -1,4 +1,6 @@
 <script>
+  import FundInvestments from "../../src/frontend/src/lib/components/FundInvestments.svelte";
+  import { withInvestments } from "./investments.js";
   import LocationPortfolio from '../../src/frontend/src/lib/components/LocationPortfolio.svelte';
   import FundCurrencies from '../../src/frontend/src/lib/components/FundCurrencies.svelte';
   import GroupPortfolio from '../../src/frontend/src/lib/components/GroupPortfolio.svelte';
@@ -7,7 +9,7 @@
   let role='owner';
   let linkedMovementEvents=[],locationRefresh=0,assetRefresh=0,treasury={entries:[],loading:true,error:''};
   $: principalText = role === 'owner' ? owner : member;
-  $: backend = makeBackend(principalText);
+  $: backend = withInvestments(makeBackend(principalText),principalText);
   const members = [{name:'Owner',principal:Principal.fromText(owner)}, {name:'Observer',principal:Principal.fromText(member)}];
   window.portfolioFixture = state;
 </script>
@@ -17,4 +19,5 @@
  <FundCurrencies {backend} fundId={1n} {principalText} isCreator={role === 'owner'} on:balances={(e)=>treasury=e.detail} on:changed={()=>locationRefresh++}/>
  <LocationPortfolio {backend} fundId={1n} {principalText} {treasury} refreshToken={locationRefresh} on:links={(event)=>linkedMovementEvents=event.detail} on:changed={()=>assetRefresh++}/>
  <GroupPortfolio {backend} fundId={1n} {principalText} isCreator={role === 'owner'} {members} refreshToken={assetRefresh} blockedReversals={linkedMovementEvents} on:changed={()=>locationRefresh++}/>
+ <FundInvestments {backend} fundId={1n} {principalText} refreshToken={locationRefresh + assetRefresh}/>
 </main>

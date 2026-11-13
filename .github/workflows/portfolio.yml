@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - 'src/backend/**'
+      - 'src/frontend/src/lib/components/FundInvestments.svelte'
+      - 'test/investment*'
+      - 'test/Investments.test.mo'
       - 'src/frontend/src/lib/portfolio/**'
       - 'src/frontend/src/lib/components/GroupPortfolio.svelte'
       - 'test/PortfolioLedger.test.mo'
@@ -40,12 +43,13 @@ jobs:
       - name: Test ledger transitions and authorization policy
         run: |
           CACHE="$(dfx cache show)"
+          "$CACHE/moc" -r --package base "$CACHE/base" test/Investments.test.mo
           "$CACHE/moc" -r --package base "$CACHE/base" test/PortfolioLedger.test.mo
           "$CACHE/moc" -r --package base "$CACHE/base" test/FundCurrencies.test.mo
           "$CACHE/moc" -r --package base "$CACHE/base" test/Icrc3DonationProof.test.mo
           "$CACHE/moc" -r --package base "$CACHE/base" test/PortfolioLocations.test.mo
       - name: Test decimal precision and valuation summaries
-        run: node --test test/portfolio-amount.test.mjs test/portfolio-locations.test.mjs
+        run: node --test test/investment.test.mjs test/portfolio-amount.test.mjs test/portfolio-locations.test.mjs
       - name: Test production Portfolio APIs and populated upgrade
         run: bash test/portfolio-e2e.sh
       - name: Verify ICRC donations and upgrade replay protection
@@ -63,7 +67,9 @@ jobs:
       - name: Test actual Portfolio component on desktop and mobile
         env:
           PORTFOLIO_SCREENSHOTS: /tmp/portfolio-browser-screenshots
-        run: PORTFOLIO_CHROMIUM="$(command -v google-chrome)" node test/portfolio-browser.test.mjs
+        run: |
+          PORTFOLIO_CHROMIUM="$(command -v google-chrome)" node test/portfolio-browser.test.mjs
+          PORTFOLIO_CHROMIUM="$(command -v google-chrome)" node test/investment-browser.test.mjs
       - name: Save browser screenshots
         if: always()
         uses: actions/upload-artifact@v4

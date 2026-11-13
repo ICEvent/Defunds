@@ -30,6 +30,8 @@ import Grants "./grant";
 import GroupTypes "./group/types";
 import Groups "./group";
 import PortfolioTypes "./portfolio/types";
+import InvestmentTypes "./investment/types";
+import Investments "./investment/lib";
 import LocationTypes "./portfolio_locations/types";
 import Locations "./portfolio_locations/lib";
 import FundCurrencyTypes "./fund_currency/types";
@@ -132,6 +134,54 @@ persistent actor Defunds{
     switch(groups.createGroupProposal(caller,fundId,title,description,recipient,amount)){
       case (#err(e)) #err(e);
       case (#ok(proposal)){proposalCurrencySnapshots:=Array.append<(Nat,FundCurrencyTypes.Currency)>(proposalCurrencySnapshots,[(proposal.id,currency)]);#ok(proposal)};
+    }
+  };
+
+
+  // Analytical journal: never sends transfers or adds duplicate Portfolio balances.
+  var investmentState : InvestmentTypes.State = Investments.empty;
+  public shared query ({caller}) func listFundInvestments(fundId:Nat,afterId:Nat,limit:Nat) : async Result.Result<[InvestmentTypes.Investment],Text> {
+    if(not portfolioAccess(fundId,caller,false))return #err("Portfolio access denied");
+    if(limit == 0 or limit > 100)return #err("Limit must be 1..100");
+    let items=Array.filter<InvestmentTypes.Investment>(investmentState.items,func(i){i.fundId == fundId and i.id > afterId});
+    #ok(Array.tabulate<InvestmentTypes.Investment>(Nat.min(limit,items.size()),func(i){items[i]}))
+  };
+  public shared query ({caller}) func listFundInvestmentHistory(fundId:Nat,id:Nat,afterId:Nat,limit:Nat) : async Result.Result<[InvestmentTypes.Event],Text> {
+    if(not portfolioAccess(fundId,caller,false))return #err("Portfolio access denied");
+    if(limit == 0 or limit > 100)return #err("Limit must be 1..100");
+    let events=Array.filter<InvestmentTypes.Event>(investmentState.events,func(e){e.fundId == fundId and e.investmentId == id and e.id > afterId});
+    #ok(Array.tabulate<InvestmentTypes.Event>(Nat.min(limit,events.size()),func(i){events[i]}))
+  };
+  public shared ({caller}) func writeFundInvestment(fundId:Nat,requestId:Text,operation:InvestmentTypes.Operation) : async Result.Result<InvestmentTypes.Investment,Text> {
+    if(not portfolioAccess(fundId,caller,true))return #err("Portfolio write access denied");
+    for(r in investmentState.receipts.vals()){
+      if(r.fundId == fundId and r.caller == caller and r.requestId == requestId){
+        return if(r.operation == operation)#ok(r.result) else #err("Request ID already used with different input")
+      }
+    };
+    // Resolve canonical metadata at creation. Existing journals retain precision
+    // snapshots even after a Fund currency is changed or disabled.
+    let fund=switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g)g};
+    let op=switch operation {
+      case (#create(m)) {
+        let currency=switch(Array.find<FundCurrencyTypes.Currency>(fundCurrencyList(fund),func(c){c.id == m.currencyId and c.enabled})){case null return #err("Choose an enabled Fund currency");case (?c)c};
+        let (assetName,unit,decimals)=switch(m.definition){
+          case (#currency(id)) {let c=switch(Array.find<FundCurrencyTypes.Currency>(fundCurrencyList(fund),func(c){c.id == id})){case null return #err("Asset currency not found");case (?c)c};(c.name,c.symbol,c.decimals)};
+          case (#asset(id)) {let a=switch(PortfolioLedger.find(portfolioState,id)){case null return #err("Asset not found");case (?a)a};if(a.fundId != fundId or a.archived or Locations.binding(locationState,a).definition != #asset(id))return #err("Choose an active asset definition in this Fund");(a.name,a.unit,a.decimals)};
+        };
+        if(m.assetName != assetName or m.unit != unit or m.decimals != decimals or m.currency != currency.symbol or m.moneyDecimals != currency.decimals)return #err("Asset or currency metadata changed; refresh before saving");
+        operation
+      };
+      case (#record(r)) {
+        func validLocation(id:Nat,enabled:Bool):Bool {Array.find<LocationTypes.Location>(locationState.locations,func(l){l.fundId == fundId and l.id == id and (not enabled or l.enabled)}) != null};
+        let valid=switch(r.action){case (#buy(t))validLocation(t.locationId,true);case (#sell(t))validLocation(t.locationId,false);case (#transfer(t))validLocation(t.from,false) and validLocation(t.to,true);case _ true};
+        if(not valid)return #err("Choose a valid Fund location; destination must be enabled");
+        operation
+      };
+    };
+    switch(Investments.apply(investmentState,fundId,caller,requestId,op,Time.now())){
+      case (#err(e))#err(e);
+      case (#ok((state,item))){investmentState:=state;#ok(item)};
     }
   };
 
