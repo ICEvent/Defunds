@@ -190,14 +190,14 @@ err "$(call portfolio-test-outsider listFundInvestments '(1,0,100)')"
 err "$(call anonymous listFundInvestmentHistory '(1,1,0,100)')"
 ok "$(call portfolio-test-owner writeFundInvestment "$INV_CREATE")"
 ok "$(call portfolio-test-member listFundInvestments '(1,0,100)')"
-INV_BUY='(1,"investment-buy",variant {record=record {id=1;expectedRevision=1;action=variant {buy=record {locationId=1;quantity=100;amount=1000;fee=0}};note="Confirmed external buy"}})'
+INV_BUY='(1,"investment-buy",variant {"record"=record {id=1;expectedRevision=1;action=variant {buy=record {locationId=1;quantity=100;amount=1000;fee=0}};note="Confirmed external buy"}})'
 ok "$(call portfolio-test-owner writeFundInvestment "$INV_BUY")"
 ok "$(call portfolio-test-owner writeFundInvestment "$INV_BUY")"
-err "$(call portfolio-test-owner writeFundInvestment '(1,"stale-investment",variant {record=record {id=1;expectedRevision=1;action=variant {expense=1};note=""}})')"
-err "$(call portfolio-test-outsider writeFundInvestment '(2,"cross-investment",variant {record=record {id=1;expectedRevision=2;action=variant {expense=1};note=""}})')"
-err "$(call portfolio-test-owner writeFundInvestment '(1,"invalid-location",variant {record=record {id=1;expectedRevision=2;action=variant {buy=record {locationId=999;quantity=1;amount=1;fee=0}};note=""}})')"
-ok "$(call portfolio-test-owner writeFundInvestment '(1,"investment-sell",variant {record=record {id=1;expectedRevision=2;action=variant {sell=record {locationId=1;quantity=30;amount=400;fee=0}};note="Partial exit"}})')"
-ok "$(call portfolio-test-owner writeFundInvestment '(1,"investment-value",variant {record=record {id=1;expectedRevision=3;action=variant {valuation=record {amount=650;source="manual estimate"}};note=""}})')"
+err "$(call portfolio-test-owner writeFundInvestment '(1,"stale-investment",variant {"record"=record {id=1;expectedRevision=1;action=variant {expense=1};note=""}})')"
+err "$(call portfolio-test-outsider writeFundInvestment '(2,"cross-investment",variant {"record"=record {id=1;expectedRevision=2;action=variant {expense=1};note=""}})')"
+err "$(call portfolio-test-owner writeFundInvestment '(1,"invalid-location",variant {"record"=record {id=1;expectedRevision=2;action=variant {buy=record {locationId=999;quantity=1;amount=1;fee=0}};note=""}})')"
+ok "$(call portfolio-test-owner writeFundInvestment '(1,"investment-sell",variant {"record"=record {id=1;expectedRevision=2;action=variant {sell=record {locationId=1;quantity=30;amount=400;fee=0}};note="Partial exit"}})')"
+ok "$(call portfolio-test-owner writeFundInvestment '(1,"investment-value",variant {"record"=record {id=1;expectedRevision=3;action=variant {valuation=record {amount=650;source="manual estimate"}};note=""}})')"
 INV_ITEMS="$(call portfolio-test-owner listFundInvestments '(1,0,100)')";ok "$INV_ITEMS";contains "$INV_ITEMS" 'cost = 700';contains "$INV_ITEMS" 'realized = 100';contains "$INV_ITEMS" 'quantity = 70'
 INV_HISTORY="$(call portfolio-test-owner listFundInvestmentHistory '(1,1,0,100)')";ok "$INV_HISTORY"
 [[ "$BEFORE_POSITIONS" == "$(call portfolio-test-owner getFundLocationPortfolio '(1)')" ]] || { echo 'Journal changed Portfolio balances' >&2;exit 1; }
