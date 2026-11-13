@@ -43,7 +43,7 @@ module {
     let maxAmount = 10 ** 36;
     let (asset, kind) : (T.Asset, T.EventKind) = switch operation {
       case (#create(input)) {
-        if (not nonblank(input.name, 120) or not nonblank(input.category, 40) or not nonblank(input.unit, 24)) return #err("Name, category and unit are required");
+        if (not nonblank(input.name, 120) or not nonblank(input.category, 40) or not nonblank(input.unit, 32)) return #err("Name, category and unit are required");
         if (Nat8.toNat(input.decimals) > 18 or input.quantity > maxAmount or Text.size(input.note) > 2_000 or not validSource(input.source)) return #err("Invalid asset input");
         var count = 0;
         for (a in state.assets.vals()) {

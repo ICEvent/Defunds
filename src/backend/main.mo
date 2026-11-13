@@ -30,6 +30,8 @@ import Grants "./grant";
 import GroupTypes "./group/types";
 import Groups "./group";
 import PortfolioTypes "./portfolio/types";
+import LocationTypes "./portfolio_locations/types";
+import Locations "./portfolio_locations/lib";
 import FundCurrencyTypes "./fund_currency/types";
 import FundCurrencies "./fund_currency/lib";
 import Error "mo:base/Error";
@@ -133,6 +135,36 @@ persistent actor Defunds{
     }
   };
 
+  var locationState : LocationTypes.State = Locations.empty;
+
+  public shared query ({caller}) func getFundLocationPortfolio(fundId : Nat) : async Result.Result<{
+    locations : [LocationTypes.Location]; positions : [LocationTypes.Position];
+    currencies : [FundCurrencyTypes.Currency]; canWrite : Bool; linkedEventIds : [Nat];
+  },Text> {
+    if(not portfolioAccess(fundId,caller,false)) return #err("Portfolio access denied");
+    let fund = switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g) g};
+    let currencies = fundCurrencyList(fund);
+    #ok({locations=Array.filter<LocationTypes.Location>(locationState.locations,func(l){l.fundId == fundId});
+      positions=Locations.positions(locationState,portfolioState,fundId,currencies);currencies;
+      canWrite=portfolioAccess(fundId,caller,true);
+      linkedEventIds=Array.flatten<Nat>(Array.map<LocationTypes.Movement,[Nat]>(Array.filter<LocationTypes.Movement>(locationState.movements,func(m){m.fundId == fundId}),func(m){[m.sourceEventId,m.targetEventId]}))})
+  };
+  public shared query ({caller}) func listFundLocationHistory(fundId:Nat,offset:Nat,limit:Nat) : async Result.Result<[LocationTypes.Receipt],Text> {
+    if(not portfolioAccess(fundId,caller,false))return #err("Portfolio access denied");
+    if(limit == 0 or limit > 100)return #err("Limit must be 1..100");
+    let history=Array.filter<LocationTypes.Receipt>(locationState.receipts,func(r){r.fundId == fundId});
+    let size=if(offset >= history.size())0 else Nat.min(limit,history.size()-offset);
+    #ok(Array.tabulate<LocationTypes.Receipt>(size,func(i){history[offset+i]}))
+  };
+  public shared ({caller}) func writeFundLocationPortfolio(fundId:Nat,requestId:Text,operation:LocationTypes.Operation) : async Result.Result<LocationTypes.Reply,Text> {
+    if(not portfolioAccess(fundId,caller,true))return #err("Portfolio write access denied");
+    let fund=switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g)g};
+    switch(Locations.apply(locationState,portfolioState,fundId,caller,Principal.fromActor(Defunds),fundCurrencyList(fund),requestId,operation,Time.now())){
+      case (#err(e)) #err(e);
+      case (#ok((locations,assets,reply))) {locationState:=locations;portfolioState:=assets;#ok(reply)};
+    }
+  };
+
   var portfolioState : PortfolioTypes.State = PortfolioLedger.empty;
   var portfolioManagers : [(Nat, Principal)] = [];
   var portfolioManagerEvents : [PortfolioTypes.ManagerEvent] = [];
@@ -194,6 +226,15 @@ persistent actor Defunds{
 
   public shared ({ caller }) func writeFundPortfolio(fundId : Nat, requestId : Text, operation : PortfolioTypes.Operation) : async Result.Result<PortfolioTypes.Asset, Text> {
     if (not portfolioAccess(fundId, caller, true)) return #err("Portfolio write access denied");
+    if (Text.startsWith(requestId, #text("location:"))) return #err("Reserved request ID prefix");
+    switch(operation) {
+      case (#change({change=#reverse(eventId)})) {
+        if(Array.find<LocationTypes.Movement>(locationState.movements,func(m){m.fundId == fundId and (m.sourceEventId == eventId or m.targetEventId == eventId)}) != null) {
+          return #err("Linked movement entries cannot be reversed individually; record an opposite movement instead");
+        };
+      };
+      case (_) {};
+    };
     switch (PortfolioLedger.apply(portfolioState, fundId, caller, requestId, operation, Time.now())) {
       case (#err(e)) #err(e);
       case (#ok((next, asset))) { portfolioState := next; #ok(asset) };

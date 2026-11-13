@@ -1,5 +1,6 @@
 <script>
   import { onMount } from "svelte";
+  import LocationPortfolio from "$lib/components/LocationPortfolio.svelte";
   import FundCurrencies from "$lib/components/FundCurrencies.svelte";
   import { parseUnits } from "$lib/portfolio/amount";
   import GroupPortfolio from "$lib/components/GroupPortfolio.svelte";
@@ -15,6 +16,7 @@
   let group = null;
   let proposals = [];
   let fundCurrencies = [], proposalCurrencyId = "";
+  let linkedMovementEvents=[], locationRefresh=0, assetRefresh=0, treasury={entries:[],loading:true,error:""};
   $: selectedProposalCurrency = fundCurrencies.find(c => c.id === proposalCurrencyId);
   let backend;
   let principal;
@@ -481,8 +483,9 @@
     </section>
 
     {#if isAuthed && (isCreator || isMember)}
-      <FundCurrencies {backend} fundId={groupId} {principalText} {isCreator} on:currencies={(event) => { fundCurrencies = event.detail.currencies; if (!fundCurrencies.some(c => c.id === proposalCurrencyId && c.enabled)) proposalCurrencyId = fundCurrencies.find(c => c.enabled)?.id ?? ""; }} />
-      <GroupPortfolio {backend} fundId={groupId} {principalText} {isCreator} members={canonicalMembers} />
+      <FundCurrencies {backend} fundId={groupId} {principalText} {isCreator} on:balances={(event)=>treasury=event.detail} on:changed={()=>locationRefresh++} on:currencies={(event) => { fundCurrencies = event.detail.currencies; if (!fundCurrencies.some(c => c.id === proposalCurrencyId && c.enabled)) proposalCurrencyId = fundCurrencies.find(c => c.enabled)?.id ?? ""; }} />
+      <LocationPortfolio {backend} fundId={groupId} {principalText} {treasury} refreshToken={locationRefresh} on:links={(event)=>linkedMovementEvents=event.detail} on:changed={()=>assetRefresh++} />
+      <GroupPortfolio {backend} fundId={groupId} {principalText} {isCreator} members={canonicalMembers} refreshToken={assetRefresh} blockedReversals={linkedMovementEvents} on:changed={()=>locationRefresh++} />
     {/if}
 
     {#if showEditFund && isCreator}
