@@ -62,7 +62,7 @@ try {
  const last=await page.evaluate(()=>window.portfolioFixture.calls.slice(-2).map(c=>c.id));assert.equal(last[0],last[1]);
  await row.getByRole('button',{name:'History',exact:true}).click();
  await page.getByRole('heading',{name:'History · ETH'}).waitFor();
- assert.match(await page.locator('ol').innerText(),/USD 7200/);
+ assert.match(await page.getByRole('region',{name:'Portfolio',exact:true}).locator('ol').innerText(),/USD 7200/);
  await page.getByLabel('Test role').selectOption('member');
  await page.getByText('No assets yet.').waitFor({state:'hidden'});
  await page.waitForTimeout(100);
