@@ -6,6 +6,7 @@
   export let locations = [];
   $: definitionsOnly = view === 'definitions';
   function isDefinition(asset, snapshot) { return snapshot.some(p => p.asset.id === asset.id && 'asset' in p.definition && p.definition.asset === asset.id); }
+  function definitionInUse(asset, snapshot) { return snapshot.some(p => p.asset.id !== asset.id && !p.asset.archived && 'asset' in p.definition && p.definition.asset === asset.id); }
   function place(asset, snapshot, places) { const p = snapshot.find(p => p.asset.id === asset.id); return p?.locationId ? places.find(l => l.id === p.locationId)?.name ?? 'Unknown location' : 'Unassigned'; }
   export let refreshToken = 0;
   export let blockedReversals = [];
@@ -151,7 +152,7 @@
         <td data-label="Actions"><div class="flex flex-wrap gap-2">
           <button disabled={busy} on:click={() => showHistory(asset)} class="link">History</button>
           {#if canWrite && !asset.archived}{#if !definitionsOnly}<button disabled={busy} on:click={() => open('increase', asset)} class="link">Increase</button><button disabled={busy} on:click={() => open('decrease', asset)} class="link">Decrease</button><button disabled={busy} on:click={() => open('valuation', asset)} class="link">Revalue</button>{/if}{#if view !== 'holdings'}<button disabled={busy} on:click={() => open('details', asset)} class="link">Edit</button>{/if}{/if}
-          {#if canWrite && !definitionsOnly && (asset.quantity === 0n || asset.archived)}<button disabled={busy} on:click={() => open('archive', asset)} class="link">{asset.archived ? 'Restore' : 'Archive'}</button>{/if}
+          {#if canWrite && (asset.archived || (asset.quantity === 0n && (!definitionsOnly || !definitionInUse(asset, positions))))}<button disabled={busy} on:click={() => open('archive', asset)} class="link">{asset.archived ? 'Restore' : 'Archive'}</button>{/if}
         </div></td>
       </tr>{:else}<tr><td colspan={definitionsOnly ? 3 : view === 'holdings' ? 6 : 5} class="py-10 text-center text-slate-500">No assets yet.</td></tr>{/each}
     </tbody></table></div>
@@ -179,7 +180,7 @@
           {#if useSource}<p class="text-sm text-amber-800 sm:col-span-2">Reference only. This does not verify ownership or grant access to ICEvent data.</p><label>Network / local instance<input required maxlength="64" bind:value={sourceNetwork} /></label><label>ICEvent ledger canister<input required bind:value={sourceCanister} /></label><label>Asset ID<input required inputmode="numeric" bind:value={sourceAssetId} /></label>{/if}
         {/if}
         {#if form === 'reverse'}<p class="text-sm text-slate-600 sm:col-span-2">Reverse transaction #{reverseId.toString()}? This adds a correction entry and keeps the original record.</p>{/if}
-        {#if form === 'archive'}<p class="text-sm text-slate-600 sm:col-span-2">{selected.archived ? 'Restore this asset to the portfolio?' : 'Archive this zero holding? All history will remain available.'}</p>{/if}
+        {#if form === 'archive'}<p class="text-sm text-slate-600 sm:col-span-2">{selected.archived ? 'Restore this asset to the portfolio?' : definitionsOnly ? 'Archive this unused asset definition? All history will remain available.' : 'Archive this zero holding? All history will remain available.'}</p>{/if}
         <label class="sm:col-span-2">Note<textarea maxlength="2000" rows="2" bind:value={note}></textarea></label>
         <div class="flex gap-2 sm:col-span-2"><button type="submit" class="primary">{busy ? 'Saving…' : 'Save record'}</button><button type="button" class="secondary" on:click={() => form = ''}>Cancel</button></div>
       </fieldset>

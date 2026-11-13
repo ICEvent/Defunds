@@ -25,6 +25,13 @@ try {
  await page.getByRole('button',{name:'Save record',exact:true}).click();
  await page.getByRole('cell',{name:'Test shares',exact:false}).waitFor();
  assert.equal(await page.evaluate(()=>window.portfolioFixture.assets.find(a=>a.name==='Test shares').quantity),0n);
+ const definitionRow=page.getByRole('row').filter({hasText:'Test shares'});
+ await definitionRow.getByRole('button',{name:'Archive',exact:true}).click();
+ await page.getByRole('button',{name:'Save record',exact:true}).click();
+ await page.getByLabel('Show archived',{exact:true}).check();
+ await definitionRow.getByRole('button',{name:'Restore',exact:true}).click();
+ await page.getByRole('button',{name:'Save record',exact:true}).click();
+ await definitionRow.getByRole('button',{name:'Archive',exact:true}).waitFor();
  for(const name of ['Broker A','Broker B']){
   await step('locations');
   await page.getByRole('button',{name:'+ Add location',exact:true}).click();
@@ -43,6 +50,7 @@ try {
  }
  await step('definitions');
  assert.equal(await page.getByRole('row').filter({hasText:'Test shares'}).count(),1);
+ assert.equal(await definitionRow.getByRole('button',{name:'Archive',exact:true}).count(),0);
  await step('portfolio');
  const group=page.locator('details').filter({has:page.locator('summary strong').filter({hasText:'Test shares'})});
  assert.match(await group.locator('summary').innerText(),/5 share/);
