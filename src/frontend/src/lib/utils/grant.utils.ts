@@ -1,4 +1,4 @@
-import type { Grant } from "../../declarations/backend/backend.did";
+import type { Grant } from "../../../../declarations/backend/backend.did";
 import { get } from "svelte/store";
 import { getCurrencyName, getDecimalsByCurrency } from "./currency.utils";
 

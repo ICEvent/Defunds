@@ -17,3 +17,4 @@ src/frontend/src/declarations/
 src/declarations/
 .vscode/
 backup/
+canister_ids.json

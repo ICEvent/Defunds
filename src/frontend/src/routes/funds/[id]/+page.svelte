@@ -1,5 +1,8 @@
 <script>
   import { onMount } from "svelte";
+  import FundCurrencies from "$lib/components/FundCurrencies.svelte";
+  import { parseUnits } from "$lib/portfolio/amount";
+  import GroupPortfolio from "$lib/components/GroupPortfolio.svelte";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import { Principal } from "@dfinity/principal";
@@ -11,6 +14,8 @@
   let groupId;
   let group = null;
   let proposals = [];
+  let fundCurrencies = [], proposalCurrencyId = "";
+  $: selectedProposalCurrency = fundCurrencies.find(c => c.id === proposalCurrencyId);
   let backend;
   let principal;
   let isAuthed = false;
@@ -113,7 +118,7 @@
     try {
       const [groupResult, proposalResult] = await Promise.all([
         actor.getGroup(groupId),
-        actor.getGroupProposals(groupId),
+        actor.getGroupProposalsWithCurrency(groupId),
       ]);
       if (version !== loadVersion) return;
       const loadedGroup = Array.isArray(groupResult) && groupResult.length > 0 ? groupResult[0] : null;
@@ -123,7 +128,8 @@
         return;
       }
       group = loadedGroup;
-      proposals = [...(proposalResult ?? [])].sort((a, b) => a.createdAt === b.createdAt ? 0 : a.createdAt > b.createdAt ? -1 : 1);
+      if ('err' in proposalResult) throw new Error(proposalResult.err);
+      proposals = proposalResult.ok.map(view => ({...view.proposal, currencyDefinition: view.currency})).sort((a, b) => a.createdAt === b.createdAt ? 0 : a.createdAt > b.createdAt ? -1 : 1);
       if (!showEditFund) {
         editFundName = loadedGroup.name;
         editFundDescription = loadedGroup.description;
@@ -346,10 +352,12 @@
     }
     try {
       const recipientPrincipal = Principal.fromText(recipient);
-      const amount = parseTokenAmount(proposalAmount);
+      if (!selectedProposalCurrency?.enabled) throw new Error("Select an enabled proposal currency.");
+      const amount = parseUnits(proposalAmount, selectedProposalCurrency.decimals);
+      if (amount === 0n) throw new Error("Amount must be greater than zero.");
       const success = await runAction(
         "create-proposal",
-        () => backend.createGroupProposal(groupId, title, description, recipientPrincipal, amount),
+        () => backend.createGroupProposalWithCurrency(groupId, title, description, recipientPrincipal, amount, selectedProposalCurrency.id),
         "Proposal created.",
       );
       if (success) {
@@ -453,9 +461,9 @@
 
       <div class="mt-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
-          <div class="text-xs uppercase tracking-wide text-slate-400">{customIcrc ? "Recorded base units" : "Recorded balance"}</div>
-          <div class="mt-1 text-2xl font-semibold">{formatTokenAmount(group.balance)} {customIcrc ? "base units" : currency}</div>
-          <div class="mt-1 text-xs text-amber-200">{customIcrc ? "Custom token decimals not fetched" : "Not live-ledger verified"}</div>
+          <div class="text-xs uppercase tracking-wide text-slate-400">Original default currency</div>
+          <div class="mt-1 text-2xl font-semibold">{currency}</div>
+          <div class="mt-1 text-xs text-slate-400">Balances by currency appear in Portfolio below</div>
         </div>
         <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
           <div class="text-xs uppercase tracking-wide text-slate-400">Members</div>
@@ -471,6 +479,11 @@
         </div>
       </div>
     </section>
+
+    {#if isAuthed && (isCreator || isMember)}
+      <FundCurrencies {backend} fundId={groupId} {principalText} {isCreator} on:currencies={(event) => { fundCurrencies = event.detail.currencies; if (!fundCurrencies.some(c => c.id === proposalCurrencyId && c.enabled)) proposalCurrencyId = fundCurrencies.find(c => c.enabled)?.id ?? ""; }} />
+      <GroupPortfolio {backend} fundId={groupId} {principalText} {isCreator} members={canonicalMembers} />
+    {/if}
 
     {#if showEditFund && isCreator}
       <section class="mt-6 rounded-2xl border border-sky-200 bg-sky-50/70 p-5 shadow-sm sm:p-6">
@@ -506,7 +519,7 @@
         <div>
           <div class="text-xs font-semibold uppercase tracking-wide text-slate-400">Treasury identity</div>
           <h2 class="mt-1 text-lg font-semibold text-slate-950">Fund subaccount</h2>
-          <p class="mt-1 text-sm text-slate-500">Use this identifier when inspecting or funding the fund treasury.</p>
+          <p class="mt-1 text-sm text-slate-500">This is the raw subaccount, not an ICP account identifier. Use it together with the backend owner Principal shown in Portfolio.</p>
         </div>
         <button type="button" on:click={copyAccount} class="w-fit rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Copy</button>
       </div>
@@ -603,12 +616,6 @@
         Approval currently represents a governance decision. The Group Fund code does not yet execute the treasury transfer automatically, so approved proposals should be treated as <strong>execution pending</strong> until an execution receipt exists.
       </div>
 
-      {#if customIcrc}
-        <div class="mt-3 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-800">
-          Custom ICRC token decimals are not fetched yet. Proposal amounts for this fund must be entered as raw ledger <strong>base units</strong>; Defunds will not guess a decimal scale for financial values.
-        </div>
-      {/if}
-
       {#if showCreateProposal && canGovern}
         <div class="mt-4 grid gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <div class="grid gap-4 lg:grid-cols-2">
@@ -617,10 +624,13 @@
               <input bind:value={proposalTitle} placeholder="What should the fund do?" class="rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-normal text-slate-900 outline-none focus:border-sky-500" />
             </label>
             <label class="grid gap-1.5 text-sm font-medium text-slate-700">
-              Amount ({amountUnit})
-              <input bind:value={proposalAmount} inputmode={customIcrc ? "numeric" : "decimal"} placeholder={customIcrc ? "e.g. 1000000" : "0.00"} class="rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-normal text-slate-900 outline-none focus:border-sky-500" />
+              Amount ({selectedProposalCurrency?.symbol ?? "select currency"})
+              <input bind:value={proposalAmount} inputmode="decimal" placeholder="0.00" class="rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-normal text-slate-900 outline-none focus:border-sky-500" />
             </label>
           </div>
+          <label class="grid gap-1.5 text-sm font-medium text-slate-700">Proposal currency
+            <select bind:value={proposalCurrencyId} class="rounded-xl border border-slate-300 bg-white px-3 py-2.5">{#each fundCurrencies.filter(c => c.enabled) as c}<option value={c.id}>{c.symbol} · {c.id}</option>{/each}</select>
+          </label>
           <label class="grid gap-1.5 text-sm font-medium text-slate-700">
             Recipient Principal
             <input bind:value={proposalRecipient} placeholder="aaaaa-aa…" class="rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-mono font-normal text-slate-900 outline-none focus:border-sky-500" />
@@ -659,7 +669,7 @@
               <div class="mt-4 grid gap-3 md:grid-cols-3">
                 <div class="rounded-xl bg-slate-50 p-3">
                   <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Amount</div>
-                  <div class="mt-1 font-semibold text-slate-900">{formatTokenAmount(proposal.amount)} {amountUnit}</div>
+                  <div class="mt-1 font-semibold text-slate-900">{formatTokenAmount(proposal.amount, Number(proposal.currencyDefinition.decimals))} {proposal.currencyDefinition.symbol}</div>
                 </div>
                 <div class="rounded-xl bg-slate-50 p-3 md:col-span-2">
                   <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Recipient</div>
