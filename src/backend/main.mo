@@ -29,8 +29,177 @@ import Grants "./grant";
 
 import GroupTypes "./group/types";
 import Groups "./group";
+import PortfolioTypes "./portfolio/types";
+import FundCurrencyTypes "./fund_currency/types";
+import FundCurrencies "./fund_currency/lib";
+import Error "mo:base/Error";
+import PortfolioLedger "./portfolio/ledger";
+import PortfolioPermissions "./portfolio/permissions";
 
 persistent actor Defunds{
+  // Separate persistent fields preserve the existing GroupFund stable shape.
+  var fundCurrencyEntries : [FundCurrencyTypes.Entry] = [];
+  // Snapshots live outside GroupProposal to preserve old stable layouts.
+  var proposalCurrencySnapshots : [(Nat, FundCurrencyTypes.Currency)] = [];
+
+  private func fundCurrencyList(fund : GroupTypes.GroupFund) : [FundCurrencyTypes.Currency] {
+    FundCurrencies.list(fundCurrencyEntries, fund.id, fund.currency)
+  };
+  private func proposalCurrency(proposal : GroupTypes.GroupProposal) : FundCurrencyTypes.Currency {
+    switch (Array.find<(Nat, FundCurrencyTypes.Currency)>(proposalCurrencySnapshots,func((id,_)){id == proposal.id})) {
+      case (?(_,currency)) currency;
+      case null { switch (groups.getGroup(proposal.groupId)) { case (?fund) FundCurrencies.legacy(fund.currency); case null FundCurrencies.legacy(#ICP) } };
+    }
+  };
+  private func putFundCurrency(fundId : Nat, currency : FundCurrencyTypes.Currency) {
+    fundCurrencyEntries := Array.append<FundCurrencyTypes.Entry>(Array.filter<FundCurrencyTypes.Entry>(fundCurrencyEntries,func(e){not(e.fundId == fundId and e.currency.id == currency.id)}),[{fundId;currency}]);
+  };
+  public shared query ({caller}) func getFundCurrencies(fundId : Nat) : async Result.Result<[FundCurrencyTypes.Currency],Text> {
+    let fund = switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g) g};
+    if(not canReadGroup(caller,fund)) return #err("Fund access denied");
+    #ok(fundCurrencyList(fund))
+  };
+  public shared query ({caller}) func getFundTreasuryAccount(fundId : Nat) : async Result.Result<{owner:Principal;subaccount:Blob},Text> {
+    let fund = switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g) g};
+    if(not portfolioAccess(fundId,caller,false)) return #err("Fund access denied");
+    #ok({owner=Principal.fromActor(Defunds);subaccount=Blob.fromArray(fund.account)})
+  };
+  public shared ({caller}) func addFundManualCurrency(fundId : Nat, code : Text, name : Text, decimals : Nat8) : async Result.Result<FundCurrencyTypes.Currency,Text> {
+    let fund = switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g) g};
+    if(Principal.isAnonymous(caller) or fund.creator != caller) return #err("Only fund creator can configure currencies");
+    if(not FundCurrencies.validSymbol(code) or not FundCurrencies.validName(name) or Nat8.toNat(decimals) > 18) return #err("Invalid currency code, name or precision");
+    let id="manual:" # code;
+    if(FundCurrencies.find(fundCurrencyEntries,fundId,fund.currency,id)!=null) return #err("Currency already configured; its precision is immutable");
+    if(fundCurrencyList(fund).size() >= FundCurrencies.limit) return #err("Currency limit reached");
+    let currency : FundCurrencyTypes.Currency={id;symbol=code;name;decimals;ledger=null;enabled=true};
+    putFundCurrency(fundId,currency);#ok(currency)
+  };
+  public shared ({caller}) func addFundLedgerCurrency(fundId : Nat, ledgerId : Principal) : async Result.Result<FundCurrencyTypes.Currency,Text> {
+    let fund = switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g) g};
+    if(Principal.isAnonymous(caller) or fund.creator != caller) return #err("Only fund creator can configure currencies");
+    if(Principal.isAnonymous(ledgerId) or ledgerId == Principal.fromActor(Defunds)) return #err("Invalid ledger");
+    let id=FundCurrencies.ledgerId(ledgerId);
+    if(Array.find<FundCurrencyTypes.Entry>(fundCurrencyEntries,func(e){e.fundId==fundId and e.currency.id==id})!=null) return #err("Ledger already configured");
+    if(fundCurrencyList(fund).size() >= FundCurrencies.limit) return #err("Currency limit reached");
+    let ledger : actor {icrc1_symbol:shared query ()->async Text;icrc1_name:shared query ()->async Text;icrc1_decimals:shared query ()->async Nat8}=actor(Principal.toText(ledgerId));
+    let (symbol,name,decimals) = try { (await ledger.icrc1_symbol(),await ledger.icrc1_name(),await ledger.icrc1_decimals()) } catch(e){return #err("Ledger metadata unavailable: " # Error.message(e))};
+    let current = switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g) g};
+    if(current.creator != caller) return #err("Fund access changed");
+    if(not FundCurrencies.validMetadata(symbol,name,decimals)) return #err("Ledger metadata exceeds supported limits");
+    if(Array.find<FundCurrencyTypes.Entry>(fundCurrencyEntries,func(e){e.fundId==fundId and e.currency.id==id})!=null) return #err("Ledger already configured");
+    if(fundCurrencyList(current).size() >= FundCurrencies.limit) return #err("Currency limit reached");
+    let currency : FundCurrencyTypes.Currency={id;symbol;name;decimals;ledger=?ledgerId;enabled=true};
+    putFundCurrency(fundId,currency);#ok(currency)
+  };
+  public shared ({caller}) func setFundCurrencyEnabled(fundId:Nat,id:Text,enabled:Bool) : async Result.Result<(),Text> {
+    let fund=switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g)g};
+    if(Principal.isAnonymous(caller) or fund.creator != caller) return #err("Only fund creator can configure currencies");
+    let currency=switch(FundCurrencies.find(fundCurrencyEntries,fundId,fund.currency,id)){case null return #err("Currency not found");case (?c)c};
+    putFundCurrency(fundId,{currency with enabled});#ok(())
+  };
+  public shared ({caller}) func getFundTreasuryBalances(fundId:Nat) : async Result.Result<[FundCurrencyTypes.Balance],Text> {
+    let fund=switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g)g};
+    if(not portfolioAccess(fundId,caller,false)) return #err("Fund access denied");
+    let currencies=fundCurrencyList(fund);
+    let output=Buffer.Buffer<FundCurrencyTypes.Balance>(currencies.size());
+    for(currency in currencies.vals()){
+      switch(currency.ledger){
+        case null {};
+        case (?id){
+          let ledger:actor {icrc1_balance_of:shared query {owner:Principal;subaccount:?Blob}->async Nat}=actor(Principal.toText(id));
+          let balance : {#ok:Nat;#err:Text}=try{#ok(await ledger.icrc1_balance_of({owner=Principal.fromActor(Defunds);subaccount=?Blob.fromArray(fund.account)}))}catch(e){#err(Error.message(e))};
+          output.add({currency;balance;checkedAt=Time.now()});
+        };
+      }
+    };
+    // Recheck live membership after every external await has completed.
+    if(not portfolioAccess(fundId,caller,false)) return #err("Fund access changed");
+    #ok(Buffer.toArray(output))
+  };
+  public shared query ({caller}) func getGroupProposalsWithCurrency(fundId:Nat) : async Result.Result<[{proposal:GroupTypes.GroupProposal;currency:FundCurrencyTypes.Currency}],Text> {
+    let fund=switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g)g};
+    if(not canReadGroup(caller,fund)) return #err("Fund access denied");
+    #ok(Array.map<GroupTypes.GroupProposal,{proposal:GroupTypes.GroupProposal;currency:FundCurrencyTypes.Currency}>(groups.getGroupProposals(fundId),func(proposal){{proposal;currency=proposalCurrency(proposal)}}))
+  };
+  public shared ({caller}) func createGroupProposalWithCurrency(fundId:Nat,title:Text,description:Text,recipient:Principal,amount:Nat,currencyId:Text) : async Result.Result<GroupTypes.GroupProposal,Text> {
+    if(Principal.isAnonymous(caller)) return #err("Authentication required");
+    let fund=switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g)g};
+    let currency=switch(FundCurrencies.find(fundCurrencyEntries,fundId,fund.currency,currencyId)){case null return #err("Currency not configured");case (?c)c};
+    if(not currency.enabled) return #err("Currency disabled for new proposals");
+    if(amount > 10 ** 36 or Principal.isAnonymous(recipient)) return #err("Invalid proposal amount or recipient");
+    switch(groups.createGroupProposal(caller,fundId,title,description,recipient,amount)){
+      case (#err(e)) #err(e);
+      case (#ok(proposal)){proposalCurrencySnapshots:=Array.append<(Nat,FundCurrencyTypes.Currency)>(proposalCurrencySnapshots,[(proposal.id,currency)]);#ok(proposal)};
+    }
+  };
+
+  var portfolioState : PortfolioTypes.State = PortfolioLedger.empty;
+  var portfolioManagers : [(Nat, Principal)] = [];
+  var portfolioManagerEvents : [PortfolioTypes.ManagerEvent] = [];
+
+  private func portfolioAccess(fundId : Nat, caller : Principal, write : Bool) : Bool {
+    if (Principal.isAnonymous(caller)) return false;
+    switch (groups.getGroup(fundId)) {
+      case null false;
+      case (?fund) {
+        let members = Array.map<GroupTypes.Member, Principal>(fund.members, func(m) { m.principal });
+        let managers = Array.map<(Nat, Principal), Principal>(Array.filter<(Nat, Principal)>(portfolioManagers, func((id, _)) { id == fundId }), func((_, p)) { p });
+        PortfolioPermissions.canAccess(caller, fund.creator, members, managers, write)
+      };
+    }
+  };
+
+  public shared query ({ caller }) func listFundPortfolioAssets(fundId : Nat, afterId : Nat, limit : Nat, includeArchived : Bool) : async Result.Result<[PortfolioTypes.Asset], Text> {
+    if (not portfolioAccess(fundId, caller, false)) return #err("Portfolio access denied");
+    if (limit == 0 or limit > 100) return #err("Limit must be 1..100");
+    let found = Array.filter<PortfolioTypes.Asset>(portfolioState.assets, func(a) { a.fundId == fundId and a.id > afterId and (includeArchived or not a.archived) });
+    #ok(Array.tabulate<PortfolioTypes.Asset>(Nat.min(limit, found.size()), func(i) { found[i] }))
+  };
+
+  public shared query ({ caller }) func listFundPortfolioHistory(fundId : Nat, assetId : Nat, afterId : Nat, limit : Nat) : async Result.Result<[PortfolioTypes.Event], Text> {
+    if (not portfolioAccess(fundId, caller, false)) return #err("Portfolio access denied");
+    if (limit == 0 or limit > 100) return #err("Limit must be 1..100");
+    let found = Array.filter<PortfolioTypes.Event>(portfolioState.events, func(e) { e.fundId == fundId and e.assetId == assetId and e.id > afterId });
+    #ok(Array.tabulate<PortfolioTypes.Event>(Nat.min(limit, found.size()), func(i) { found[i] }))
+  };
+
+  public shared query ({ caller }) func getFundPortfolioManagers(fundId : Nat) : async Result.Result<[Principal], Text> {
+    if (not portfolioAccess(fundId, caller, false)) return #err("Portfolio access denied");
+    #ok(Array.map<(Nat, Principal), Principal>(Array.filter<(Nat, Principal)>(portfolioManagers, func((id, _)) { id == fundId }), func((_, p)) { p }))
+  };
+
+  public shared query ({ caller }) func listFundPortfolioManagerHistory(fundId : Nat, offset : Nat, limit : Nat) : async Result.Result<[PortfolioTypes.ManagerEvent], Text> {
+    if (not portfolioAccess(fundId, caller, false)) return #err("Portfolio access denied");
+    if (limit == 0 or limit > 100) return #err("Limit must be 1..100");
+    let found = Array.filter<PortfolioTypes.ManagerEvent>(portfolioManagerEvents, func(e) { e.fundId == fundId });
+    let count = if (offset >= found.size()) 0 else Nat.min(limit, found.size() - offset);
+    #ok(Array.tabulate<PortfolioTypes.ManagerEvent>(count, func(i) { found[offset + i] }))
+  };
+
+  public shared ({ caller }) func setFundPortfolioManager(fundId : Nat, member : Principal, enabled : Bool) : async Result.Result<(), Text> {
+    let fund = switch (groups.getGroup(fundId)) { case null return #err("Portfolio access denied"); case (?g) g };
+    if (Principal.isAnonymous(caller) or fund.creator != caller) return #err("Only the fund creator can manage portfolio roles");
+    if (Principal.isAnonymous(member) or not groups.isMember(fund.members, member)) return #err("Manager must be a current fund member");
+    let exists = Array.find<(Nat, Principal)>(portfolioManagers, func((id, p)) { id == fundId and p == member }) != null;
+    if (exists == enabled) return #ok(());
+    let managers = Array.filter<(Nat, Principal)>(portfolioManagers, func((id, _)) { id == fundId });
+    if (enabled and managers.size() >= 50) return #err("Manager limit reached");
+    let history = Array.filter<PortfolioTypes.ManagerEvent>(portfolioManagerEvents, func(e) { e.fundId == fundId });
+    if (enabled and history.size() >= 5_000) return #err("Manager history limit reached; revocation remains available");
+    portfolioManagers := Array.filter<(Nat, Principal)>(portfolioManagers, func((id, p)) { not (id == fundId and p == member) });
+    if (enabled) portfolioManagers := Array.append<(Nat, Principal)>(portfolioManagers, [(fundId, member)]);
+    portfolioManagerEvents := Array.append<PortfolioTypes.ManagerEvent>(portfolioManagerEvents, [{ fundId; principal = member; granted = enabled; performedBy = caller; at = Time.now() }]);
+    #ok(())
+  };
+
+  public shared ({ caller }) func writeFundPortfolio(fundId : Nat, requestId : Text, operation : PortfolioTypes.Operation) : async Result.Result<PortfolioTypes.Asset, Text> {
+    if (not portfolioAccess(fundId, caller, true)) return #err("Portfolio write access denied");
+    switch (PortfolioLedger.apply(portfolioState, fundId, caller, requestId, operation, Time.now())) {
+      case (#err(e)) #err(e);
+      case (#ok((next, asset))) { portfolioState := next; #ok(asset) };
+    }
+  };
+
 
 	type Donation = Types.Donation;
 	type VotingPower = Types.VotingPower;
@@ -90,6 +259,11 @@ persistent actor Defunds{
 	var upgradeIcrcPayouts : [(Nat, IcrcPayoutStatus)] = [];
 	var upgradeProcessedDonationBlocks : [Nat64] = [];
 	var upgradeProcessedIcrcDonations : [Text] = [];
+  type IcrcDonationReceipt = { donor : Principal; ledger : Principal; blockIndex : Nat; amount : Nat64; decimals : Nat8; rate : Nat64; score : Nat64; timestamp : Int };
+  var icrcDonationReceipts : [(Text, IcrcDonationReceipt)] = [];
+  public query ({ caller }) func getMyIcrcDonationReceipts() : async [IcrcDonationReceipt] {
+    Array.map<(Text, IcrcDonationReceipt), IcrcDonationReceipt>(Array.filter<(Text, IcrcDonationReceipt)>(icrcDonationReceipts, func(entry) { entry.1.donor == caller }), func(entry) { entry.1 })
+  };
 	var _stable_grants : [(Nat, Grant)] = [];
 	var upgradeDonations : [(Nat64, Donation)] = [];
 
@@ -1064,12 +1238,12 @@ persistent actor Defunds{
 		for ((_, power) in votingPowers.entries()) {
 			for (change in power.powerHistory.vals()) {
 				if (change.source.isConfirmed) {
-					let label = currencyToText(change.source.currency);
-					let previous = switch (totals.get(label)) {
+					let currencyLabel = currencyToText(change.source.currency);
+					let previous = switch (totals.get(currencyLabel)) {
 						case null 0;
 						case (?n) n;
 					};
-					totals.put(label, previous + Nat64.toNat(change.source.amount));
+					totals.put(currencyLabel, previous + Nat64.toNat(change.source.amount));
 				};
 			};
 		};
@@ -1145,7 +1319,10 @@ persistent actor Defunds{
 		};
 		let key = Principal.toText(ledgerId) # ":" # Nat.toText(blockIndex);
 		if (Option.isSome(processedIcrcDonations.get(key))) return #err("Transaction already credited");
-		let ledger = icrc3LedgerActor(ledgerId);
+		// Reject unapproved ledgers before making any external calls.
+    if (Option.isNull(donorExchangeRates.get(Principal.toText(ledgerId)))) return #err("Ledger-specific governance exchange rate not configured");
+    try {
+    let ledger = icrc3LedgerActor(ledgerId);
 		let args : [Icrc3BlocksArg] = [{ start = blockIndex; length = 1 }];
 		let response = await ledger.icrc3_get_blocks(args);
 		var proof : ?Icrc3PayoutProof.Value = null;
@@ -1207,6 +1384,7 @@ persistent actor Defunds{
 		// No await beyond this point: replay protection and credit are atomic.
 		if (Option.isSome(processedIcrcDonations.get(key))) return #err("Transaction already credited");
 		processedIcrcDonations.put(key, true);
+    icrcDonationReceipts := Array.append(icrcDonationReceipts, [(key, { donor = caller; ledger = ledgerId; blockIndex; amount; decimals; rate; score = Nat64.fromNat(score); timestamp = Time.now() })]);
 		let donation : Donation = { donorId = caller; amount = amount; currency = currency; timestamp = Time.now(); blockIndex = Nat64.fromNat(blockIndex); isConfirmed = true };
 		let change : PowerChange = { amount = Nat64.fromNat(score); timestamp = Time.now(); source = donation };
 		switch (existing) {
@@ -1215,6 +1393,7 @@ persistent actor Defunds{
 		};
 		_accumulated_voting_power := Nat64.fromNat(Nat64.toNat(_accumulated_voting_power) + score);
 		#ok(1)
+    } catch (_) { #err("ICRC ledger proof or metadata unavailable; no donation credited") }
 	};
 
 	public shared ({ caller }) func donate(amount : Nat64, currency : Types.Currency, blockIndex : Nat64) : async Result.Result<Nat, Text> {
@@ -2373,7 +2552,15 @@ persistent actor Defunds{
 					} else if (groups.hasActiveProposals(groupId)) {
 						#err("Voting membership is frozen while a proposal is active");
 					} else {
-						groups.removeMember(groupId, memberPrincipal);
+						switch (groups.removeMember(groupId, memberPrincipal)) {
+              case (#err(e)) #err(e);
+              case (#ok()) {
+                let wasManager = Array.find<(Nat, Principal)>(portfolioManagers, func((id, p)) { id == groupId and p == memberPrincipal }) != null;
+                portfolioManagers := Array.filter<(Nat, Principal)>(portfolioManagers, func((id, p)) { not (id == groupId and p == memberPrincipal) });
+                if (wasManager) portfolioManagerEvents := Array.append<PortfolioTypes.ManagerEvent>(portfolioManagerEvents, [{ fundId = groupId; principal = memberPrincipal; granted = false; performedBy = caller; at = Time.now() }]);
+                #ok(())
+              };
+            };
 					};
 				};
 			};
@@ -2468,7 +2655,14 @@ persistent actor Defunds{
 		if (Principal.isAnonymous(caller)) {
 			#err("Anonymous users cannot create proposals");
 		} else {
-			groups.createGroupProposal(caller, groupId, title, description, recipient, amount);
+			let fund=switch(groups.getGroup(groupId)){case null return #err("Fund not found");case (?g)g};
+      let legacy=FundCurrencies.legacy(fund.currency);
+      let configured=switch(FundCurrencies.find(fundCurrencyEntries,groupId,fund.currency,legacy.id)){case null legacy;case (?c)c};
+      if(not configured.enabled) return #err("Currency disabled for new proposals");
+      switch(groups.createGroupProposal(caller,groupId,title,description,recipient,amount)){
+        case (#err(e)) #err(e);
+        case (#ok(proposal)){proposalCurrencySnapshots:=Array.append<(Nat,FundCurrencyTypes.Currency)>(proposalCurrencySnapshots,[(proposal.id,legacy)]);#ok(proposal)};
+      };
 		};
 	};
 
@@ -2605,7 +2799,18 @@ persistent actor Defunds{
 		if (Principal.isAnonymous(caller)) {
 			return #err("Anonymous users cannot run AI evaluations");
 		};
-		groups.evaluateProposals(groupId, caller);
+		let fund=switch(groups.getGroup(groupId)){case null return #err("Fund not found");case (?g)g};
+    let legacy=FundCurrencies.legacy(fund.currency);
+    for (proposal in groups.getGroupProposals(groupId).vals()) {
+      // Match evaluateProposals: closed proposals must not block active work.
+      if (proposal.status == #active) {
+        let denomination = proposalCurrency(proposal);
+        if (denomination.id != legacy.id or denomination.decimals != legacy.decimals) {
+          return #err("AI budget scoring is unavailable for mixed-currency proposals");
+        };
+      };
+    };
+    groups.evaluateProposals(groupId, caller);
 	};
 
 	public query ({ caller }) func getAIAgentFund(groupId : Nat) : async ?GroupTypes.AIAgentFund {
