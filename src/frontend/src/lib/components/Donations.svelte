@@ -1,87 +1,48 @@
 <script>
-	import ListItem from '$lib/components/Donation/ListItem.svelte';
-	import { globalStore } from '$lib/store';
-	import { onMount } from 'svelte';
-	import { HttpAgent } from '@dfinity/agent';
-	import { Principal } from '@dfinity/principal';
-	import * as ICPIndex from '$declarations/icp_index';
-	import {
-		DEFUND_CANISTER_ID,
-		HOST_MAINNET,
-		ICP_INDEX_CANISTER_ID,
-		ICP_LEDGER_CANISTER_ID
-	} from '$lib/constants';
+    import ListItem from '$lib/components/Donation/ListItem.svelte';
+    import { onMount } from 'svelte';
+    import { HttpAgent } from '@dfinity/agent';
+    import { Principal } from '@dfinity/principal';
+    import * as ICPIndex from '$declarations/icp_index';
+    import { DEFUND_CANISTER_ID, HOST_MAINNET, ICP_INDEX_CANISTER_ID, ICP_LEDGER_CANISTER_ID, DEFUND_TREASURY_ACCOUNT } from '$lib/constants';
+    import { parseDonationTransactions } from '$lib/utils/donation-history.js';
 
-	let donationHistory = [];
-	let backend = null;
-	let icpledger = null;
-	let principal = null;
+    let donationHistory = [];
+    let loading = true;
+    let error = '';
 
-	onMount(async () => {
-        const unsubscribe = globalStore.subscribe((store) => {
-            icpledger = store.icpledger;
-
-        });
-
-        if (backend && principal && typeof backend.getGovernancePower === "function") {
-            const power = await backend.getGovernancePower(principal);
-            votingPower = power.length > 0 ? Number(power[0]) : 0;
-        }
-        if (icpledger && principal) {
-            const icpbalance = await icpledger.icrc1_balance_of({
-                owner: principal,
-                subaccount: [],
+    async function loadDonations() {
+        loading = true;
+        error = '';
+        try {
+            const index = ICPIndex.createActor(ICP_INDEX_CANISTER_ID, {
+                agent: new HttpAgent({ host: HOST_MAINNET })
             });
-            balance = Number(icpbalance) / ICP_TOKEN_DECIMALS;
-        };
+            const result = await index.get_account_transactions({
+                max_results: 30n,
+                start: [],
+                account: { owner: Principal.fromText(DEFUND_CANISTER_ID), subaccount: [] }
+            });
+            donationHistory = parseDonationTransactions(result, DEFUND_TREASURY_ACCOUNT.split('/').pop(), ICP_LEDGER_CANISTER_ID);
+        } catch (cause) {
+            error = cause?.message || 'Failed to load donations.';
+        } finally {
+            loading = false;
+        }
+    }
 
-        return unsubscribe;
-    });
-	onMount(async () => {
-		let icpindex = ICPIndex.createActor(ICP_INDEX_CANISTER_ID, {
-			agent: new HttpAgent({ host: HOST_MAINNET })
-		});
-		let para = {
-			max_results: 30,
-			start: [],
-			account: { owner: Principal.fromText(DEFUND_CANISTER_ID), subaccount: [] }
-		};
-		let trans = [];
-
-		icpindex.get_account_transactions(para).then((result) => {
-			
-			let txs = result['Ok'].transactions;
-			for (let i = 0; i < txs.length; i++) {
-				let tx = txs[i].transaction;
-				let transfer = tx.operation.Transfer;
-				if (transfer) {
-					trans.push({
-						txid: txs[i].id,
-						amount: transfer.amount.e8s,
-						currency: ICP_LEDGER_CANISTER_ID,
-						timestamp: tx.timestamp[0].timestamp_nanos,
-						donor: transfer.from
-					});
-				}
-			}
-			console.log(trans);
-			donationHistory = trans;
-		});
-		// const unsubscribe = globalStore.subscribe((store) => {
-		// 	backend = store.backend;
-		// });
-		// try {
-		// 	const response = await backend.getDonationHistory(0, 10, [], []);
-		// 	donationHistory = response;
-		// 	console.log(donationHistory);
-		// } catch (error) {
-		// 	console.error('Error fetching donation history:', error);
-		// }
-		// return unsubscribe;
-	});
+    onMount(() => { loadDonations(); });
 </script>
 <div class="w-full">
     <div class="h-[600px] overflow-y-auto">
+        {#if loading}
+            <p class="text-sm text-slate-300" role="status">Loading donations...</p>
+        {:else if error}
+            <p class="text-sm text-rose-200" role="alert">{error}</p>
+            <button type="button" class="text-sky-300" on:click={loadDonations}>Retry</button>
+        {:else if donationHistory.length === 0}
+            <p class="text-sm text-slate-300">No incoming donations in the latest 30 treasury transactions.</p>
+        {/if}
         {#each donationHistory as donation}
             <ListItem {donation} />
         {/each}

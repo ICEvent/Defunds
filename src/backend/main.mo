@@ -24,11 +24,16 @@ import Bool "mo:base/Bool";
 import ICPTypes "./icptypes";
 import GrantTypes "./grant/types";
 import Icrc3PayoutProof "./Icrc3PayoutProof";
+import Icrc3DonationProof "./Icrc3DonationProof";
 import Grants "./grant";
 
 import GroupTypes "./group/types";
 import Groups "./group";
 import PortfolioTypes "./portfolio/types";
+import InvestmentTypes "./investment/types";
+import Investments "./investment/lib";
+import LocationTypes "./portfolio_locations/types";
+import Locations "./portfolio_locations/lib";
 import FundCurrencyTypes "./fund_currency/types";
 import FundCurrencies "./fund_currency/lib";
 import Error "mo:base/Error";
@@ -132,6 +137,84 @@ persistent actor Defunds{
     }
   };
 
+
+  // Analytical journal: never sends transfers or adds duplicate Portfolio balances.
+  var investmentState : InvestmentTypes.State = Investments.empty;
+  public shared query ({caller}) func listFundInvestments(fundId:Nat,afterId:Nat,limit:Nat) : async Result.Result<[InvestmentTypes.Investment],Text> {
+    if(not portfolioAccess(fundId,caller,false))return #err("Portfolio access denied");
+    if(limit == 0 or limit > 100)return #err("Limit must be 1..100");
+    let items=Array.filter<InvestmentTypes.Investment>(investmentState.items,func(i){i.fundId == fundId and i.id > afterId});
+    #ok(Array.tabulate<InvestmentTypes.Investment>(Nat.min(limit,items.size()),func(i){items[i]}))
+  };
+  public shared query ({caller}) func listFundInvestmentHistory(fundId:Nat,id:Nat,afterId:Nat,limit:Nat) : async Result.Result<[InvestmentTypes.Event],Text> {
+    if(not portfolioAccess(fundId,caller,false))return #err("Portfolio access denied");
+    if(limit == 0 or limit > 100)return #err("Limit must be 1..100");
+    let events=Array.filter<InvestmentTypes.Event>(investmentState.events,func(e){e.fundId == fundId and e.investmentId == id and e.id > afterId});
+    #ok(Array.tabulate<InvestmentTypes.Event>(Nat.min(limit,events.size()),func(i){events[i]}))
+  };
+  public shared ({caller}) func writeFundInvestment(fundId:Nat,requestId:Text,operation:InvestmentTypes.Operation) : async Result.Result<InvestmentTypes.Investment,Text> {
+    if(not portfolioAccess(fundId,caller,true))return #err("Portfolio write access denied");
+    for(r in investmentState.receipts.vals()){
+      if(r.fundId == fundId and r.caller == caller and r.requestId == requestId){
+        return if(r.operation == operation)#ok(r.result) else #err("Request ID already used with different input")
+      }
+    };
+    // Resolve canonical metadata at creation. Existing journals retain precision
+    // snapshots even after a Fund currency is changed or disabled.
+    let fund=switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g)g};
+    let op=switch operation {
+      case (#create(m)) {
+        let currency=switch(Array.find<FundCurrencyTypes.Currency>(fundCurrencyList(fund),func(c){c.id == m.currencyId and c.enabled})){case null return #err("Choose an enabled Fund currency");case (?c)c};
+        let (assetName,unit,decimals)=switch(m.definition){
+          case (#currency(id)) {let c=switch(Array.find<FundCurrencyTypes.Currency>(fundCurrencyList(fund),func(c){c.id == id})){case null return #err("Asset currency not found");case (?c)c};(c.name,c.symbol,c.decimals)};
+          case (#asset(id)) {let a=switch(PortfolioLedger.find(portfolioState,id)){case null return #err("Asset not found");case (?a)a};if(a.fundId != fundId or a.archived or Locations.binding(locationState,a).definition != #asset(id))return #err("Choose an active asset definition in this Fund");(a.name,a.unit,a.decimals)};
+        };
+        if(m.assetName != assetName or m.unit != unit or m.decimals != decimals or m.currency != currency.symbol or m.moneyDecimals != currency.decimals)return #err("Asset or currency metadata changed; refresh before saving");
+        operation
+      };
+      case (#record(r)) {
+        func validLocation(id:Nat,enabled:Bool):Bool {Array.find<LocationTypes.Location>(locationState.locations,func(l){l.fundId == fundId and l.id == id and (not enabled or l.enabled)}) != null};
+        let valid=switch(r.action){case (#buy(t))validLocation(t.locationId,true);case (#sell(t))validLocation(t.locationId,false);case (#transfer(t))validLocation(t.from,false) and validLocation(t.to,true);case _ true};
+        if(not valid)return #err("Choose a valid Fund location; destination must be enabled");
+        operation
+      };
+    };
+    switch(Investments.apply(investmentState,fundId,caller,requestId,op,Time.now())){
+      case (#err(e))#err(e);
+      case (#ok((state,item))){investmentState:=state;#ok(item)};
+    }
+  };
+
+  var locationState : LocationTypes.State = Locations.empty;
+
+  public shared query ({caller}) func getFundLocationPortfolio(fundId : Nat) : async Result.Result<{
+    locations : [LocationTypes.Location]; positions : [LocationTypes.Position];
+    currencies : [FundCurrencyTypes.Currency]; canWrite : Bool; linkedEventIds : [Nat];
+  },Text> {
+    if(not portfolioAccess(fundId,caller,false)) return #err("Portfolio access denied");
+    let fund = switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g) g};
+    let currencies = fundCurrencyList(fund);
+    #ok({locations=Array.filter<LocationTypes.Location>(locationState.locations,func(l){l.fundId == fundId});
+      positions=Locations.positions(locationState,portfolioState,fundId,currencies);currencies;
+      canWrite=portfolioAccess(fundId,caller,true);
+      linkedEventIds=Array.flatten<Nat>(Array.map<LocationTypes.Movement,[Nat]>(Array.filter<LocationTypes.Movement>(locationState.movements,func(m){m.fundId == fundId}),func(m){[m.sourceEventId,m.targetEventId]}))})
+  };
+  public shared query ({caller}) func listFundLocationHistory(fundId:Nat,offset:Nat,limit:Nat) : async Result.Result<[LocationTypes.Receipt],Text> {
+    if(not portfolioAccess(fundId,caller,false))return #err("Portfolio access denied");
+    if(limit == 0 or limit > 100)return #err("Limit must be 1..100");
+    let history=Array.filter<LocationTypes.Receipt>(locationState.receipts,func(r){r.fundId == fundId});
+    let size=if(offset >= history.size())0 else Nat.min(limit,history.size()-offset);
+    #ok(Array.tabulate<LocationTypes.Receipt>(size,func(i){history[offset+i]}))
+  };
+  public shared ({caller}) func writeFundLocationPortfolio(fundId:Nat,requestId:Text,operation:LocationTypes.Operation) : async Result.Result<LocationTypes.Reply,Text> {
+    if(not portfolioAccess(fundId,caller,true))return #err("Portfolio write access denied");
+    let fund=switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g)g};
+    switch(Locations.apply(locationState,portfolioState,fundId,caller,Principal.fromActor(Defunds),fundCurrencyList(fund),requestId,operation,Time.now())){
+      case (#err(e)) #err(e);
+      case (#ok((locations,assets,reply))) {locationState:=locations;portfolioState:=assets;#ok(reply)};
+    }
+  };
+
   var portfolioState : PortfolioTypes.State = PortfolioLedger.empty;
   var portfolioManagers : [(Nat, Principal)] = [];
   var portfolioManagerEvents : [PortfolioTypes.ManagerEvent] = [];
@@ -193,6 +276,15 @@ persistent actor Defunds{
 
   public shared ({ caller }) func writeFundPortfolio(fundId : Nat, requestId : Text, operation : PortfolioTypes.Operation) : async Result.Result<PortfolioTypes.Asset, Text> {
     if (not portfolioAccess(fundId, caller, true)) return #err("Portfolio write access denied");
+    if (Text.startsWith(requestId, #text("location:"))) return #err("Reserved request ID prefix");
+    switch(operation) {
+      case (#change({change=#reverse(eventId)})) {
+        if(Array.find<LocationTypes.Movement>(locationState.movements,func(m){m.fundId == fundId and (m.sourceEventId == eventId or m.targetEventId == eventId)}) != null) {
+          return #err("Linked movement entries cannot be reversed individually; record an opposite movement instead");
+        };
+      };
+      case (_) {};
+    };
     switch (PortfolioLedger.apply(portfolioState, fundId, caller, requestId, operation, Time.now())) {
       case (#err(e)) #err(e);
       case (#ok((next, asset))) { portfolioState := next; #ok(asset) };
@@ -257,6 +349,12 @@ persistent actor Defunds{
 	var upgradeTreasuryCommitments : [(Nat, TreasuryCommitment)] = [];
 	var upgradeIcrcPayouts : [(Nat, IcrcPayoutStatus)] = [];
 	var upgradeProcessedDonationBlocks : [Nat64] = [];
+	var upgradeProcessedIcrcDonations : [Text] = [];
+  type IcrcDonationReceipt = { donor : Principal; ledger : Principal; blockIndex : Nat; amount : Nat64; decimals : Nat8; rate : Nat64; score : Nat64; timestamp : Int };
+  var icrcDonationReceipts : [(Text, IcrcDonationReceipt)] = [];
+  public query ({ caller }) func getMyIcrcDonationReceipts() : async [IcrcDonationReceipt] {
+    Array.map<(Text, IcrcDonationReceipt), IcrcDonationReceipt>(Array.filter<(Text, IcrcDonationReceipt)>(icrcDonationReceipts, func(entry) { entry.1.donor == caller }), func(entry) { entry.1 })
+  };
 	var _stable_grants : [(Nat, Grant)] = [];
 	var upgradeDonations : [(Nat64, Donation)] = [];
 
@@ -277,6 +375,8 @@ persistent actor Defunds{
 
 	transient var donations = TrieMap.TrieMap<Nat64, Donation>(Nat64.equal, nat64Hash);
 	transient var processedDonationBlocks = TrieMap.TrieMap<Nat64, Bool>(Nat64.equal, nat64Hash);
+	transient var processedIcrcDonations = TrieMap.TrieMap<Text, Bool>(Text.equal, Text.hash);
+	processedIcrcDonations := TrieMap.fromEntries<Text, Bool>(Iter.map<Text, (Text, Bool)>(Iter.fromArray(upgradeProcessedIcrcDonations), func(k) { (k, true) }), Text.equal, Text.hash);
 	processedDonationBlocks := TrieMap.fromEntries<Nat64, Bool>(
 		Iter.map<Nat64, (Nat64, Bool)>(
 			Iter.fromArray(upgradeProcessedDonationBlocks),
@@ -1100,6 +1200,7 @@ persistent actor Defunds{
 		upgradeTreasuryCommitments := Iter.toArray(treasuryCommitments.entries());
 		upgradeIcrcPayouts := Iter.toArray(icrcPayouts.entries());
 		upgradeProcessedDonationBlocks := Iter.toArray(processedDonationBlocks.keys());
+		upgradeProcessedIcrcDonations := Iter.toArray(processedIcrcDonations.keys());
 		upgradeDonations := Iter.toArray(donations.entries());
 
 		_stable_grants := grants.toStable();
@@ -1177,12 +1278,14 @@ persistent actor Defunds{
 		// historical confirmed donations already retained in voting power history.
 		for ((_, power) in votingPowers.entries()) {
 			for (change in power.powerHistory.vals()) {
-				if (change.source.isConfirmed) {
+				if (change.source.isConfirmed and change.source.currency == #ICP) {
 					processedDonationBlocks.put(change.source.blockIndex, true);
 				};
 			};
 		};
 		upgradeProcessedDonationBlocks := [];
+		processedIcrcDonations := TrieMap.fromEntries<Text, Bool>(Iter.map<Text, (Text, Bool)>(Iter.fromArray(upgradeProcessedIcrcDonations), func(k) { (k, true) }), Text.equal, Text.hash);
+		upgradeProcessedIcrcDonations := [];
 		donations := TrieMap.fromEntries<Nat64, Donation>(
 			Iter.fromArray(upgradeDonations),
 			Nat64.equal,
@@ -1205,8 +1308,37 @@ persistent actor Defunds{
 		};
 	};
 
+	// Explicit ledger-specific rate prevents a user-supplied currency label from
+	// changing the valuation of an otherwise valid ledger transaction.
+	public shared ({ caller }) func setIcrcLedgerGovernanceRate(ledgerId : Principal, rate : Nat64) : async Result.Result<(), Text> {
+		if (Principal.isAnonymous(caller) or not canManageConcilMembers(caller)) return #err("Only controller/council may configure rates");
+		if (rate == 0) return #err("Rate must be positive");
+		if (ledgerId == Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai")) return #err("ICP ledger is not ICRC donation ledger");
+		donorExchangeRates.put(Principal.toText(ledgerId), rate);
+		#ok(())
+	};
+
 	public query func getExchangeRates() : async [(Text, Nat64)] {
 		Iter.toArray(donorExchangeRates.entries());
+	};
+
+	// Currency-specific totals are derived from confirmed contribution history.
+	// Legacy getTotalDonations() and _avaliable_funds remain ICP-only.
+	public query func getMainFundDonationTotalsByCurrency() : async [(Text, Nat)] {
+		let totals = TrieMap.TrieMap<Text, Nat>(Text.equal, Text.hash);
+		for ((_, power) in votingPowers.entries()) {
+			for (change in power.powerHistory.vals()) {
+				if (change.source.isConfirmed) {
+					let currencyLabel = currencyToText(change.source.currency);
+					let previous = switch (totals.get(currencyLabel)) {
+						case null 0;
+						case (?n) n;
+					};
+					totals.put(currencyLabel, previous + Nat64.toNat(change.source.amount));
+				};
+			};
+		};
+		Iter.toArray(totals.entries())
 	};
 
 	public query func getTotalDonations() : async Nat64 {
@@ -1256,6 +1388,105 @@ persistent actor Defunds{
 	//---------------------------------------
 	// Donations
 	//---------------------------------------
+	// Native ICRC-3 donation ingestion. Only authenticated direct transfers to
+	// the default treasury account qualify; unknown metadata/rates fail closed.
+	public shared ({ caller }) func donateIcrc(currency : Types.Currency, blockIndex : Nat, amount : Nat64) : async Result.Result<Nat, Text> {
+		if (Principal.isAnonymous(caller)) return #err("Authentication required");
+		if (currency == #ICP or amount == 0) return #err("Invalid ICRC donation");
+		if (blockIndex > 18_446_744_073_709_551_615) return #err("Block index exceeds supported history range");
+		// Canonicalize known ledgers: a generic ICRC alias cannot create a
+		// second currency identity for the same underlying transaction.
+		switch (currency) {
+			case (#ICRC(id)) {
+				if (id == "mxzaz-hqaaa-aaaar-qaada-cai" or id == "ss2fx-dyaaa-aaaar-qacoq-cai" or id == "xevnm-gaaaa-aaaar-qafnq-cai") {
+					return #err("Use the canonical ckBTC, ckETH or ckUSDC currency");
+				};
+			};
+			case (_) {};
+		};
+		let ledgerId = switch (getIcrcLedgerCanister(currency)) {
+			case null return #err("Invalid ICRC ledger");
+			case (?id) id;
+		};
+		let key = Principal.toText(ledgerId) # ":" # Nat.toText(blockIndex);
+		if (Option.isSome(processedIcrcDonations.get(key))) return #err("Transaction already credited");
+		// Reject unapproved ledgers before making any external calls.
+    if (Option.isNull(donorExchangeRates.get(Principal.toText(ledgerId)))) return #err("Ledger-specific governance exchange rate not configured");
+    try {
+    let ledger = icrc3LedgerActor(ledgerId);
+		let args : [Icrc3BlocksArg] = [{ start = blockIndex; length = 1 }];
+		let response = await ledger.icrc3_get_blocks(args);
+		var proof : ?Icrc3PayoutProof.Value = null;
+		for (entry in response.blocks.vals()) {
+			if (entry.id == blockIndex) proof := ?entry.block;
+		};
+		if (Option.isNull(proof)) {
+			for (range in response.archived_blocks.vals()) {
+				for (section in range.args.vals()) {
+					if (blockIndex >= section.start and blockIndex - section.start < section.length) {
+						let page = await range.callback(args);
+						for (entry in page.blocks.vals()) {
+							if (entry.id == blockIndex) proof := ?entry.block;
+						};
+					};
+				};
+			};
+		};
+		switch (proof) {
+			case null return #err("ICRC-3 transaction not found");
+			case (?block) {
+				if (not Icrc3DonationProof.isDonationTransfer(block, caller, Principal.fromActor(Defunds), Nat64.toNat(amount))) {
+					return #err("ICRC-3 transfer sender, recipient or amount mismatch");
+				};
+			};
+		};
+		// Score units: 10^8 reference units. Rates are explicit reference
+		// units per whole token; never assume all ICRC tokens have 8 decimals.
+		let metadataLedger : actor { icrc1_decimals : shared query () -> async Nat8 } = actor (Principal.toText(ledgerId));
+		let decimals = await metadataLedger.icrc1_decimals();
+		if (decimals > 30) return #err("Unsupported token precision");
+		// Reject a currency/ledger mismatch even when a valid transfer exists.
+		// Only the canonical ledger is accepted for built-in ck-token variants.
+		switch (currency) {
+			case (#ckBTC) { if (ledgerId != Principal.fromText("mxzaz-hqaaa-aaaar-qaada-cai")) return #err("ckBTC ledger mismatch") };
+			case (#ckETH) { if (ledgerId != Principal.fromText("ss2fx-dyaaa-aaaar-qacoq-cai")) return #err("ckETH ledger mismatch") };
+			case (#ckUSDC) { if (ledgerId != Principal.fromText("xevnm-gaaaa-aaaar-qafnq-cai")) return #err("ckUSDC ledger mismatch") };
+			case (_) {};
+		};
+		let rate = switch (donorExchangeRates.get(Principal.toText(ledgerId))) {
+			case null return #err("Ledger-specific governance exchange rate not configured");
+			case (?value) value;
+		};
+		if (rate == 0) return #err("Invalid exchange rate");
+		var scale : Nat = 1;
+		var digit : Nat = 0;
+		while (digit < Nat8.toNat(decimals)) {
+			scale *= 10;
+			digit += 1;
+		};
+		let score = Nat64.toNat(amount) * Nat64.toNat(rate) / scale;
+		let max : Nat = 18_446_744_073_709_551_615;
+		if (score == 0 or score > max or Nat64.toNat(_accumulated_voting_power) + score > max) return #err("Contribution score out of range");
+		let existing = votingPowers.get(caller);
+		switch (existing) {
+			case (?power) { if (Nat64.toNat(power.totalPower) + score > max) return #err("Donor score overflow") };
+			case null {};
+		};
+		// No await beyond this point: replay protection and credit are atomic.
+		if (Option.isSome(processedIcrcDonations.get(key))) return #err("Transaction already credited");
+		processedIcrcDonations.put(key, true);
+    icrcDonationReceipts := Array.append(icrcDonationReceipts, [(key, { donor = caller; ledger = ledgerId; blockIndex; amount; decimals; rate; score = Nat64.fromNat(score); timestamp = Time.now() })]);
+		let donation : Donation = { donorId = caller; amount = amount; currency = currency; timestamp = Time.now(); blockIndex = Nat64.fromNat(blockIndex); isConfirmed = true };
+		let change : PowerChange = { amount = Nat64.fromNat(score); timestamp = Time.now(); source = donation };
+		switch (existing) {
+			case null { votingPowers.put(caller, { userId = caller; totalPower = change.amount; powerHistory = [change] }); };
+			case (?power) { votingPowers.put(caller, { userId = caller; totalPower = power.totalPower + change.amount; powerHistory = Array.append(power.powerHistory, [change]) }); };
+		};
+		_accumulated_voting_power := Nat64.fromNat(Nat64.toNat(_accumulated_voting_power) + score);
+		#ok(1)
+    } catch (_) { #err("ICRC ledger proof or metadata unavailable; no donation credited") }
+	};
+
 	public shared ({ caller }) func donate(amount : Nat64, currency : Types.Currency, blockIndex : Nat64) : async Result.Result<Nat, Text> {
 		if (Principal.isAnonymous(caller)) {
 			#err("no permission for anonymous caller to donate");

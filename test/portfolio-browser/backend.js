@@ -3,7 +3,7 @@
 import { Principal } from '@dfinity/principal';
 export const owner='aaaaa-aa', member='rrkah-fqaaa-aaaaa-aaaaq-cai';
 let nextId=3n;
-export const state = { chainBalance:2500000n, currencies:[{id:"ic:rrkah-fqaaa-aaaaa-aaaaq-cai",symbol:"TEST",name:"Test ledger",decimals:6,ledger:[Principal.fromText(member)],enabled:true}], calls:[], managers:[], failNext:false, loseResponse:false, receipts:new Map(), assets:[
+export const state = { locations:[], bindings:[], locationHistory:[], locationRequests:new Map(), chainBalance:2500000n, currencies:[{id:"ic:rrkah-fqaaa-aaaaa-aaaaq-cai",symbol:"TEST",name:"Test ledger",decimals:6,ledger:[Principal.fromText(member)],enabled:true}], calls:[], managers:[], failNext:false, loseResponse:false, receipts:new Map(), assets:[
  {id:1n,fundId:1n,name:'Shared rowing boat',category:'equipment',unit:'boat',decimals:0,quantity:1n,quantityRevision:1n,revision:1n,status:{held:null},archived:false,source:[],createdAt:1n,valuation:[{amount:1200000n,currency:'CAD',decimals:2,quantityRevision:1n,at:1794355200000000000n,performedBy:Principal.fromText(owner)}]},
  {id:2n,fundId:1n,name:'ETH',category:'crypto',unit:'ETH',decimals:2,quantity:250n,quantityRevision:1n,revision:1n,status:{held:null},archived:false,source:[],createdAt:1n,valuation:[]}
 ], events:[]};
@@ -14,6 +14,23 @@ function clone(value){
  return value;
 }
 export function makeBackend(caller){return {
+ async getFundLocationPortfolio(){return {ok:clone({locations:state.locations,currencies:state.currencies,canWrite:caller===owner||state.managers.includes(caller),positions:state.assets.map(asset=>{
+   const binding=state.bindings.find(b=>b.assetId===asset.id)??{definition:{asset:asset.id},locationId:0n};
+   const meta='currency'in binding.definition?state.currencies.find(c=>c.id===binding.definition.currency):state.assets.find(a=>a.id===binding.definition.asset);
+   return {asset,definition:binding.definition,locationId:binding.locationId,name:meta?.name??asset.name,unit:meta?.symbol??asset.unit,decimals:meta?.decimals??asset.decimals};
+ })})};},
+ async listFundLocationHistory(_fund,offset,limit){return {ok:clone(state.locationHistory.slice(Number(offset),Number(offset+limit)))};},
+ async writeFundLocationPortfolio(fund,id,operation){
+   if(caller!==owner&&!state.managers.includes(caller))return {err:'Portfolio write access denied'};
+   if(state.locationRequests.has(id))return {ok:clone(state.locationRequests.get(id))};
+   const at=1794355200000000000n, performedBy=Principal.fromText(caller);let reply;
+   if(operation.addLocation){const input=operation.addLocation;const location={...input,id:BigInt(state.locations.length+1),fundId:fund,enabled:true,revision:1n,createdAt:at};state.locations.push(location);reply={location};}
+   else if(operation.updateLocation){const input=operation.updateLocation;const l=state.locations.find(l=>l.id===input.id);Object.assign(l,{name:input.name,enabled:input.enabled,revision:l.revision+1n});reply={location:l};}
+   else if(operation.bind){const input=operation.bind;const binding={assetId:input.assetId,fundId:fund,definition:input.definition,locationId:input.locationId,performedBy,at};state.bindings.push(binding);reply={position:binding};}
+   else if(operation.create){const input=operation.create;const meta='currency'in input.definition?state.currencies.find(c=>c.id===input.definition.currency):state.assets.find(a=>a.id===input.definition.asset);const asset={id:nextId++,fundId:fund,name:meta.name,category:'equipment',unit:meta.symbol??meta.unit,decimals:meta.decimals,quantity:input.quantity,quantityRevision:1n,revision:1n,status:{held:null},archived:false,source:[],valuation:[],createdAt:at};state.assets.push(asset);const binding={assetId:asset.id,fundId:fund,definition:input.definition,locationId:input.locationId,performedBy,at};state.bindings.push(binding);reply={position:binding};}
+   else if(operation.move){const input=operation.move;const source=state.assets.find(a=>a.id===input.sourceId),target=state.assets.find(a=>a.id===input.targetId);if(source.quantity<input.quantity+input.fee)return {err:'Insufficient holding quantity'};source.quantity-=input.quantity+input.fee;target.quantity+=input.quantity;source.revision++;target.revision++;source.quantityRevision++;target.quantityRevision++;reply={movement:{...input,id:BigInt(state.locationHistory.length+1),fundId:fund,performedBy,at,sourceEventId:0n,targetEventId:0n}};}
+   state.locationHistory.push({fundId:fund,caller:performedBy,requestId:id,operation,reply:clone(reply),at});state.locationRequests.set(id,clone(reply));return {ok:clone(reply)};
+ },
  async getFundCurrencies(){return {ok:clone(state.currencies)};},
  async getFundTreasuryAccount(){return {ok:{owner:Principal.fromText(owner),subaccount:new Uint8Array(32)}};},
  async getFundTreasuryBalances(){return {ok:[{currency:clone(state.currencies[0]),balance:{ok:state.chainBalance},checkedAt:1794355200000000000n}]};},

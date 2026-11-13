@@ -155,4 +155,60 @@ ok "$(call portfolio-test-owner createGroupProposalWithCurrency "(3,\"Rejected f
 err "$(call portfolio-test-owner runAIEvaluation '(3)')"
 ok "$(call portfolio-test-owner voteOnProposal '(3,5,false)')"
 RESULT="$(call portfolio-test-owner runAIEvaluation '(3)')"; ok "$RESULT"; contains "$RESULT" 'proposalId = 2'
-echo 'PASS: production Portfolio, multi-currency proposals, ledger snapshots, populated upgrades and AI history guard'
+# Locations reuse existing holdings and atomically record manual movements.
+err "$(call portfolio-test-member writeFundLocationPortfolio '(1,"member-location",variant {addLocation=record {name="Denied";kind=variant {storage="denied"}}})')"
+ok "$(call portfolio-test-owner writeFundLocationPortfolio '(1,"location-a",variant {addLocation=record {name="Location A";kind=variant {storage="warehouse-a"}}})')"
+ok "$(call portfolio-test-owner writeFundLocationPortfolio '(1,"location-a",variant {addLocation=record {name="Location A";kind=variant {storage="warehouse-a"}}})')"
+ok "$(call portfolio-test-owner writeFundLocationPortfolio '(1,"location-b",variant {addLocation=record {name="Location B";kind=variant {storage="warehouse-b"}}})')"
+err "$(call portfolio-test-owner writeFundLocationPortfolio "(1,\"treasury-alias\",variant {addLocation=record {name=\"Not external\";kind=variant {wallet=record {owner=principal \"$BACKEND\";subaccount=null}}}})")"
+ok "$(call portfolio-test-owner writeFundLocationPortfolio '(1,"holding-a",variant {create=record {definition=variant {currency="manual:CAD"};locationId=1;quantity=1000;note="Fund share"}})')"
+ok "$(call portfolio-test-owner writeFundLocationPortfolio '(1,"holding-b",variant {create=record {definition=variant {currency="manual:CAD"};locationId=2;quantity=0;note="Destination"}})')"
+MOVE='(1,"move-cad",variant {move=record {sourceId=2;targetId=3;sourceRevision=1;targetRevision=1;quantity=200;fee=10;note="Already moved externally"}})'
+RESULT="$(call portfolio-test-owner writeFundLocationPortfolio "$MOVE")";ok "$RESULT"
+SOURCE_EVENT="$(python3 - "$RESULT" <<'PY_MOVE'
+import re,sys
+m=re.search(r'sourceEventId\s*=\s*([0-9_]+)',sys.argv[1]);assert m
+print(m.group(1).replace('_',''))
+PY_MOVE
+)"
+ok "$(call portfolio-test-owner writeFundLocationPortfolio "$MOVE")"
+RESULT="$(call portfolio-test-owner getFundLocationPortfolio '(1)')";ok "$RESULT";contains "$RESULT" 'quantity = 790';contains "$RESULT" 'quantity = 200'
+err "$(call portfolio-test-owner writeFundPortfolio "(1,\"reverse-linked\",variant {change=record {assetId=2;expectedRevision=2;change=variant {reverse=$SOURCE_EVENT};note=\"Must not reverse one side\"}})")"
+err "$(call portfolio-test-owner writeFundPortfolio '(1,"location:reserved:out",variant {change=record {assetId=2;expectedRevision=2;change=variant {increase=1};note=""}})')"
+BEFORE_POSITIONS="$(call portfolio-test-owner getFundLocationPortfolio '(1)')"
+err "$(call portfolio-test-owner writeFundLocationPortfolio '(1,"stale-destination",variant {move=record {sourceId=2;targetId=3;sourceRevision=2;targetRevision=1;quantity=100;fee=0;note="No partial debit"}})')"
+[[ "$BEFORE_POSITIONS" == "$(call portfolio-test-owner getFundLocationPortfolio '(1)')" ]] || { echo 'Movement partially changed holdings' >&2;exit 1; }
+err "$(call portfolio-test-outsider getFundLocationPortfolio '(1)')"
+err "$(call anonymous listFundLocationHistory '(1,0,100)')"
+err "$(call portfolio-test-outsider writeFundLocationPortfolio '(2,"cross-location",variant {create=record {definition=variant {currency="ic:ryjl3-tyaaa-aaaaa-aaaba-cai"};locationId=1;quantity=1;note="Denied"}})')"
+# Investment journal: permissions, canonical metadata, stale writes and upgrade replay.
+ok "$(call portfolio-test-owner setFundCurrencyEnabled '(1,"manual:CAD",true)')"
+BEFORE_POSITIONS="$(call portfolio-test-owner getFundLocationPortfolio '(1)')"
+INV_CREATE='(1,"investment-create",variant {create=record {name="CAD strategy";definition=variant {currency="manual:CAD"};assetName="Canadian dollar";unit="CAD";decimals=2:nat8;currencyId="manual:CAD";currency="CAD";moneyDecimals=2:nat8}})'
+err "$(call portfolio-test-member writeFundInvestment "$INV_CREATE")"
+err "$(call portfolio-test-outsider listFundInvestments '(1,0,100)')"
+err "$(call anonymous listFundInvestmentHistory '(1,1,0,100)')"
+ok "$(call portfolio-test-owner writeFundInvestment "$INV_CREATE")"
+ok "$(call portfolio-test-member listFundInvestments '(1,0,100)')"
+INV_BUY='(1,"investment-buy",variant {record=record {id=1;expectedRevision=1;action=variant {buy=record {locationId=1;quantity=100;amount=1000;fee=0}};note="Confirmed external buy"}})'
+ok "$(call portfolio-test-owner writeFundInvestment "$INV_BUY")"
+ok "$(call portfolio-test-owner writeFundInvestment "$INV_BUY")"
+err "$(call portfolio-test-owner writeFundInvestment '(1,"stale-investment",variant {record=record {id=1;expectedRevision=1;action=variant {expense=1};note=""}})')"
+err "$(call portfolio-test-outsider writeFundInvestment '(2,"cross-investment",variant {record=record {id=1;expectedRevision=2;action=variant {expense=1};note=""}})')"
+err "$(call portfolio-test-owner writeFundInvestment '(1,"invalid-location",variant {record=record {id=1;expectedRevision=2;action=variant {buy=record {locationId=999;quantity=1;amount=1;fee=0}};note=""}})')"
+ok "$(call portfolio-test-owner writeFundInvestment '(1,"investment-sell",variant {record=record {id=1;expectedRevision=2;action=variant {sell=record {locationId=1;quantity=30;amount=400;fee=0}};note="Partial exit"}})')"
+ok "$(call portfolio-test-owner writeFundInvestment '(1,"investment-value",variant {record=record {id=1;expectedRevision=3;action=variant {valuation=record {amount=650;source="manual estimate"}};note=""}})')"
+INV_ITEMS="$(call portfolio-test-owner listFundInvestments '(1,0,100)')";ok "$INV_ITEMS";contains "$INV_ITEMS" 'cost = 700';contains "$INV_ITEMS" 'realized = 100';contains "$INV_ITEMS" 'quantity = 70'
+INV_HISTORY="$(call portfolio-test-owner listFundInvestmentHistory '(1,1,0,100)')";ok "$INV_HISTORY"
+[[ "$BEFORE_POSITIONS" == "$(call portfolio-test-owner getFundLocationPortfolio '(1)')" ]] || { echo 'Journal changed Portfolio balances' >&2;exit 1; }
+LOCATION_HISTORY="$(call portfolio-test-owner listFundLocationHistory '(1,0,100)')";ok "$LOCATION_HISTORY"
+dfx canister install "$FIXTURE_CANISTER" --mode upgrade --wasm-memory-persistence keep --upgrade-unchanged --wasm "$TASK_TMP/production.wasm" --network local --identity portfolio-test-owner
+[[ "$BEFORE_POSITIONS" == "$(call portfolio-test-owner getFundLocationPortfolio '(1)')" ]] || { echo 'Located holdings lost across upgrade' >&2;exit 1; }
+[[ "$LOCATION_HISTORY" == "$(call portfolio-test-owner listFundLocationHistory '(1,0,100)')" ]] || { echo 'Movement history lost across upgrade' >&2;exit 1; }
+ok "$(call portfolio-test-owner writeFundLocationPortfolio "$MOVE")"
+[[ "$BEFORE_POSITIONS" == "$(call portfolio-test-owner getFundLocationPortfolio '(1)')" ]] || { echo 'Movement retry duplicated after upgrade' >&2;exit 1; }
+[[ "$INV_ITEMS" == "$(call portfolio-test-owner listFundInvestments '(1,0,100)')" ]] || { echo 'Investments lost across upgrade' >&2;exit 1; }
+[[ "$INV_HISTORY" == "$(call portfolio-test-owner listFundInvestmentHistory '(1,1,0,100)')" ]] || { echo 'Investment history lost across upgrade' >&2;exit 1; }
+ok "$(call portfolio-test-owner writeFundInvestment "$INV_BUY")"
+[[ "$INV_ITEMS" == "$(call portfolio-test-owner listFundInvestments '(1,0,100)')" ]] || { echo 'Investment retry duplicated after upgrade' >&2;exit 1; }
+echo 'PASS: Portfolio, currencies, AI guard, locations, atomic movements and populated upgrades'
