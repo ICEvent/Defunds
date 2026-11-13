@@ -34,6 +34,7 @@ module {
         };
         #ok(#wallet({owner=account.owner;subaccount}))
       };
+      case (#blockchain(ref)) {if(not nonblank(ref,200))return #err("Blockchain network and address reference is required");#ok(#blockchain(Text.trim(ref,#predicate(Char.isWhitespace))))};
       case (#bank(ref)) {if(not nonblank(ref,200))return #err("Bank reference is required");#ok(#bank(Text.trim(ref,#predicate(Char.isWhitespace))))};
       case (#cash(ref)) {if(not nonblank(ref,200))return #err("Cash location is required");#ok(#cash(Text.trim(ref,#predicate(Char.isWhitespace))))};
       case (#storage(ref)) {if(not nonblank(ref,200))return #err("Storage reference is required");#ok(#storage(Text.trim(ref,#predicate(Char.isWhitespace))))};

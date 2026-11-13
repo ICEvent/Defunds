@@ -13,6 +13,19 @@
   import { hideProgress, showProgress } from "$lib/stores/progress";
   import { getCurrencyName, getDecimalsByCurrency } from "$lib/utils/currency.utils";
 
+  let activeSection = "treasury";
+  $: fundSections = [
+    ...(isAuthed && (isCreator || isMember) ? [
+      { id: "treasury", label: "Treasury" },
+      { id: "locations", label: "Locations & holdings" },
+      { id: "investments", label: "Investments" },
+      { id: "assets", label: "Asset ledger" },
+    ] : [{ id: "treasury", label: "Treasury identity" }]),
+    { id: "proposals", label: `Proposals (${proposals.length})` },
+    { id: "members", label: `Members (${canonicalMembers.length})` },
+  ];
+  $: if (!fundSections.some(section => section.id === activeSection)) activeSection = "treasury";
+
   let groupId;
   let group = null;
   let proposals = [];
@@ -462,11 +475,11 @@
         </div>
       </div>
 
-      <div class="mt-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div class="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
           <div class="text-xs uppercase tracking-wide text-slate-400">Original default currency</div>
           <div class="mt-1 text-2xl font-semibold">{currency}</div>
-          <div class="mt-1 text-xs text-slate-400">Balances by currency appear in Portfolio below</div>
+          <div class="mt-1 text-xs text-slate-400">View balances in Treasury</div>
         </div>
         <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
           <div class="text-xs uppercase tracking-wide text-slate-400">Members</div>
@@ -482,13 +495,6 @@
         </div>
       </div>
     </section>
-
-    {#if isAuthed && (isCreator || isMember)}
-      <FundCurrencies {backend} fundId={groupId} {principalText} {isCreator} on:balances={(event)=>treasury=event.detail} on:changed={()=>locationRefresh++} on:currencies={(event) => { fundCurrencies = event.detail.currencies; if (!fundCurrencies.some(c => c.id === proposalCurrencyId && c.enabled)) proposalCurrencyId = fundCurrencies.find(c => c.enabled)?.id ?? ""; }} />
-      <LocationPortfolio {backend} fundId={groupId} {principalText} {treasury} refreshToken={locationRefresh} on:links={(event)=>linkedMovementEvents=event.detail} on:changed={()=>assetRefresh++} />
-      <FundInvestments {backend} fundId={groupId} {principalText} refreshToken={locationRefresh + assetRefresh} />
-      <GroupPortfolio {backend} fundId={groupId} {principalText} {isCreator} members={canonicalMembers} refreshToken={assetRefresh} blockedReversals={linkedMovementEvents} on:changed={()=>locationRefresh++} />
-    {/if}
 
     {#if showEditFund && isCreator}
       <section class="mt-6 rounded-2xl border border-sky-200 bg-sky-50/70 p-5 shadow-sm sm:p-6">
@@ -519,6 +525,30 @@
       </section>
     {/if}
 
+    <nav aria-label="Fund sections" class="mt-5 flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+      {#each fundSections as section (section.id)}
+        <button type="button" aria-pressed={activeSection === section.id} aria-controls={section.id === "treasury" && isAuthed && (isCreator || isMember) ? "fund-treasury-balances fund-treasury" : `fund-${section.id}`} on:click={() => activeSection = section.id}
+          class="rounded-xl px-4 py-2.5 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 {activeSection === section.id ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'}">{section.label}</button>
+      {/each}
+    </nav>
+
+    <!-- Keep dependent portfolios mounted so balance and reversal events stay in sync. -->
+    {#if isAuthed && (isCreator || isMember)}
+      <div id="fund-treasury-balances" hidden={activeSection !== "treasury"} class="min-w-0">
+        <FundCurrencies {backend} fundId={groupId} {principalText} {isCreator} on:balances={(event)=>treasury=event.detail} on:changed={()=>locationRefresh++} on:currencies={(event) => { fundCurrencies = event.detail.currencies; if (!fundCurrencies.some(c => c.id === proposalCurrencyId && c.enabled)) proposalCurrencyId = fundCurrencies.find(c => c.enabled)?.id ?? ""; }} />
+      </div>
+      <div id="fund-locations" hidden={activeSection !== "locations"} class="min-w-0">
+        <LocationPortfolio {backend} fundId={groupId} {principalText} {treasury} refreshToken={locationRefresh} on:links={(event)=>linkedMovementEvents=event.detail} on:changed={()=>assetRefresh++} />
+      </div>
+      <div id="fund-investments" hidden={activeSection !== "investments"} class="min-w-0">
+        <FundInvestments {backend} fundId={groupId} {principalText} refreshToken={locationRefresh + assetRefresh} />
+      </div>
+      <div id="fund-assets" hidden={activeSection !== "assets"} class="min-w-0">
+        <GroupPortfolio {backend} fundId={groupId} {principalText} {isCreator} members={canonicalMembers} refreshToken={assetRefresh} blockedReversals={linkedMovementEvents} on:changed={()=>locationRefresh++} />
+      </div>
+    {/if}
+
+    <div id="fund-treasury" hidden={activeSection !== "treasury"}>
     <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -530,7 +560,9 @@
       </div>
       <div class="mt-4 break-all rounded-xl bg-slate-950 px-4 py-3 font-mono text-xs text-slate-200">{formatAccount(group.account)}</div>
     </section>
+    </div>
 
+    <div id="fund-members" hidden={activeSection !== "members"}>
     <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -597,7 +629,9 @@
         {/each}
       </div>
     </section>
+    </div>
 
+    <div id="fund-proposals" hidden={activeSection !== "proposals"}>
     <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -655,7 +689,7 @@
       {#if proposals.length === 0}
         <div class="mt-5 rounded-2xl border border-dashed border-slate-300 px-5 py-10 text-center text-sm text-slate-500">No proposals yet.</div>
       {:else}
-        <div class="mt-5 grid gap-4">
+        <div class="mt-5 grid gap-4 xl:grid-cols-2">
           {#each proposals as proposal (proposal.id)}
             {@const yesPower = votePowerFor(proposal.yesVotes)}
             {@const noPower = votePowerFor(proposal.noVotes)}
@@ -718,6 +752,7 @@
         </div>
       {/if}
     </section>
+    </div>
   {:else}
     <section class="rounded-2xl border border-slate-700 bg-slate-900/70 px-6 py-14 text-center text-slate-300">Loading fund…</section>
   {/if}

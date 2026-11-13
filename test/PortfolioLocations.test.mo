@@ -1,3 +1,4 @@
+import Text "mo:base/Text";
 import Array "mo:base/Array";
 import Blob "mo:base/Blob";
 import Principal "mo:base/Principal";
@@ -59,3 +60,10 @@ ignore write("restore",#updateLocation({id=2;expectedRevision=2;name="Warehouse 
 let attack:P.Operation=#change({assetId=1;expectedRevision=2;change=#decrease(1);note="old receipt"});
 switch(Ledger.apply(ledger,1,user,"location:attack:out",attack,1)){case (#ok((p,_)))ledger:=p;case (_)assert false};
 failed("attack",#move({sourceId=1;targetId=2;sourceRevision=3;targetRevision=2;quantity=1;fee=0;note="old receipt"}));
+
+// Blockchain references identify external networks without requiring an IC Principal.
+ignore write("blockchain",#addLocation({name="Ethereum wallet";kind=#blockchain("  Ethereum · 0x1234  ")}));
+let chain=state.locations[state.locations.size()-1];
+assert(chain.kind==#blockchain("Ethereum · 0x1234"));
+failed("blank-chain",#addLocation({name="Empty chain";kind=#blockchain("   ")}));
+failed("long-chain",#addLocation({name="Long chain";kind=#blockchain(Text.fromIter(Array.tabulate<Char>(201,func(_){'a'}).vals()))}));

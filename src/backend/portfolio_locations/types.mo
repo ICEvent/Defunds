@@ -1,6 +1,6 @@
 import P "../portfolio/types";
 module {
-  public type Kind = { #wallet : {owner : Principal; subaccount : ?Blob}; #bank : Text; #cash : Text; #storage : Text; #other : Text };
+  public type Kind = { #wallet : {owner : Principal; subaccount : ?Blob}; #blockchain : Text; #bank : Text; #cash : Text; #storage : Text; #other : Text };
   public type Location = {id : Nat; fundId : Nat; name : Text; kind : Kind; enabled : Bool; revision : Nat; createdAt : Int};
   public type Definition = { #currency : Text; #asset : Nat };
   public type Binding = {assetId : Nat; fundId : Nat; definition : Definition; locationId : Nat; performedBy : Principal; at : Int};
