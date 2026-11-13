@@ -95,7 +95,7 @@
         <h3 class="font-semibold">{item.metadata.name}</h3><p class="text-sm text-slate-500">{item.metadata.assetName} · {formatUnits(item.quantity,item.metadata.decimals)} {item.metadata.unit} · {item.quantity===0n?(item.invested===0n?'Planned':'Exited'):'Holding'}</p>
         <dl class="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
           {#each [['Total invested',item.invested],['Remaining cost',item.cost],['Current value',value(item)],['Sale proceeds',item.proceeds],['Income',item.income],['Realized P/L',item.realized],['Unrealized P/L',unrealized(item)],['Total P/L',total(item)]] as metric}
-            <div><dt class="text-slate-500">{metric[0]}</dt><dd class="mt-1 break-words font-semibold">{money(metric[1],item)}</dd></div>
+            <div><dt class="text-slate-500">{metric[0]}</dt><dd class="mt-1 break-words font-semibold" class:text-rose-700={metric[1]!==null&&metric[1]<0n} class:text-emerald-700={metric[0].includes('P/L')&&metric[1]!==null&&metric[1]>0n}>{money(metric[1],item)}</dd></div>
           {/each}
         </dl>
         {#if item.valuation[0]}<p class="mt-3 break-words text-xs text-slate-500">Valued {date(item.valuation[0].at)} · {item.valuation[0].source}</p>{:else if item.quantity>0n}<p class="mt-3 text-xs text-amber-800">Awaiting valuation after the latest purchase or sale.</p>{/if}
@@ -126,3 +126,13 @@
   {/if}
   {#if historyFor}<div class="mt-5 border-t pt-4"><h3 class="font-semibold">Investment history · {historyFor.metadata.name}</h3><ol class="mt-3 space-y-3 text-sm">{#each history as e (e.id)}<li class="break-words"><strong>{eventText(e)}</strong><p class="text-xs text-slate-500">{date(e.at)} · {e.performedBy.toText()}</p>{#if 'record'in e.operation}<p>{e.operation.record.note}</p>{/if}</li>{/each}</ol>{#if more}<button class="button mt-3" disabled={busy} on:click={()=>showHistory(historyFor,true)}>More investment history</button>{/if}</div>{/if}
 </section>
+
+<style>
+  p, li, dd { overflow-wrap: anywhere; }
+  label { display: grid; gap: 6px; font-size: 14px; min-width: 0; }
+  input, select, textarea { width: 100%; min-width: 0; max-width: 100%; border: 1px solid #cbd5e1; border-radius: 10px; padding: 9px 12px; background: white; color: #0f172a; }
+  textarea { min-height: 80px; }
+  .button { border: 1px solid #cbd5e1; border-radius: 10px; padding: 9px 13px; font-size: 13px; font-weight: 600; min-height: 44px; }
+  button:disabled { opacity: .5; }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid #0284c7; outline-offset: 2px; }
+</style>
