@@ -11,6 +11,7 @@
   $: if(backend&&principalText&&(context?.backend!==backend||context?.fundId!==fundId||context?.principalText!==principalText||context?.refresh!==refreshToken)){
     context={backend,fundId,principalText,refresh:refreshToken};void load();
   }
+  $: if((!backend||!principalText)&&context){epoch++;context=null;items=[];locations=[];currencies=[];definitions=[];canWrite=false;form='';selected=null;history=[];historyFor=null;pending=null;error='';success='';loading=false;}
   $: definition=definitions.find(d=>d.key===definitionId);
   $: currency=currencies.find(c=>c.id===currencyId);
   function unwrap(r){if('err'in r)throw new Error(r.err);return r.ok;}
@@ -109,11 +110,11 @@
       <fieldset disabled={busy} class="mt-3 grid gap-3 sm:grid-cols-2">
         {#if form==='create'}
           <label>Investment name<input required maxlength="120" bind:value={name}/></label>
-          <label>Investment asset<select required bind:value={definitionId}>{#each definitions as d}<option value={d.key}>{d.name} · {d.unit}</option>{/each}</select></label>
-          <label>Settlement currency<select required bind:value={currencyId}>{#each currencies.filter(c=>c.enabled) as c}<option value={c.id}>{c.symbol} · {c.id}</option>{/each}</select></label>
+          <label>Investment asset<select aria-label="Investment asset" required bind:value={definitionId}>{#each definitions as d}<option value={d.key}>{d.name} · {d.unit}</option>{/each}</select></label>
+          <label>Settlement currency<select aria-label="Settlement currency" required bind:value={currencyId}>{#each currencies.filter(c=>c.enabled) as c}<option value={c.id}>{c.symbol} · {c.id}</option>{/each}</select></label>
         {:else}
-          {#if ['buy','sell','transfer'].includes(form)}<label>Investment location<select required bind:value={locationId}><option value="" disabled>Choose location</option>{#each locations.filter(l=>form==='buy'?l.enabled:selected.accounts.some(a=>a.locationId===l.id&&a.quantity>0n)) as l}<option value={l.id.toString()}>{l.name}</option>{/each}</select></label><label>Investment quantity ({selected.metadata.unit})<input required inputmode="decimal" bind:value={quantity}/></label>{/if}
-          {#if form==='transfer'}<label>Destination location<select required bind:value={targetId}><option value="" disabled>Choose destination</option>{#each locations.filter(l=>l.enabled&&l.id.toString()!==locationId) as l}<option value={l.id.toString()}>{l.name}</option>{/each}</select></label>{:else}<label>{form==='valuation'?'Total holding value':'Investment amount'} ({selected.metadata.currency})<input required inputmode="decimal" bind:value={amount}/></label>{/if}
+          {#if ['buy','sell','transfer'].includes(form)}<label>Investment location<select aria-label="Investment location" required bind:value={locationId}><option value="" disabled>Choose location</option>{#each locations.filter(l=>form==='buy'?l.enabled:selected.accounts.some(a=>a.locationId===l.id&&a.quantity>0n)) as l}<option value={l.id.toString()}>{l.name}</option>{/each}</select></label><label>Investment quantity ({selected.metadata.unit})<input required inputmode="decimal" bind:value={quantity}/></label>{/if}
+          {#if form==='transfer'}<label>Destination location<select aria-label="Destination location" required bind:value={targetId}><option value="" disabled>Choose destination</option>{#each locations.filter(l=>l.enabled&&l.id.toString()!==locationId) as l}<option value={l.id.toString()}>{l.name}</option>{/each}</select></label>{:else}<label>{form==='valuation'?'Total holding value':'Investment amount'} ({selected.metadata.currency})<input required inputmode="decimal" bind:value={amount}/></label>{/if}
           {#if ['buy','sell','income','transfer'].includes(form)}<label>Investment fee ({selected.metadata.currency})<input required inputmode="decimal" bind:value={fee}/></label>{/if}
           {#if form==='valuation'}<label>Valuation source<input required maxlength="500" bind:value={source}/></label>{/if}
           <label class="sm:col-span-2">Investment note<textarea maxlength="2000" bind:value={note}></textarea></label>
