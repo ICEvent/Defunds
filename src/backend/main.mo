@@ -2661,9 +2661,14 @@ persistent actor Defunds{
 		};
 		let fund=switch(groups.getGroup(groupId)){case null return #err("Fund not found");case (?g)g};
     let legacy=FundCurrencies.legacy(fund.currency);
-    for(proposal in groups.getGroupProposals(groupId).vals()){
-      let denomination=proposalCurrency(proposal);
-      if(denomination.id != legacy.id or denomination.decimals != legacy.decimals) return #err("AI budget scoring is unavailable for mixed-currency proposals");
+    for (proposal in groups.getGroupProposals(groupId).vals()) {
+      // Match evaluateProposals: closed proposals must not block active work.
+      if (proposal.status == #active) {
+        let denomination = proposalCurrency(proposal);
+        if (denomination.id != legacy.id or denomination.decimals != legacy.decimals) {
+          return #err("AI budget scoring is unavailable for mixed-currency proposals");
+        };
+      };
     };
     groups.evaluateProposals(groupId, caller);
 	};

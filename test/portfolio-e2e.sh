@@ -30,6 +30,12 @@ s = s.replace(needle, needle + '''
   public shared ({ caller }) func portfolioTestCreateFund() : async Nat {
     groups.createGroupFund(caller, "Portfolio test", "Local fixture", true, #ICP).id
   };
+  public shared ({ caller }) func portfolioTestCreateAIFund() : async Nat {
+    groups.createAIAgentFund(caller, "AI test", "Local fixture", true, {
+      strategy = #balanced; riskTolerance = 50; maxAllocationPct = 25;
+      autoApproveThreshold = 75; enabled = true;
+    }).groupFund.id
+  };
 ''')
 p.write_text(s)
 (root / 'dfx.json').write_text(json.dumps({
@@ -51,6 +57,7 @@ err() { if ! grep -Eq '(^|[[:space:]])err([[:space:]]|=|\})' <<< "$1"; then echo
 contains() { if ! grep -Fq "$2" <<< "${1//_/}"; then echo "Missing '$2' in: $1" >&2; exit 1; fi; }
 call portfolio-test-owner portfolioTestCreateFund '()' >/dev/null
 call portfolio-test-outsider portfolioTestCreateFund '()' >/dev/null
+call portfolio-test-owner portfolioTestCreateAIFund '()' >/dev/null
 # Preserve fixture-created groups through the real upgrade hooks.
 dfx canister install "$FIXTURE_CANISTER" --mode upgrade --wasm-memory-persistence keep --upgrade-unchanged --wasm "$TASK_TMP/production.wasm" --network local --identity portfolio-test-owner
 cp "$TASK_TMP/production.did" "$TASK_TMP/.dfx/local/canisters/$FIXTURE_CANISTER/$FIXTURE_CANISTER.did"
@@ -132,4 +139,20 @@ dfx canister install "$FIXTURE_CANISTER" --mode upgrade --wasm-memory-persistenc
 [[ "$CURRENCIES" == "$(call portfolio-test-owner getFundCurrencies '(1)')" ]] || { echo 'Currencies lost across upgrade' >&2; exit 1; }
 [[ "$PROPOSALS" == "$(call portfolio-test-owner getGroupProposalsWithCurrency '(1)')" ]] || { echo 'Proposal denomination lost across upgrade' >&2; exit 1; }
 RESULT="$(call portfolio-test-owner getFundTreasuryBalances '(1)')"; contains "$RESULT" 'ok = 2500000'
-echo 'PASS: production Portfolio, multi-currency proposals, ledger snapshots and populated upgrades'
+# AI scoring must ignore non-active foreign-currency proposal history.
+# Existing CAD proposal is #1; the AI fixture was seeded as Fund #3.
+ok "$(call portfolio-test-owner createGroupProposal "(3,\"Default asset proposal\",\"AI eligible\",principal \"$MEMBER\",100)")"
+ok "$(call portfolio-test-owner addFundManualCurrency '(3,"CAD","Canadian dollar",2:nat8)')"
+ok "$(call portfolio-test-owner createGroupProposalWithCurrency "(3,\"Foreign currency\",\"Blocks only while active\",principal \"$MEMBER\",100,\"manual:CAD\")")"
+err "$(call portfolio-test-owner runAIEvaluation '(3)')"
+ok "$(call portfolio-test-owner cancelGroupProposal '(3,3)')"
+RESULT="$(call portfolio-test-owner runAIEvaluation '(3)')"; ok "$RESULT"; contains "$RESULT" 'proposalId = 2'
+ok "$(call portfolio-test-owner createGroupProposalWithCurrency "(3,\"Approved foreign\",\"Closed by vote\",principal \"$MEMBER\",100,\"manual:CAD\")")"
+err "$(call portfolio-test-owner runAIEvaluation '(3)')"
+ok "$(call portfolio-test-owner voteOnProposal '(3,4,true)')"
+RESULT="$(call portfolio-test-owner runAIEvaluation '(3)')"; ok "$RESULT"; contains "$RESULT" 'proposalId = 2'
+ok "$(call portfolio-test-owner createGroupProposalWithCurrency "(3,\"Rejected foreign\",\"Closed by vote\",principal \"$MEMBER\",100,\"manual:CAD\")")"
+err "$(call portfolio-test-owner runAIEvaluation '(3)')"
+ok "$(call portfolio-test-owner voteOnProposal '(3,5,false)')"
+RESULT="$(call portfolio-test-owner runAIEvaluation '(3)')"; ok "$RESULT"; contains "$RESULT" 'proposalId = 2'
+echo 'PASS: production Portfolio, multi-currency proposals, ledger snapshots, populated upgrades and AI history guard'
