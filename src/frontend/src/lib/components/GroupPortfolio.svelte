@@ -1,6 +1,8 @@
 <script>
   import { Principal } from '@dfinity/principal';
   import { parseUnits, formatUnits, summarize } from '$lib/portfolio/amount';
+  export let refreshToken = 0;
+  export let blockedReversals = [];
   export let backend;
   export let fundId;
   export let principalText = '';
@@ -15,14 +17,15 @@
   let reverseId = 0n;
   let managerPrincipal = '', historyMore = false, historyCursor = 0n;
   let context, epoch = 0, active = true, pendingRequest = null;
-  import { onDestroy, tick } from 'svelte';
+  import { onDestroy, tick, createEventDispatcher } from 'svelte';
+  const dispatch = createEventDispatcher();
   let formElement;
   onDestroy(() => { active = false; epoch++; });
   $: canWrite = isCreator || managers.some(p => p.toText() === principalText);
   $: summary = summarize(assets);
   $: shown = assets.filter(a => includeArchived || !a.archived);
-  $: if (backend && fundId !== undefined && principalText && (context?.actor !== backend || context?.id !== fundId || context?.principal !== principalText)) {
-    context = { actor: backend, id: fundId, principal: principalText };
+  $: if (backend && fundId !== undefined && principalText && (context?.actor !== backend || context?.id !== fundId || context?.principal !== principalText || context?.refreshToken !== refreshToken)) {
+    context = { actor: backend, id: fundId, principal: principalText, refreshToken };
     void load();
   }
   function unwrap(result) { if ('err' in result) throw new Error(result.err); return result.ok; }
@@ -61,7 +64,7 @@
     try {
       unwrap(await backend.writeFundPortfolio(fundId, pendingRequest.id, operation));
       if (!active || version !== epoch) return;
-      form = ''; pendingRequest = null; await load(); success = error ? '' : 'Portfolio saved';
+      form = ''; pendingRequest = null; await load(); success = error ? '' : 'Portfolio saved'; if (!error) dispatch('changed');
     } catch (e) { if (active && version === epoch) error = e.message || 'Unable to save; retry with the same values'; }
     finally { if (active) busy = false; }
   }
@@ -104,7 +107,7 @@
     busy = true; error = '';
     try {
       unwrap(await backend.setFundPortfolioManager(fundId, Principal.fromText(managerPrincipal), enabled));
-      if (active && version === epoch) { await load(); success = error ? '' : 'Portfolio access updated'; }
+      if (active && version === epoch) { await load(); success = error ? '' : 'Portfolio access updated'; if (!error) dispatch('changed'); }
     } catch (e) { if (active && version === epoch) error = e.message; }
     finally { if (active) busy = false; }
   }
@@ -154,7 +157,7 @@
           <label>Category<select bind:value={category}><option value="cash">Cash</option><option value="crypto">Crypto</option><option value="investment">Investment</option><option value="equipment">Equipment</option><option value="receivable">Receivable</option><option value="other">Other</option></select></label>
         {/if}
         {#if form === 'create'}
-          <label>Unit<input required maxlength="24" bind:value={unit} /></label><label>Quantity decimal places<input required type="number" min="0" max="18" step="1" bind:value={decimals} /></label>
+          <label>Unit<input required maxlength="32" bind:value={unit} /></label><label>Quantity decimal places<input required type="number" min="0" max="18" step="1" bind:value={decimals} /></label>
         {/if}
         {#if ['create', 'increase', 'decrease'].includes(form)}<label>{form === 'create' ? 'Opening quantity' : 'Quantity'}<input required={form !== 'create'} inputmode="decimal" bind:value={quantity} placeholder="0" /></label>{/if}
         {#if form === 'valuation'}
@@ -178,7 +181,7 @@
     <ol class="mt-3 divide-y divide-slate-100">{#each history as event}<li class="py-3 text-sm"><div class="flex justify-between gap-3"><strong>#{event.id.toString()} · {eventLabel(event)}</strong><span class="text-slate-500">{date(event.at)}</span></div>
       <div class="mt-1">{event.delta !== 0n ? `${event.delta > 0n ? '+' : '-'}${formatUnits(event.delta < 0n ? -event.delta : event.delta, event.after.decimals)} ${event.after.unit}` : ''} · Balance {formatUnits(event.after.quantity, event.after.decimals)} {event.after.unit}</div>
       {#if 'change' in event.kind && 'valuation' in event.kind.change}<p>{event.kind.change.valuation.currency} {formatUnits(event.kind.change.valuation.amount, event.kind.change.valuation.decimals)}</p>{/if}
-      {#if canWrite && !historyAsset.archived && event.delta !== 0n && ('opening' in event.kind || ('change' in event.kind && ('increase' in event.kind.change || 'decrease' in event.kind.change)))}
+      {#if canWrite && !historyAsset.archived && !blockedReversals.includes(event.id) && event.delta !== 0n && ('opening' in event.kind || ('change' in event.kind && ('increase' in event.kind.change || 'decrease' in event.kind.change)))}
         <button disabled={busy} class="link" on:click={() => { open('reverse', historyAsset); reverseId = event.id; }}>Reverse transaction</button>
       {/if}
       {#if event.note}<p class="mt-1 whitespace-pre-wrap">{event.note}</p>{/if}<p class="mt-1 break-all text-xs text-slate-400">By {event.performedBy.toText()}</p>

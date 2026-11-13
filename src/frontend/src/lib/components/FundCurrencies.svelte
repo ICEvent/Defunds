@@ -22,15 +22,15 @@
   function unwrap(r){if('err'in r)throw new Error(r.err);return r.ok;}
   async function load(){
     const version=++epoch, actor=backend, id=fundId;
-    loading=true;error='';currencies=[];balances=[];account=null;
+    loading=true;error='';currencies=[];balances=[];account=null;dispatch('balances',{entries:[],loading:true,error:''});
     try{
       const [c,a]=await Promise.all([actor.getFundCurrencies(id),actor.getFundTreasuryAccount(id)]);
       if(!active||version!==epoch)return;
       currencies=unwrap(c);account=unwrap(a);dispatch('currencies',{currencies});
       const b=await actor.getFundTreasuryBalances(id);
       if(!active||version!==epoch)return;
-      balances=unwrap(b);
-    }catch(e){if(active&&version===epoch)error=e.message||'Unable to refresh fund currencies';}
+      balances=unwrap(b);dispatch('balances',{entries:balances,loading:false,error:''});
+    }catch(e){if(active&&version===epoch){error=e.message||'Unable to refresh fund currencies';dispatch('balances',{entries:[],loading:false,error});}}
     finally{if(active&&version===epoch)loading=false;}
   }
   async function save(){

@@ -6,6 +6,9 @@ on:
       - 'src/frontend/src/lib/portfolio/**'
       - 'src/frontend/src/lib/components/GroupPortfolio.svelte'
       - 'test/PortfolioLedger.test.mo'
+      - 'test/PortfolioLocations.test.mo'
+      - 'test/portfolio-locations.test.mjs'
+      - 'src/frontend/src/lib/components/LocationPortfolio.svelte'
       - 'test/FundCurrencies.test.mo'
       - 'test/Icrc3DonationProof.test.mo'
       - 'test/icrc-donation-e2e.sh'
@@ -40,8 +43,9 @@ jobs:
           "$CACHE/moc" -r --package base "$CACHE/base" test/PortfolioLedger.test.mo
           "$CACHE/moc" -r --package base "$CACHE/base" test/FundCurrencies.test.mo
           "$CACHE/moc" -r --package base "$CACHE/base" test/Icrc3DonationProof.test.mo
+          "$CACHE/moc" -r --package base "$CACHE/base" test/PortfolioLocations.test.mo
       - name: Test decimal precision and valuation summaries
-        run: node --test test/portfolio-amount.test.mjs
+        run: node --test test/portfolio-amount.test.mjs test/portfolio-locations.test.mjs
       - name: Test production Portfolio APIs and populated upgrade
         run: bash test/portfolio-e2e.sh
       - name: Verify ICRC donations and upgrade replay protection
