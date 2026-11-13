@@ -8,7 +8,10 @@
 	let applications = [];
 	let page = 0;
 	let backend = null;
-	let selectedStatus = 'voting';
+	let selectedStatus = 'all';
+	let loading = true;
+	let error = '';
+	let requestId = 0;
 
 	const statusOptions = [
 		{ value: 'voting', label: 'Voting' },
@@ -22,36 +25,30 @@
 		{ value: 'all', label: 'All' }
 	];
 	
-	onMount(async () => {
-		const unsubscribe = globalStore.subscribe((store) => {
-			backend = store.backend;
-		});
+    async function loadApplications(actor) {
+        const id = ++requestId;
+        loading = true;
+        error = '';
+        try {
+            const grants = await actor.getGrants([], BigInt(page));
+            if (id === requestId) applications = grants.map(parseApplication);
+        } catch (cause) {
+            if (id === requestId) error = cause?.message || 'Failed to load applications.';
+        } finally {
+            if (id === requestId) loading = false;
+        }
+    }
 
-		try {
-			
-		if (backend) {
-			let rapplications = await backend.getGrants(
-				[
-					{ submitted: null },
-					{ review: null },
-					{ voting: null },
-					{ approved: null },
-					{ rejected: null },
-					{ released: null },
-					{ cancelled: null },
-					{ expired: null }
-				],
-				BigInt(page)
-			);
-			applications = rapplications.map(parseApplication);
-			console.log(applications);
-		}
-	
-		} catch (error) {
-			console.error('Error fetching applications:', error.message);
-		}
-		return unsubscribe;
-	});
+    onMount(() => {
+        const unsubscribe = globalStore.subscribe((store) => {
+            if (store.backend === backend) return;
+            backend = store.backend;
+            applications = [];
+            if (backend) loadApplications(backend);
+            else { ++requestId; loading = true; error = ''; }
+        });
+        return () => { ++requestId; unsubscribe(); };
+    });
 
 	$: filteredApplications = applications.filter(app => {
 		if (selectedStatus === 'all') return true;
@@ -74,7 +71,12 @@
 		</div>
 
 		<div class="h-[600px] overflow-y-auto">
-			{#if filteredApplications.length === 0}
+			{#if loading}
+                <p class="text-sm text-slate-300" role="status">Loading applications...</p>
+            {:else if error}
+                <p class="text-sm text-rose-200" role="alert">{error}</p>
+                <button type="button" class="text-sky-300" on:click={() => loadApplications(backend)}>Retry</button>
+            {:else if filteredApplications.length === 0}
 				<p class="rounded-lg border border-slate-700 bg-slate-900/80 p-4 text-sm text-slate-300">
 					No {selectedStatus === 'all' ? '' : selectedStatus + ' '}applications found.
 				</p>

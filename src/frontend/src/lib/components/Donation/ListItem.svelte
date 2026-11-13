@@ -10,7 +10,8 @@
     minute: 'numeric',
     second: 'numeric',
     timeZone: 'UTC'
-  }).format(new Date(Number(donation.timestamp)/1000000));
+  });
+  $: formattedDate = donation.timestamp == null ? 'Time unavailable' : formattedTimestamp.format(new Date(Number(donation.timestamp)/1000000));
   const transactionId = donation.txid;
   
 </script>
@@ -34,6 +35,6 @@
       >
           {`${donation.donor.slice(0, 5)}...${donation.donor.slice(-5)}`}
       </a>
-      at {formattedTimestamp}
+      at {formattedDate}
   </p>
 </div>
