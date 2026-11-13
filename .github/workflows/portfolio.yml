@@ -7,6 +7,8 @@ on:
       - 'src/frontend/src/lib/components/GroupPortfolio.svelte'
       - 'test/PortfolioLedger.test.mo'
       - 'test/FundCurrencies.test.mo'
+      - 'test/Icrc3DonationProof.test.mo'
+      - 'test/icrc-donation-e2e.sh'
       - 'test/fixtures/**'
       - 'src/frontend/src/lib/components/FundCurrencies.svelte'
       - 'test/portfolio-amount.test.mjs'
@@ -37,10 +39,13 @@ jobs:
           CACHE="$(dfx cache show)"
           "$CACHE/moc" -r --package base "$CACHE/base" test/PortfolioLedger.test.mo
           "$CACHE/moc" -r --package base "$CACHE/base" test/FundCurrencies.test.mo
+          "$CACHE/moc" -r --package base "$CACHE/base" test/Icrc3DonationProof.test.mo
       - name: Test decimal precision and valuation summaries
         run: node --test test/portfolio-amount.test.mjs
       - name: Test production Portfolio APIs and populated upgrade
         run: bash test/portfolio-e2e.sh
+      - name: Verify ICRC donations and upgrade replay protection
+        run: bash test/icrc-donation-e2e.sh
   browser:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
