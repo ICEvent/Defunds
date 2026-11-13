@@ -10,7 +10,14 @@ try {
  const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto('http://127.0.0.1:4182/?workflow');
  const nav=page.getByRole('navigation',{name:'Asset workflow'});
- const step=async name=>nav.getByRole('button',{name,exact:true}).click();
+ const step=async name=>{
+  await nav.getByRole('button',{name:name==='holdings'?'portfolio':name,exact:true}).click();
+  if(name==='holdings'||name==='portfolio'){
+   const toggle=page.getByRole('button',{name:/Manage holdings|Close holding management/});
+   if((await toggle.getAttribute('aria-pressed')==='true')!==(name==='holdings'))await toggle.click();
+  }
+ };
+ assert.equal(await nav.getByRole('button',{name:'holdings',exact:true}).count(),0);
  await page.getByRole('button',{name:'+ Add asset definition',exact:true}).click();
  await page.getByLabel('Name',{exact:true}).fill('Test shares');
  await page.getByLabel('Unit',{exact:true}).fill('share');
