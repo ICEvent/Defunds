@@ -52,7 +52,7 @@ try {
  await page.setViewportSize({width:390,height:844});
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  await step('holdings');
- await page.getByRole('cell',{name:'Broker A',exact:true}).waitFor();
+ await page.locator('td[data-label="Location"]').filter({hasText:'Broker A'}).waitFor();
  await page.getByLabel('Test role').selectOption('member');
  await step('definitions');
  await page.getByRole('cell',{name:'Test shares',exact:false}).waitFor();
