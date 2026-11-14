@@ -6,7 +6,7 @@
   import GroupPortfolio from '../../src/frontend/src/lib/components/GroupPortfolio.svelte';
   import { Principal } from '@dfinity/principal';
   import { makeBackend, owner, member, state } from './backend.js';
-  let role='owner';
+  let role='owner', configureCurrencies=false;
   const workflow = new URLSearchParams(window.location.search).has('workflow');
   let step='definitions', positions=[], locations=[], manageHoldings=false;
   let linkedMovementEvents=[],locationRefresh=0,assetRefresh=0,treasury={entries:[],loading:true,error:''};
@@ -22,7 +22,7 @@
  <div hidden={workflow&&!(step==='definitions'||(step==='portfolio'&&manageHoldings))}>
  <GroupPortfolio view={workflow?(step==='definitions'?'definitions':'holdings'):'ledger'} {positions} {locations} {backend} fundId={1n} {principalText} isCreator={role === 'owner'} {members} refreshToken={assetRefresh} blockedReversals={linkedMovementEvents} on:changed={()=>locationRefresh++}/>
  </div>
- <div hidden={workflow&&step!=='definitions'}><FundCurrencies catalogOnly={workflow} {backend} fundId={1n} {principalText} isCreator={role === 'owner'} on:balances={(e)=>treasury=e.detail} on:changed={()=>locationRefresh++}/></div>
+ <div hidden={workflow&&step!=='definitions'}>{#if !workflow}<button on:click={()=>configureCurrencies=!configureCurrencies}>Manage currencies</button>{/if}<FundCurrencies catalogOnly={workflow||configureCurrencies} {backend} fundId={1n} {principalText} isCreator={role === 'owner'} on:balances={(e)=>treasury=e.detail} on:changed={()=>locationRefresh++}/></div>
  <div hidden={workflow&&!['locations','portfolio'].includes(step)}><LocationPortfolio {manageHoldings} on:manageholdings={()=>manageHoldings=!manageHoldings} view={workflow?step:'all'} on:snapshot={(e)=>{positions=e.detail.positions;locations=e.detail.locations;}} {backend} fundId={1n} {principalText} {treasury} refreshToken={locationRefresh} on:links={(event)=>linkedMovementEvents=event.detail} on:changed={()=>assetRefresh++}/></div>
  <FundInvestments {backend} fundId={1n} {principalText} refreshToken={locationRefresh + assetRefresh}/>
 </main>
