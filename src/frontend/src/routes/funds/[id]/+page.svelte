@@ -1,4 +1,6 @@
 <script>
+  import { Actor } from "@dfinity/agent";
+  import { icpDepositAddress } from "$lib/utils/deposit-address.js";
   import FundInvestments from "$lib/components/FundInvestments.svelte";
   import { onMount } from "svelte";
   import LocationPortfolio from "$lib/components/LocationPortfolio.svelte";
@@ -164,10 +166,11 @@
     return new Date(Number(timestamp) / 1_000_000).toLocaleString();
   }
 
-  function formatAccount(account) {
-    if (!account?.length) return "Unavailable";
-    return account.map((byte) => byte.toString(16).padStart(2, "0")).join("");
-  }
+  $: depositAddress = (() => {
+    if (!backend || !group) return '';
+    try { return icpDepositAddress(Actor.canisterIdOf(backend), group.account); }
+    catch { return ''; }
+  })();
 
   function formatTokenAmount(raw, precision = decimals) {
     try {
@@ -432,8 +435,9 @@
 
   async function copyAccount() {
     try {
-      await navigator.clipboard.writeText(formatAccount(group.account));
-      showNotification("Treasury subaccount copied.", "success");
+      if (!depositAddress) return;
+      await navigator.clipboard.writeText(depositAddress);
+      showNotification("ICP funding address copied.", "success");
     } catch {
       showNotification("Unable to copy account.", "error");
     }
@@ -566,12 +570,12 @@
       <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div class="text-xs font-semibold uppercase tracking-wide text-slate-400">Local · Fund treasury</div>
-          <h2 class="mt-1 text-lg font-semibold text-slate-950">Fund subaccount</h2>
-          <p class="mt-1 text-sm text-slate-500">This is the raw subaccount, not an ICP account identifier. Use it together with the backend owner Principal shown in Portfolio.</p>
+          <h2 class="mt-1 text-lg font-semibold text-slate-950">ICP funding address</h2>
+          <p class="mt-1 text-sm text-slate-500">Send ICP on the Internet Computer network to this address to fund this Fund.</p>
         </div>
-        <button type="button" on:click={copyAccount} class="w-fit rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Copy</button>
+        <button type="button" disabled={!depositAddress} on:click={copyAccount} class="w-fit rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Copy</button>
       </div>
-      <div class="mt-4 break-all rounded-xl bg-slate-950 px-4 py-3 font-mono text-xs text-slate-200">{formatAccount(group.account)}</div>
+      <div class="mt-4 break-all rounded-xl bg-slate-950 px-4 py-3 font-mono text-xs text-slate-200">{depositAddress || "Funding address unavailable"}</div>
     </section>
     </div>
 

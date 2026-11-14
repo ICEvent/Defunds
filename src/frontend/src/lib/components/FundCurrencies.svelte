@@ -48,14 +48,13 @@
     catch(e){if(active&&version===epoch)error=e.message;}
     finally{if(active)busy=false;}
   }
-  function hex(bytes){return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');}
   function date(n){return new Date(Number(n/1000000n)).toLocaleString();}
 </script>
 <section class="mt-6 rounded-2xl bg-white p-5 text-slate-950 sm:p-6" aria-labelledby="treasury-heading">
   <div class="flex flex-wrap justify-between gap-3"><div><h2 id="treasury-heading" class="text-xl font-semibold">{catalogOnly ? 'Currency definitions' : 'Local · Fund treasury'}</h2><p class="mt-1 text-sm text-slate-500">{catalogOnly ? 'Currencies are asset definitions too. Configure currency metadata here, then select it when adding a holding.' : 'Ledger balances are separate from manually recorded assets. No exchange-rate total.'}</p></div><button class="button" disabled={loading||busy} on:click={load}>{loading?'Refreshing…':'Refresh balances'}</button></div>
   {#if error}<p role="alert" class="mt-3 rounded-xl bg-rose-50 p-3 text-sm text-rose-800">{error}</p>{/if}
   {#if !catalogOnly}
-  {#if account}<details class="mt-4 text-sm"><summary class="cursor-pointer font-semibold">Deposit account · use both owner and subaccount</summary><dl class="mt-3 grid gap-2"><dt>Owner Principal</dt><dd class="break-all font-mono text-xs">{account.owner.toText()}</dd><dt>Subaccount (32-byte hex)</dt><dd class="break-all font-mono text-xs">{hex(account.subaccount)}</dd></dl><p class="mt-2 text-xs text-amber-800">This hex is a subaccount, not a legacy ICP account identifier. Sending to the owner's default account does not fund this Fund.</p></details>{/if}
+
   {#if balances.length}<div class="mt-5 grid gap-4 sm:grid-cols-2">{#each balances as entry (entry.currency.id)}<article class="border-b border-slate-100 pb-4"><div class="font-semibold">{entry.currency.symbol} <span class="text-xs font-normal text-slate-500">{entry.currency.name}</span></div>{#if 'ok'in entry.balance}<p class="mt-1 text-xl font-semibold">{formatUnits(entry.balance.ok,entry.currency.decimals)} {entry.currency.symbol}</p>{:else}<p class="mt-1 text-sm text-rose-700">Balance unavailable · {entry.balance.err}</p>{/if}<p class="mt-1 break-all text-xs text-slate-500">Ledger {entry.currency.ledger[0]?.toText()}</p><p class="mt-1 text-xs text-slate-400">Checked {date(entry.checkedAt)}{entry.currency.enabled?'':' · Disabled for new proposals'}</p></article>{/each}</div>{:else if !loading}<p class="mt-4 text-sm text-slate-500">No readable on-chain balances. Manual currencies do not have a ledger balance.</p>{/if}
   <p class="mt-4 text-xs text-slate-500">Transfers to configured ledger accounts appear when this page opens, regains focus or balances refresh. These are current balances, not a transaction-history import; they cannot be edited as manual holdings.</p>
   {/if}
