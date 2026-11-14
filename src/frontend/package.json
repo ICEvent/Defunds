@@ -16,8 +16,8 @@
     "@dfinity/auth-client": "^1.4.0",
     "@dfinity/candid": "^1.4.0",
     "@dfinity/principal": "^1.4.0",
+    "@noble/hashes": "^1.4.0",
     "@sveltejs/kit": "^2.5.18"
-
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.2.0",
