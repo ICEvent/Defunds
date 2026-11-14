@@ -5,7 +5,8 @@
     import { Principal } from '@dfinity/principal';
     import * as ICPIndex from '$declarations/icp_index';
     import { DEFUND_CANISTER_ID, HOST_MAINNET, ICP_INDEX_CANISTER_ID, ICP_LEDGER_CANISTER_ID, DEFUND_TREASURY_ACCOUNT } from '$lib/constants';
-    import { parseDonationTransactions } from '$lib/utils/donation-history.js';
+    import { createBlockTimeReader } from '$lib/utils/icp-block-time.js';
+    import { parseDonationTransactions, resolveDonationTimes } from '$lib/utils/donation-history.js';
 
     let donationHistory = [];
     let loading = true;
@@ -15,15 +16,17 @@
         loading = true;
         error = '';
         try {
-            const index = ICPIndex.createActor(ICP_INDEX_CANISTER_ID, {
-                agent: new HttpAgent({ host: HOST_MAINNET })
-            });
+            const agent = new HttpAgent({ host: HOST_MAINNET });
+            const index = ICPIndex.createActor(ICP_INDEX_CANISTER_ID, { agent });
             const result = await index.get_account_transactions({
                 max_results: 30n,
                 start: [],
                 account: { owner: Principal.fromText(DEFUND_CANISTER_ID), subaccount: [] }
             });
             donationHistory = parseDonationTransactions(result, DEFUND_TREASURY_ACCOUNT.split('/').pop(), ICP_LEDGER_CANISTER_ID);
+            loading = false;
+            const { ledger, queryArchive } = createBlockTimeReader(agent, ICP_LEDGER_CANISTER_ID);
+            donationHistory = await resolveDonationTimes(donationHistory, ledger, queryArchive);
         } catch (cause) {
             error = cause?.message || 'Failed to load donations.';
         } finally {
