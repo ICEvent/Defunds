@@ -17,16 +17,17 @@ try {
  const failures=[];page.on('pageerror',e=>failures.push(e.message));
  await page.goto('http://127.0.0.1:4182');
  await page.getByRole('cell',{name:'Shared rowing boat',exact:false}).waitFor();
- const treasury=page.getByRole('region',{name:'Portfolio · Fund treasury'});
+ const treasury=page.getByRole('region',{name:'Local · Fund treasury'});
  await treasury.getByText('2.5 TEST',{exact:true}).waitFor();
  await page.evaluate(()=>window.portfolioFixture.chainBalance=3250000n);
  await treasury.getByRole('button',{name:'Refresh balances',exact:true}).click();
  await treasury.getByText('3.25 TEST',{exact:true}).waitFor();
- await treasury.getByText('Fund currencies',{exact:true}).click();
- await treasury.getByLabel('Currency type').selectOption('manual');
- await treasury.getByRole('button',{name:'Add currency',exact:true}).click();
- await treasury.getByText('manual:CAD',{exact:true}).waitFor();
- await treasury.getByText('Fund currencies',{exact:true}).click();
+ await page.getByRole('button',{name:'Manage currencies',exact:true}).click();
+ const catalog=page.getByRole('region',{name:'Currency definitions',exact:true});
+ await catalog.getByLabel('Currency type').selectOption('manual');
+ await catalog.getByRole('button',{name:'Add currency',exact:true}).click();
+ await catalog.getByText('manual:CAD',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'Manage currencies',exact:true}).click();
 
  await page.screenshot({path:`${output}/desktop.png`,fullPage:true});
  const row=page.locator('tbody tr').filter({has:page.getByText('ETH',{exact:true})});

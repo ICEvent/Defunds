@@ -14,19 +14,17 @@
   import { getCurrencyName, getDecimalsByCurrency } from "$lib/utils/currency.utils";
 
   let activeSection = "portfolio";
+  let configuration = "", showTreasury = false;
   let locationPositions = [], fundLocations = [], manageHoldings = false;
   $: fundSections = [
+    { id: "portfolio", label: "Portfolio" },
     ...(isAuthed && (isCreator || isMember) ? [
-      { id: "definitions", label: "1 · Asset definitions" },
-      { id: "locations", label: "2 · Locations" },
-      { id: "portfolio", label: "3 · Portfolio" },
-      { id: "treasury", label: "Treasury & currencies" },
       { id: "investments", label: "Investments" },
-    ] : [{ id: "treasury", label: "Treasury identity" }]),
+    ] : []),
     { id: "proposals", label: `Proposals (${proposals.length})` },
     { id: "members", label: `Members (${canonicalMembers.length})` },
   ];
-  $: if (!fundSections.some(section => section.id === activeSection)) activeSection = "treasury";
+  $: if (!fundSections.some(section => section.id === activeSection)) activeSection = "portfolio";
 
   let groupId;
   let group = null;
@@ -481,7 +479,7 @@
         <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
           <div class="text-xs uppercase tracking-wide text-slate-400">Original default currency</div>
           <div class="mt-1 text-2xl font-semibold">{currency}</div>
-          <div class="mt-1 text-xs text-slate-400">View balances in Treasury</div>
+          <div class="mt-1 text-xs text-slate-400">View balances in Portfolio</div>
         </div>
         <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
           <div class="text-xs uppercase tracking-wide text-slate-400">Members</div>
@@ -529,34 +527,45 @@
 
     <nav aria-label="Fund sections" class="mt-5 flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
       {#each fundSections as section (section.id)}
-        <button type="button" aria-pressed={activeSection === section.id} aria-controls={["locations", "portfolio"].includes(section.id) ? "fund-location-workspace" : section.id === "definitions" ? "fund-asset-workspace fund-treasury-balances" : section.id === "treasury" && isAuthed && (isCreator || isMember) ? "fund-treasury-balances fund-treasury" : `fund-${section.id}`} on:click={() => activeSection = section.id}
+        <button type="button" aria-pressed={activeSection === section.id} aria-controls={section.id === "portfolio" ? "fund-portfolio" : `fund-${section.id}`} on:click={() => activeSection = section.id}
           class="rounded-xl px-4 py-2.5 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 {activeSection === section.id ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'}">{section.label}</button>
       {/each}
     </nav>
 
+    <div id="fund-portfolio" hidden={activeSection !== "portfolio"}>
+    {#if isAuthed && (isCreator || isMember)}
+      <div class="mt-5 flex flex-wrap gap-2">
+        <details><summary class="cursor-pointer rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Portfolio settings</summary><div class="mt-2 flex flex-wrap gap-2">
+        {#each [{id:"definitions",label:"Manage asset definitions"},{id:"locations",label:"Manage locations"},{id:"currencies",label:"Manage currencies"}] as item}
+          <button type="button" aria-pressed={configuration === item.id} aria-controls="fund-configuration" class="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700" on:click={()=>configuration=configuration===item.id?"":item.id}>{configuration===item.id?"Close":item.label}</button>
+        {/each}
+        </div></details>
+        <button type="button" aria-expanded={showTreasury} aria-controls="fund-treasury-balances fund-treasury" class="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700" on:click={()=>showTreasury=!showTreasury}>{showTreasury?"Close treasury details":"Local treasury · account & details"}</button>
+      </div>
+    {/if}
     <!-- Keep dependent portfolios mounted so balance and reversal events stay in sync. -->
     {#if isAuthed && (isCreator || isMember)}
 
-      <div id="fund-treasury-balances" hidden={!["treasury", "definitions"].includes(activeSection)} class="min-w-0">
-        <FundCurrencies catalogOnly={activeSection === "definitions"} {backend} fundId={groupId} {principalText} {isCreator} on:balances={(event)=>treasury=event.detail} on:changed={()=>locationRefresh++} on:currencies={(event) => { fundCurrencies = event.detail.currencies; if (!fundCurrencies.some(c => c.id === proposalCurrencyId && c.enabled)) proposalCurrencyId = fundCurrencies.find(c => c.enabled)?.id ?? ""; }} />
+      <div id="fund-configuration" hidden={!configuration} class="min-w-0">
+        {#if configuration}<button type="button" class="mt-4 text-sm font-semibold text-sky-700" on:click={()=>configuration=""}>← Back to portfolio</button>{/if}
       </div>
-      <div id="fund-location-workspace" hidden={!["locations", "portfolio"].includes(activeSection)} class="min-w-0">
-        <LocationPortfolio {manageHoldings} on:manageholdings={()=>manageHoldings=!manageHoldings} view={activeSection} on:snapshot={(event)=>{locationPositions=event.detail.positions;fundLocations=event.detail.locations;}} {backend} fundId={groupId} {principalText} {treasury} refreshToken={locationRefresh} on:links={(event)=>linkedMovementEvents=event.detail} on:changed={()=>assetRefresh++} />
+      <div id="fund-treasury-balances" hidden={configuration !== "currencies" && !showTreasury} class="min-w-0">
+        <FundCurrencies catalogOnly={configuration === "currencies"} {backend} fundId={groupId} {principalText} {isCreator} on:balances={(event)=>treasury=event.detail} on:changed={()=>locationRefresh++} on:currencies={(event) => { fundCurrencies = event.detail.currencies; if (!fundCurrencies.some(c => c.id === proposalCurrencyId && c.enabled)) proposalCurrencyId = fundCurrencies.find(c => c.enabled)?.id ?? ""; }} />
       </div>
-      <div id="fund-asset-workspace" hidden={!(activeSection === "definitions" || (activeSection === "portfolio" && manageHoldings))} class="min-w-0">
-        <GroupPortfolio view={activeSection === "definitions" ? "definitions" : "holdings"} positions={locationPositions} locations={fundLocations} {backend} fundId={groupId} {principalText} {isCreator} members={canonicalMembers} refreshToken={assetRefresh} blockedReversals={linkedMovementEvents} on:changed={()=>locationRefresh++} />
+      <div id="fund-location-workspace" hidden={Boolean(configuration) && configuration !== "locations"} class="min-w-0">
+        <LocationPortfolio on:configure={(event)=>configuration=event.detail} {manageHoldings} on:manageholdings={()=>manageHoldings=!manageHoldings} view={configuration === "locations" ? "locations" : "portfolio"} on:snapshot={(event)=>{locationPositions=event.detail.positions;fundLocations=event.detail.locations;}} {backend} fundId={groupId} {principalText} {treasury} refreshToken={locationRefresh} on:links={(event)=>linkedMovementEvents=event.detail} on:changed={()=>assetRefresh++} />
       </div>
-      <div id="fund-investments" hidden={activeSection !== "investments"} class="min-w-0">
-        <FundInvestments {backend} fundId={groupId} {principalText} refreshToken={locationRefresh + assetRefresh} />
+      <div id="fund-asset-workspace" hidden={!(configuration === "definitions" || (!configuration && manageHoldings))} class="min-w-0">
+        <GroupPortfolio view={configuration === "definitions" ? "definitions" : "holdings"} positions={locationPositions} locations={fundLocations} {backend} fundId={groupId} {principalText} {isCreator} members={canonicalMembers} refreshToken={assetRefresh} blockedReversals={linkedMovementEvents} on:changed={()=>locationRefresh++} />
       </div>
 
     {/if}
 
-    <div id="fund-treasury" hidden={activeSection !== "treasury"}>
+    <div id="fund-treasury" hidden={!showTreasury && isAuthed && (isCreator || isMember)}>
     <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div class="text-xs font-semibold uppercase tracking-wide text-slate-400">Treasury identity</div>
+          <div class="text-xs font-semibold uppercase tracking-wide text-slate-400">Local · Fund treasury</div>
           <h2 class="mt-1 text-lg font-semibold text-slate-950">Fund subaccount</h2>
           <p class="mt-1 text-sm text-slate-500">This is the raw subaccount, not an ICP account identifier. Use it together with the backend owner Principal shown in Portfolio.</p>
         </div>
@@ -565,6 +574,14 @@
       <div class="mt-4 break-all rounded-xl bg-slate-950 px-4 py-3 font-mono text-xs text-slate-200">{formatAccount(group.account)}</div>
     </section>
     </div>
+
+    </div>
+    {#if isAuthed && (isCreator || isMember)}
+      <div id="fund-investments" hidden={activeSection !== "investments"} class="min-w-0">
+        <FundInvestments {backend} fundId={groupId} {principalText} refreshToken={locationRefresh + assetRefresh} />
+      </div>
+
+    {/if}
 
     <div id="fund-members" hidden={activeSection !== "members"}>
     <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
@@ -671,6 +688,7 @@
               <input bind:value={proposalAmount} inputmode="decimal" placeholder="0.00" class="rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-normal text-slate-900 outline-none focus:border-sky-500" />
             </label>
           </div>
+          {#if isCreator}<button type="button" class="text-left text-sm font-semibold text-sky-700" on:click={()=>{activeSection="portfolio";configuration="currencies";}}>Manage proposal currencies</button>{/if}
           <label class="grid gap-1.5 text-sm font-medium text-slate-700">Proposal currency
             <select bind:value={proposalCurrencyId} class="rounded-xl border border-slate-300 bg-white px-3 py-2.5">{#each fundCurrencies.filter(c => c.enabled) as c}<option value={c.id}>{c.symbol} · {c.id}</option>{/each}</select>
           </label>
