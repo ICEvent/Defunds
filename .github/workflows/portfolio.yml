@@ -23,6 +23,10 @@ on:
       - 'test/icrc-donation-e2e.sh'
       - 'test/fixtures/**'
       - 'src/frontend/src/lib/components/FundCurrencies.svelte'
+      - 'src/frontend/src/lib/portfolio/chain-assets.js'
+      - 'test/chain-assets.test.mjs'
+      - 'test/location-chain-browser.test.mjs'
+      - 'src/frontend/src/lib/components/LocationChainAssets.svelte'
       - 'test/portfolio-amount.test.mjs'
       - 'test/portfolio-e2e.sh'
       - 'test/portfolio-browser/**'
@@ -73,6 +77,8 @@ jobs:
           npm ci --ignore-scripts
           npm install --no-save --ignore-scripts playwright@1.56.1
           command -v google-chrome
+      - name: Verify on-chain snapshot parsing and pagination
+        run: node --test test/chain-assets.test.mjs
       - name: Test actual Portfolio component on desktop and mobile
         env:
           PORTFOLIO_SCREENSHOTS: /tmp/portfolio-browser-screenshots
@@ -81,6 +87,7 @@ jobs:
           PORTFOLIO_CHROMIUM="$(command -v google-chrome)" node test/investment-browser.test.mjs
           PORTFOLIO_CHROMIUM="$(command -v google-chrome)" node test/asset-workflow-browser.test.mjs
           PORTFOLIO_CHROMIUM="$(command -v google-chrome)" node test/asset-catalog-browser.test.mjs
+          PORTFOLIO_CHROMIUM="$(command -v google-chrome)" node test/location-chain-browser.test.mjs
       - name: Save browser screenshots
         if: always()
         uses: actions/upload-artifact@v4

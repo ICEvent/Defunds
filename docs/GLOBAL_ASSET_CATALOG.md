@@ -8,7 +8,7 @@ Definitions record asset family, name, symbol, network, standard, contract/mint/
 
 Supported initial networks: Ethereum, Base, Arbitrum One, ICP, Solana and Bitcoin. Precision is limited to 0–18 by the existing Portfolio model. Other asset categories retain their existing Fund definition workflow. Network-specific balances remain separate even when entries share an asset family.
 
-“Add to Fund” references a catalog token through `catalog:<id>` in the Fund currency configuration. The operation is idempotent. Existing names/precision are snapshots; metadata edits do not silently rewrite recorded holdings. Imported definitions describe manually recorded holdings. Contract metadata alone never enables ledger transfers, address balance discovery, or proposal execution. Those require separately validated adapters. A disabled catalog entry prevents new catalog imports; existing Fund configuration and history remain independent.
+“Add to Fund” references a catalog token through `catalog:<id>` in the Fund currency configuration. The operation is idempotent and reuses an existing Fund definition when a private and public entry identify the same network token. Conflicting precision is rejected. Existing names/precision are snapshots; metadata edits do not silently rewrite recorded holdings. Imported definitions describe manually recorded holdings. Contract metadata alone never enables ledger transfers, address balance discovery, or proposal execution. Those require separately validated adapters. A disabled catalog entry prevents new catalog imports; existing Fund configuration and history remain independent.
 
 ## CoinGecko is optional
 

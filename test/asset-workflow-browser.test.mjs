@@ -37,7 +37,8 @@ try {
   await page.getByRole('button',{name:'+ Add location',exact:true}).click();
   await page.getByLabel('Location name',{exact:true}).fill(name);
   await page.getByLabel('Location type',{exact:true}).selectOption('blockchain');
-  await page.getByLabel('Blockchain network & address',{exact:true}).fill(`Ethereum · ${name}`);
+  await page.getByLabel('Network',{exact:true}).selectOption(name==='Broker A'?'eip155:1':'eip155:8453');
+  await page.getByLabel('Blockchain address',{exact:true}).fill('0x1234000000000000000000000000000000000000');
   await page.getByRole('button',{name:'Save location record',exact:true}).click();
   await page.getByRole('status').filter({hasText:'Location portfolio saved'}).waitFor();
   await step('holdings');

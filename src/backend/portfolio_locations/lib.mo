@@ -34,6 +34,23 @@ module {
         };
         #ok(#wallet({owner=account.owner;subaccount}))
       };
+      case (#chainAccount(input)) {
+        let network=Text.toLowercase(Text.trim(input.network,#predicate(Char.isWhitespace)));
+        let address=Text.trim(input.address,#predicate(Char.isWhitespace));
+        if(Text.size(network) < 4 or not nonblank(network,64) or not nonblank(address,200))return #err("Network and address are required");
+        for(c in network.chars()) {if(not ((c >= 'a' and c <= 'z') or (c >= '0' and c <= '9') or c == ':' or c == '-'))return #err("Use a network identifier such as eip155:1 or bitcoin:mainnet")};
+        // Canonical chain IDs keep the same EVM address distinct across networks.
+        if(Text.startsWith(network,#text("eip155:"))) {
+          let suffix=switch(Text.stripStart(network,#text("eip155:"))){case (?s)s;case null ""};
+          let chainId=switch(Nat.fromText(suffix)){case (?id)id;case null return #err("Invalid EVM Chain ID")};
+          if(chainId == 0 or network != "eip155:" # Nat.toText(chainId))return #err("Use a canonical positive EVM Chain ID");
+          if(Text.size(address) != 42 or not Text.startsWith(address,#text("0x")))return #err("Use a 0x address with 40 hexadecimal characters");
+          var index=0;
+          for(c in address.chars()) {if(index >= 2 and not ((c >= '0' and c <= '9') or (c >= 'a' and c <= 'f') or (c >= 'A' and c <= 'F')))return #err("Invalid EVM address");index+=1};
+          return #ok(#chainAccount({network;address=Text.toLowercase(address)}));
+        };
+        #ok(#chainAccount({network;address}))
+      };
       case (#blockchain(ref)) {if(not nonblank(ref,200))return #err("Blockchain network and address reference is required");#ok(#blockchain(Text.trim(ref,#predicate(Char.isWhitespace))))};
       case (#bank(ref)) {if(not nonblank(ref,200))return #err("Bank reference is required");#ok(#bank(Text.trim(ref,#predicate(Char.isWhitespace))))};
       case (#cash(ref)) {if(not nonblank(ref,200))return #err("Cash location is required");#ok(#cash(Text.trim(ref,#predicate(Char.isWhitespace))))};
@@ -105,6 +122,17 @@ module {
         if(old.revision != input.expectedRevision)return #err("Location changed; refresh before saving");
         if(not nonblank(input.name,120))return #err("Location name is required");
         let item={old with name=Text.trim(input.name,#predicate(Char.isWhitespace));enabled=input.enabled;revision=old.revision+1};
+        nextState:={state with locations=Array.map<T.Location,T.Location>(state.locations,func(l){if(l.id == old.id)item else l})};#location(item)
+      };
+      case (#setLocationNetwork(input)) {
+        let old=switch(Array.find<T.Location>(state.locations,func(l){l.fundId == fundId and l.id == input.id})){case null return #err("Location not found");case (?l)l};
+        if(old.revision != input.expectedRevision)return #err("Location changed; refresh before saving");
+        switch(old.kind){case (#blockchain(_)){};case (#chainAccount(_)){};case (_)return #err("Only blockchain locations have an editable network and address")};
+        // Moving a populated location to another chain would silently relabel holdings.
+        if(Array.find<T.Binding>(state.bindings,func(b){b.fundId == fundId and b.locationId == old.id}) != null)return #err("Create a new location for a different network/address when holdings are already assigned");
+        let kind=switch(normalize(#chainAccount({network=input.network;address=input.address}),treasury)){case (#err(e))return #err(e);case (#ok(k))k};
+        if(Array.find<T.Location>(state.locations,func(l){l.fundId == fundId and l.id != old.id and l.kind == kind}) != null)return #err("This network and address already exists");
+        let item={old with kind;revision=old.revision+1};
         nextState:={state with locations=Array.map<T.Location,T.Location>(state.locations,func(l){if(l.id == old.id)item else l})};#location(item)
       };
       case (#bind(input)) {

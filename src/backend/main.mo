@@ -85,6 +85,11 @@ persistent actor Defunds{
     let fund=switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g)g};
     let available=Array.append<CatalogTypes.Token>(catalogTokens,Array.map<(Nat,CatalogTypes.Token),CatalogTypes.Token>(Array.filter<(Nat,CatalogTypes.Token)>(fundCatalogTokens,func((f,_)){f==fundId}),func((_,t)){t}));
     let token=switch(Array.find<CatalogTypes.Token>(available,func(t){t.id==tokenId and t.enabled})){case null return #err("Enabled catalog asset not found");case (?t)t};
+    switch(Catalog.findImported(available,token,fundCurrencyList(fund))) {
+      case (#err(e))return #err(e);
+      case (#ok(?currency))return #ok(currency);
+      case (#ok(null)){};
+    };
     let id="catalog:" # Nat.toText(tokenId);
     switch(FundCurrencies.find(fundCurrencyEntries,fundId,fund.currency,id)){case (?c)return #ok(c);case null {}};
     if(fundCurrencyList(fund).size()>=FundCurrencies.limit)return #err("Currency limit reached");
@@ -262,6 +267,18 @@ persistent actor Defunds{
   public shared ({caller}) func writeFundLocationPortfolio(fundId:Nat,requestId:Text,operation:LocationTypes.Operation) : async Result.Result<LocationTypes.Reply,Text> {
     if(not portfolioAccess(fundId,caller,true))return #err("Portfolio write access denied");
     let fund=switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g)g};
+    // Existing investment accounts also give a location financial meaning.
+    // Preserve exact receipt retries before applying this current-state guard.
+    if(Array.find<LocationTypes.Receipt>(locationState.receipts,func(r){r.fundId == fundId and r.caller == caller and r.requestId == requestId}) == null) {
+      switch(operation) {
+        case (#setLocationNetwork(input)) {
+          for(item in investmentState.items.vals()) {
+            if(item.fundId == fundId and Array.find<InvestmentTypes.Account>(item.accounts,func(a){a.locationId == input.id}) != null)return #err("Create a new location when this address is already referenced by an investment");
+          };
+        };
+        case (_) {};
+      };
+    };
     switch(Locations.apply(locationState,portfolioState,fundId,caller,Principal.fromActor(Defunds),fundCurrencyList(fund),requestId,operation,Time.now())){
       case (#err(e)) #err(e);
       case (#ok((locations,assets,reply))) {locationState:=locations;portfolioState:=assets;#ok(reply)};

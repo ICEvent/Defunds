@@ -9,3 +9,9 @@ assert C.validate({base with decimals=(19 : Nat8)},C.networks)==#err("Invalid as
 assert C.validate({base with network="missing"},C.networks)==#err("Choose an enabled network");
 assert C.validate({base with verified=true;source=""},C.networks)==#err("Verified assets require a source");
 assert C.validate({base with standard="native"},C.networks)==#err("Native assets must not have a contract");
+let token : T.Token={base with id=1;revision=1};
+let custom : T.Token={token with id=2;assetKey="custom"};
+let existing={id="catalog:1";name="USD Coin";symbol="USDC";decimals=(6 : Nat8);ledger=null;enabled=true};
+assert C.findImported([token,custom],custom,[existing])==#ok(?existing);
+assert C.findImported([token,custom],{custom with decimals=(18 : Nat8)},[existing])==#err("Asset precision conflicts with the existing Fund definition");
+assert C.findImported([token,custom],{custom with network="base"},[existing])==#ok(null);

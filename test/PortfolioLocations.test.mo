@@ -67,3 +67,16 @@ let chain=state.locations[state.locations.size()-1];
 assert(chain.kind==#blockchain("Ethereum · 0x1234"));
 failed("blank-chain",#addLocation({name="Empty chain";kind=#blockchain("   ")}));
 failed("long-chain",#addLocation({name="Long chain";kind=#blockchain(Text.fromIter(Array.tabulate<Char>(201,func(_){'a'}).vals()))}));
+
+// Network + canonical address is the identity; an address can exist on two chains.
+let evm="0xAbCd000000000000000000000000000000001234";
+ignore write("eth-network",#addLocation({name="Ethereum";kind=#chainAccount({network="eip155:1";address=evm})}));
+let eth=state.locations[state.locations.size()-1];
+assert(eth.kind==#chainAccount({network="eip155:1";address="0xabcd000000000000000000000000000000001234"}));
+ignore write("base-network",#addLocation({name="Base";kind=#chainAccount({network="eip155:8453";address=evm})}));
+failed("duplicate-network",#addLocation({name="Duplicate";kind=#chainAccount({network="eip155:1";address="0xabcd000000000000000000000000000000001234"})}));
+failed("bad-evm",#addLocation({name="Invalid";kind=#chainAccount({network="eip155:1";address="0x1234"})}));
+failed("missing-network",#addLocation({name="Invalid";kind=#chainAccount({network="";address=evm})}));
+failed("stale-network-edit",#setLocationNetwork({id=eth.id;expectedRevision=0;network="eip155:10";address=evm}));
+failed("other-fund-network-edit",#setLocationNetwork({id=99999;expectedRevision=1;network="eip155:10";address=evm}));
+ignore write("network-edit",#setLocationNetwork({id=eth.id;expectedRevision=1;network="eip155:10";address=evm}));
