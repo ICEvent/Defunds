@@ -27,7 +27,8 @@ const config = {
         '/dao',
         '/donations',
         '/profile',
-        '/loans'
+        '/loans',
+        '/assets'
       ]
     },
     alias: {

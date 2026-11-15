@@ -6,8 +6,8 @@ const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--config',
 try {
  for(let i=0;i<100;i++){try{if((await fetch('http://127.0.0.1:4187')).ok)break;}catch{}if(i===99)throw new Error(logs);await new Promise(r=>setTimeout(r,100));}
  browser=await chromium.launch({headless:true,...(process.env.PORTFOLIO_CHROMIUM?{executablePath:process.env.PORTFOLIO_CHROMIUM}:{}),args:['--no-sandbox']});
- const page=await browser.newPage({viewport:{width:1280,height:900}}),failures=[];page.on('pageerror',e=>failures.push(e.message));
- await page.goto('http://127.0.0.1:4187');await page.getByText('USD Coin',{exact:true}).waitFor();
+ const page=await browser.newPage({viewport:{width:1280,height:900}}),failures=[];page.on('pageerror',e=>{failures.push(e.message);console.error('Catalog page error:',e.message);});
+ await page.goto('http://127.0.0.1:4187');await page.getByText('USD Coin',{exact:true}).waitFor().catch(async e=>{throw new Error(`${e.message}\nPage: ${await page.locator('body').innerText()}\nErrors: ${failures.join('; ')}`);});
  assert.equal(await page.getByRole('button',{name:'Edit',exact:true}).count(),0);
  await page.getByRole('button',{name:'+ Add definition'}).click();
  await page.getByLabel('Asset family (optional)').fill('custom:my-token');await page.getByLabel('Name',{exact:true}).fill('My token');await page.getByLabel('Symbol',{exact:true}).fill('MYT');await page.getByLabel('Contract / mint / ledger').fill('0x'+'b'.repeat(40));await page.getByLabel('Decimals').fill('6');
