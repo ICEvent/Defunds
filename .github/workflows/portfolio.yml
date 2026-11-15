@@ -52,6 +52,18 @@ jobs:
           mv dfx.ci.json dfx.json
       - name: Compile backend
         run: dfx build backend --check
+      - name: Checkout pinned production base 0.11.2
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: dfinity/motoko-base
+          ref: cb79b657d9156f44bf7d195331af3aa88953467a # moc-0.11.2
+          path: .ci/base-0.11.2
+          persist-credentials: false
+      - name: Compile and test catalog against production base 0.11.2
+        run: |
+          CACHE="$(dfx cache show)"
+          "$CACHE/moc" --check --package base .ci/base-0.11.2/src src/backend/main.mo
+          "$CACHE/moc" -r --package base .ci/base-0.11.2/src test/AssetCatalog.test.mo
       - name: Test ledger transitions and authorization policy
         run: |
           CACHE="$(dfx cache show)"

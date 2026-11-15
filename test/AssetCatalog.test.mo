@@ -18,7 +18,7 @@ assert C.findImported([token,custom],custom,[existing])==#ok(?existing);
 assert C.findImported([token,custom],{custom with decimals=(18 : Nat8)},[existing])==#err("Asset precision conflicts with the existing Fund definition");
 assert C.findImported([token,custom],{custom with network="base"},[existing])==#ok(null);
 
-let longName = Text.fromArray(Array.tabulate<Char>(120,func(_){'资'}));
+let longName = Text.fromIter(Array.tabulate<Char>(120,func(_){'资'}).vals());
 let importedName = C.holdingName({token with name=longName});
 assert importedName.size()==120;
 assert Text.endsWith(importedName,#text(" · ethereum"));

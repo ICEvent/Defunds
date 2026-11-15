@@ -49,7 +49,7 @@ module {
     let chars = Text.toArray(token.name);
     // The network identifier comes from the bounded supported-network table.
     let limit = if(suffix.size() < 120) Nat.sub(120,suffix.size()) else 0;
-    Text.fromArray(Array.tabulate<Char>(Nat.min(chars.size(),limit),func(i){chars[i]})) # suffix
+    Text.fromIter(Array.tabulate<Char>(Nat.min(chars.size(),limit),func(i){chars[i]}).vals()) # suffix
   };
   // A custom and public entry may describe the same on-chain token. Importing
   // either must reuse an existing Fund definition rather than split holdings.
