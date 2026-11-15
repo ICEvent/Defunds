@@ -209,6 +209,18 @@ persistent actor Defunds{
   public shared ({caller}) func writeFundLocationPortfolio(fundId:Nat,requestId:Text,operation:LocationTypes.Operation) : async Result.Result<LocationTypes.Reply,Text> {
     if(not portfolioAccess(fundId,caller,true))return #err("Portfolio write access denied");
     let fund=switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g)g};
+    // Existing investment accounts also give a location financial meaning.
+    // Preserve exact receipt retries before applying this current-state guard.
+    if(Array.find<LocationTypes.Receipt>(locationState.receipts,func(r){r.fundId == fundId and r.caller == caller and r.requestId == requestId}) == null) {
+      switch(operation) {
+        case (#setLocationNetwork(input)) {
+          for(item in investmentState.items.vals()) {
+            if(item.fundId == fundId and Array.find<InvestmentTypes.Account>(item.accounts,func(a){a.locationId == input.id}) != null)return #err("Create a new location when this address is already referenced by an investment");
+          };
+        };
+        case (_) {};
+      };
+    };
     switch(Locations.apply(locationState,portfolioState,fundId,caller,Principal.fromActor(Defunds),fundCurrencyList(fund),requestId,operation,Time.now())){
       case (#err(e)) #err(e);
       case (#ok((locations,assets,reply))) {locationState:=locations;portfolioState:=assets;#ok(reply)};

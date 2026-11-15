@@ -175,6 +175,17 @@ ok "$(call portfolio-test-owner writeFundLocationPortfolio "$MOVE")"
 RESULT="$(call portfolio-test-owner getFundLocationPortfolio '(1)')";ok "$RESULT";contains "$RESULT" 'quantity = 790';contains "$RESULT" 'quantity = 200'
 err "$(call portfolio-test-owner writeFundPortfolio "(1,\"reverse-linked\",variant {change=record {assetId=2;expectedRevision=2;change=variant {reverse=$SOURCE_EVENT};note=\"Must not reverse one side\"}})")"
 err "$(call portfolio-test-owner writeFundPortfolio '(1,"location:reserved:out",variant {change=record {assetId=2;expectedRevision=2;change=variant {increase=1};note=""}})')"
+# Canonical network/address identity, same address on two chains, and migration guards.
+ok "$(call portfolio-test-owner writeFundLocationPortfolio '(1,"eth-location",variant {addLocation=record {name="Ethereum";kind=variant {chainAccount=record {network="eip155:1";address="0xAbCd000000000000000000000000000000001234"}}}})')"
+ok "$(call portfolio-test-owner writeFundLocationPortfolio '(1,"base-location",variant {addLocation=record {name="Base";kind=variant {chainAccount=record {network="eip155:8453";address="0xabcd000000000000000000000000000000001234"}}}})')"
+err "$(call portfolio-test-owner writeFundLocationPortfolio '(1,"duplicate-chain",variant {addLocation=record {name="Duplicate";kind=variant {chainAccount=record {network="eip155:1";address="0xabcd000000000000000000000000000000001234"}}}})')"
+NETWORK_EDIT='(1,"network-edit",variant {setLocationNetwork=record {id=3;expectedRevision=1;network="eip155:10";address="0xabcd000000000000000000000000000000001234"}})'
+err "$(call portfolio-test-member writeFundLocationPortfolio "$NETWORK_EDIT")"
+ok "$(call portfolio-test-owner writeFundLocationPortfolio "$NETWORK_EDIT")"
+ok "$(call portfolio-test-owner writeFundLocationPortfolio "$NETWORK_EDIT")"
+err "$(call portfolio-test-owner writeFundLocationPortfolio '(1,"stale-chain",variant {setLocationNetwork=record {id=3;expectedRevision=1;network="eip155:1";address="0xabcd000000000000000000000000000000001234"}})')"
+ok "$(call portfolio-test-owner writeFundLocationPortfolio '(1,"located-chain-holding",variant {create=record {definition=variant {currency="manual:CAD"};locationId=3;quantity=0;note="No silent relabel"}})')"
+err "$(call portfolio-test-owner writeFundLocationPortfolio '(1,"relabel-holding",variant {setLocationNetwork=record {id=3;expectedRevision=2;network="eip155:1";address="0xabcd000000000000000000000000000000001234"}})')"
 BEFORE_POSITIONS="$(call portfolio-test-owner getFundLocationPortfolio '(1)')"
 err "$(call portfolio-test-owner writeFundLocationPortfolio '(1,"stale-destination",variant {move=record {sourceId=2;targetId=3;sourceRevision=2;targetRevision=1;quantity=100;fee=0;note="No partial debit"}})')"
 [[ "$BEFORE_POSITIONS" == "$(call portfolio-test-owner getFundLocationPortfolio '(1)')" ]] || { echo 'Movement partially changed holdings' >&2;exit 1; }
