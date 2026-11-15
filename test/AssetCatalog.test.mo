@@ -1,0 +1,11 @@
+import C "../src/backend/asset_catalog/lib";
+import T "../src/backend/asset_catalog/types";
+let base : T.Input={assetKey="coingecko:usd-coin";name="USD Coin";symbol="USDC";network="ethereum";standard="erc20";contract="0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";decimals=6;source="CoinGecko";verified=false;enabled=true};
+let normalized=switch(C.validate(base,C.networks)){case (#ok(v))v;case (#err(_)){assert false;base}};
+assert normalized.contract=="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+assert C.identity(normalized)!=C.identity({normalized with network="base"});
+assert C.validate({base with contract="0xINVALID"},C.networks)==#err("Invalid EVM contract");
+assert C.validate({base with decimals=(19 : Nat8)},C.networks)==#err("Invalid asset fields; decimals must be 0..18");
+assert C.validate({base with network="missing"},C.networks)==#err("Choose an enabled network");
+assert C.validate({base with verified=true;source=""},C.networks)==#err("Verified assets require a source");
+assert C.validate({base with standard="native"},C.networks)==#err("Native assets must not have a contract");

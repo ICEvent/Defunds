@@ -46,7 +46,7 @@ module {
       case (#currency(id)) {
         switch(Array.find<C.Currency>(currencies,func(c){c.id == id})){
           case null #err("Currency not configured for this fund");
-          case (?c) #ok({name=c.name;unit=c.symbol;decimals=c.decimals;category=if(c.ledger == null)"cash" else "crypto"});
+          case (?c) #ok({name=c.name;unit=c.symbol;decimals=c.decimals;category=if(c.ledger != null or Text.startsWith(c.id,#text("catalog:")))"crypto" else "cash"});
         }
       };
       case (#asset(id)) {

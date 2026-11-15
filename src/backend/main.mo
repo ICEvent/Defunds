@@ -1,4 +1,6 @@
 import Types "types";
+import CatalogTypes "./asset_catalog/types";
+import Catalog "./asset_catalog/lib";
 import Nat "mo:base/Nat";
 import Array "mo:base/Array";
 import Text "mo:base/Text";
@@ -41,6 +43,57 @@ import PortfolioLedger "./portfolio/ledger";
 import PortfolioPermissions "./portfolio/permissions";
 
 persistent actor Defunds{
+  var catalogNetworks : [CatalogTypes.Network] = Catalog.networks;
+  var catalogTokens : [CatalogTypes.Token] = [];
+  var catalogNextId : Nat = 1;
+  var fundCatalogTokens : [(Nat,CatalogTypes.Token)] = [];
+  public shared query ({caller}) func getGlobalAssetCatalog() : async {networks:[CatalogTypes.Network];tokens:[CatalogTypes.Token];canManage:Bool} {
+    {networks=catalogNetworks;tokens=catalogTokens;canManage=not Principal.isAnonymous(caller) and Principal.isController(caller)}
+  };
+  public shared query ({caller}) func getFundAssetCatalog(fundId:Nat) : async Result.Result<{networks:[CatalogTypes.Network];tokens:[CatalogTypes.Token];customIds:[Nat];canManage:Bool;canPublish:Bool},Text> {
+    if(not portfolioAccess(fundId,caller,false))return #err("Portfolio access denied");
+    let custom=Array.map<(Nat,CatalogTypes.Token),CatalogTypes.Token>(Array.filter<(Nat,CatalogTypes.Token)>(fundCatalogTokens,func((f,_)){f==fundId}),func((_,t)){t});
+    #ok({networks=catalogNetworks;tokens=Array.append<CatalogTypes.Token>(catalogTokens,custom);customIds=Array.map<CatalogTypes.Token,Nat>(custom,func(t){t.id});canManage=portfolioAccess(fundId,caller,true);canPublish=Principal.isController(caller)})
+  };
+  public shared ({caller}) func saveGlobalAsset(id:?Nat, expectedRevision:Nat, input:CatalogTypes.Input) : async Result.Result<CatalogTypes.Token,Text> {
+    if(Principal.isAnonymous(caller) or not Principal.isController(caller))return #err("Only canister controllers can maintain the global catalog");
+    saveCatalogAsset(null,id,expectedRevision,input)
+  };
+  public shared ({caller}) func saveFundCustomAsset(fundId:Nat,id:?Nat,expectedRevision:Nat,input:CatalogTypes.Input) : async Result.Result<CatalogTypes.Token,Text> {
+    if(not portfolioAccess(fundId,caller,true))return #err("Portfolio write access denied");
+    if(input.verified)return #err("Custom assets remain unverified until published and reviewed globally");
+    saveCatalogAsset(?fundId,id,expectedRevision,input)
+  };
+  private func saveCatalogAsset(scope:?Nat,id:?Nat,expectedRevision:Nat,input:CatalogTypes.Input) : Result.Result<CatalogTypes.Token,Text> {
+    let entries=switch scope {case null catalogTokens;case (?fundId)Array.map<(Nat,CatalogTypes.Token),CatalogTypes.Token>(Array.filter<(Nat,CatalogTypes.Token)>(fundCatalogTokens,func((f,_)){f==fundId}),func((_,t)){t})};
+    let value=switch(Catalog.validate(input,catalogNetworks)){case (#err(e))return #err(e);case (#ok(v))v};
+    if(value.network=="icp" and value.standard!="native"){
+      // Invalid Principal input rejects this call before any persistent mutation.
+      if(Principal.toText(Principal.fromText(value.contract))!=value.contract)return #err("Use a canonical ledger Principal");
+    };
+    let old=switch id {case null {if(expectedRevision!=0)return #err("Invalid initial revision");null};case (?key){switch(Array.find<CatalogTypes.Token>(entries,func(t){t.id==key})){case null return #err("Asset not found");case (?t){if(t.revision!=expectedRevision)return #err("Asset changed; refresh before saving");?t}}}};
+    switch old {case (?t){if(Catalog.identity(Catalog.input(t))!=Catalog.identity(value) or t.decimals!=value.decimals or t.assetKey!=value.assetKey or t.standard!=value.standard)return #err("Asset identity, grouping, standard and precision are immutable; create a separate entry")};case null {if(entries.size()>=(if(scope==null)1000 else 100))return #err("Catalog limit reached")}};
+    for(t in entries.vals()){if(?t.id!=id and Catalog.identity(Catalog.input(t))==Catalog.identity(value))return #err("This network asset already exists")};
+    let token : CatalogTypes.Token={id=switch id {case null catalogNextId;case (?key)key};revision=expectedRevision+1;assetKey=value.assetKey;name=value.name;symbol=value.symbol;network=value.network;standard=value.standard;contract=value.contract;decimals=value.decimals;source=value.source;verified=value.verified;enabled=value.enabled};
+    let updated=Array.append<CatalogTypes.Token>(Array.filter<CatalogTypes.Token>(entries,func(t){?t.id!=id}),[token]);
+    switch scope {case null {catalogTokens:=updated};case (?fundId){fundCatalogTokens:=Array.append<(Nat,CatalogTypes.Token)>(Array.filter<(Nat,CatalogTypes.Token)>(fundCatalogTokens,func((f,_)){f!=fundId}),Array.map<CatalogTypes.Token,(Nat,CatalogTypes.Token)>(updated,func(t){(fundId,t)}))}};
+    if(id==null)catalogNextId+=1;
+    #ok(token)
+  };
+  public shared ({caller}) func importGlobalAsset(fundId:Nat,tokenId:Nat) : async Result.Result<FundCurrencyTypes.Currency,Text> {
+    if(not portfolioAccess(fundId,caller,true))return #err("Portfolio write access denied");
+    let fund=switch(groups.getGroup(fundId)){case null return #err("Fund not found");case (?g)g};
+    let available=Array.append<CatalogTypes.Token>(catalogTokens,Array.map<(Nat,CatalogTypes.Token),CatalogTypes.Token>(Array.filter<(Nat,CatalogTypes.Token)>(fundCatalogTokens,func((f,_)){f==fundId}),func((_,t)){t}));
+    let token=switch(Array.find<CatalogTypes.Token>(available,func(t){t.id==tokenId and t.enabled})){case null return #err("Enabled catalog asset not found");case (?t)t};
+    let id="catalog:" # Nat.toText(tokenId);
+    switch(FundCurrencies.find(fundCurrencyEntries,fundId,fund.currency,id)){case (?c)return #ok(c);case null {}};
+    if(fundCurrencyList(fund).size()>=FundCurrencies.limit)return #err("Currency limit reached");
+    // Catalog imports describe manual holdings. Transfer support is configured
+    // separately through validated Fund ledgers, never inferred from a contract.
+    let currency : FundCurrencyTypes.Currency={id;name=token.name # " · " # token.network;symbol=token.symbol;decimals=token.decimals;ledger=null;enabled=true};
+    putFundCurrency(fundId,currency);#ok(currency)
+  };
+
   // Separate persistent fields preserve the existing GroupFund stable shape.
   var fundCurrencyEntries : [FundCurrencyTypes.Entry] = [];
   // Snapshots live outside GroupProposal to preserve old stable layouts.

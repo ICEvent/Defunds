@@ -1,4 +1,6 @@
 <script>
+  import GlobalAssetCatalog from './GlobalAssetCatalog.svelte';
+  let showCatalog=false;
   import { Principal } from '@dfinity/principal';
   import { onDestroy, createEventDispatcher, tick } from 'svelte';
   import { parseUnits, formatUnits } from '$lib/portfolio/amount';
@@ -82,7 +84,8 @@
   {#if success}<p role="status" class="mt-3 text-sm text-emerald-700">{success}</p>{/if}
   {#if loading}<p class="py-6 text-sm text-slate-500">Loading holdings…</p>{:else}
     <div class="mt-5 flex flex-wrap items-center gap-2">{#if view==='all'}<label class="mr-auto text-sm">View<select aria-label="Holdings view" bind:value={mode}><option value="asset">By asset</option><option value="location">By location</option></select></label>{/if}{#if canWrite}{#if view==='all'||view==='locations'}<button class="button" disabled={busy} on:click={()=>open('location')}>+ Add location</button>{/if}{#if view==='all'||holdingWorkspace}<button class="button" disabled={busy||!definitions.length||!locations.some(l=>l.enabled)} on:click={()=>open('holding')}>+ Add holding</button><button class="button" disabled={busy} on:click={()=>open('bind')}>Assign existing</button><button class="button" disabled={busy} on:click={()=>open('move')}>Record movement</button>{/if}{/if}</div>
-    {#if holdingWorkspace}<div class="mt-3 flex flex-wrap gap-3 text-sm"><button class="button" on:click={()=>dispatch('configure','definitions')}>Manage asset definitions</button><button class="button" on:click={()=>dispatch('configure','locations')}>Manage locations</button><button class="button" on:click={()=>dispatch('configure','currencies')}>Manage currencies</button></div>{/if}
+    {#if holdingWorkspace}<div class="mt-3 flex flex-wrap gap-3 text-sm"><button class="button" on:click={()=>dispatch('configure','definitions')}>Manage asset definitions</button><button class="button" on:click={()=>showCatalog=!showCatalog}>Global asset catalog</button><button class="button" on:click={()=>dispatch('configure','locations')}>Manage locations</button><button class="button" on:click={()=>dispatch('configure','currencies')}>Manage currencies</button></div>{/if}
+    {#if showCatalog&&holdingWorkspace}<div class="mt-4"><GlobalAssetCatalog {backend} {fundId} on:imported={()=>{void load();dispatch('changed');}}/></div>{/if}
     {#if holdingWorkspace&&(!definitions.length||!locations.some(l=>l.enabled))}<p class="mt-4 text-sm text-slate-600">Create an Asset definition and an enabled Location before adding a holding.</p>{/if}
     {#if view==='all'||view==='portfolio'}
     {#if mode==='asset'}

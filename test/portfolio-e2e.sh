@@ -212,3 +212,24 @@ ok "$(call portfolio-test-owner writeFundLocationPortfolio "$MOVE")"
 ok "$(call portfolio-test-owner writeFundInvestment "$INV_BUY")"
 [[ "$INV_ITEMS" == "$(call portfolio-test-owner listFundInvestments '(1,0,100)')" ]] || { echo 'Investment retry duplicated after upgrade' >&2;exit 1; }
 echo 'PASS: Portfolio, currencies, AI guard, locations, atomic movements and populated upgrades'
+
+# Shared and Fund-scoped asset catalogs: access, immutable identity, import and upgrade.
+CATALOG_NATIVE='record {assetKey="bitcoin";name="Bitcoin";symbol="BTC";network="bitcoin";standard="native";contract="";decimals=8:nat8;source="fixture";verified=false;enabled=true}'
+CATALOG_CUSTOM='record {assetKey="custom:test";name="Custom token";symbol="TEST";network="ethereum";standard="erc20";contract="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";decimals=6:nat8;source="";verified=false;enabled=true}'
+err "$(call portfolio-test-member saveGlobalAsset "(null,0,$CATALOG_NATIVE)")"
+ok "$(call portfolio-test-owner saveGlobalAsset "(null,0,$CATALOG_NATIVE)")"
+err "$(call portfolio-test-owner saveGlobalAsset "(null,0,$CATALOG_NATIVE)")" # duplicate network identity
+err "$(call portfolio-test-outsider saveFundCustomAsset "(1,null,0,$CATALOG_CUSTOM)")"
+ok "$(call portfolio-test-owner saveFundCustomAsset "(1,null,0,$CATALOG_CUSTOM)")"
+err "$(call portfolio-test-owner saveFundCustomAsset "(1,opt 2,0,$CATALOG_CUSTOM)")" # stale revision
+err "$(call portfolio-test-outsider getFundAssetCatalog '(1)')"
+err "$(call anonymous getFundAssetCatalog '(1)')"
+GLOBAL_CATALOG="$(call anonymous getGlobalAssetCatalog '()')"
+[[ "$GLOBAL_CATALOG" != *'Custom token'* ]] || { echo 'Private custom definition leaked' >&2; exit 1; }
+err "$(call portfolio-test-outsider importGlobalAsset '(2,2)')" # private asset in another Fund
+ok "$(call portfolio-test-owner importGlobalAsset '(1,2)')"
+ok "$(call portfolio-test-owner importGlobalAsset '(1,2)')" # idempotent import
+CATALOG_BEFORE="$(call portfolio-test-owner getFundAssetCatalog '(1)')"
+dfx canister install "$FIXTURE_CANISTER" --mode upgrade --wasm-memory-persistence keep --upgrade-unchanged --wasm "$TASK_TMP/production.wasm" --network local --identity portfolio-test-owner
+[[ "$CATALOG_BEFORE" == "$(call portfolio-test-owner getFundAssetCatalog '(1)')" ]] || { echo 'Catalog changed across upgrade' >&2; exit 1; }
+echo 'Asset catalog production API and upgrade checks passed'
