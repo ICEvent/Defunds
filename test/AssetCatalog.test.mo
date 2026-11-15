@@ -1,3 +1,5 @@
+import Text "mo:base/Text";
+import Array "mo:base/Array";
 import C "../src/backend/asset_catalog/lib";
 import T "../src/backend/asset_catalog/types";
 let base : T.Input={assetKey="coingecko:usd-coin";name="USD Coin";symbol="USDC";network="ethereum";standard="erc20";contract="0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";decimals=6;source="CoinGecko";verified=false;enabled=true};
@@ -15,3 +17,9 @@ let existing={id="catalog:1";name="USD Coin";symbol="USDC";decimals=(6 : Nat8);l
 assert C.findImported([token,custom],custom,[existing])==#ok(?existing);
 assert C.findImported([token,custom],{custom with decimals=(18 : Nat8)},[existing])==#err("Asset precision conflicts with the existing Fund definition");
 assert C.findImported([token,custom],{custom with network="base"},[existing])==#ok(null);
+
+let longName = Text.fromArray(Array.tabulate<Char>(120,func(_){'资'}));
+let importedName = C.holdingName({token with name=longName});
+assert importedName.size()==120;
+assert Text.endsWith(importedName,#text(" · ethereum"));
+assert C.holdingName(token)=="USD Coin · ethereum";

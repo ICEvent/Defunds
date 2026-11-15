@@ -95,7 +95,7 @@ persistent actor Defunds{
     if(fundCurrencyList(fund).size()>=FundCurrencies.limit)return #err("Currency limit reached");
     // Catalog imports describe manual holdings. Transfer support is configured
     // separately through validated Fund ledgers, never inferred from a contract.
-    let currency : FundCurrencyTypes.Currency={id;name=token.name # " · " # token.network;symbol=token.symbol;decimals=token.decimals;ledger=null;enabled=true};
+    let currency : FundCurrencyTypes.Currency={id;name=Catalog.holdingName(token);symbol=token.symbol;decimals=token.decimals;ledger=null;enabled=true};
     putFundCurrency(fundId,currency);#ok(currency)
   };
 

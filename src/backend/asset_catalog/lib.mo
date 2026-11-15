@@ -44,6 +44,13 @@ module {
     };
     #ok({i with contract=if(net.family==#evm)Text.toLowercase(i.contract) else i.contract})
   };
+  public func holdingName(token : T.Token) : Text {
+    let suffix = " · " # token.network;
+    let chars = Text.toArray(token.name);
+    // The network identifier comes from the bounded supported-network table.
+    let limit = if(suffix.size() < 120) Nat.sub(120,suffix.size()) else 0;
+    Text.fromArray(Array.tabulate<Char>(Nat.min(chars.size(),limit),func(i){chars[i]})) # suffix
+  };
   // A custom and public entry may describe the same on-chain token. Importing
   // either must reuse an existing Fund definition rather than split holdings.
   public func findImported(tokens : [T.Token], token : T.Token, currencies : [C.Currency]) : Result.Result<?C.Currency,Text> {
