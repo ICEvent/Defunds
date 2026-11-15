@@ -1,0 +1,25 @@
+import Text "mo:base/Text";
+import Array "mo:base/Array";
+import C "../src/backend/asset_catalog/lib";
+import T "../src/backend/asset_catalog/types";
+let base : T.Input={assetKey="coingecko:usd-coin";name="USD Coin";symbol="USDC";network="ethereum";standard="erc20";contract="0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";decimals=6;source="CoinGecko";verified=false;enabled=true};
+let normalized=switch(C.validate(base,C.networks)){case (#ok(v))v;case (#err(_)){assert false;base}};
+assert normalized.contract=="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+assert C.identity(normalized)!=C.identity({normalized with network="base"});
+assert C.validate({base with contract="0xINVALID"},C.networks)==#err("Invalid EVM contract");
+assert C.validate({base with decimals=(19 : Nat8)},C.networks)==#err("Invalid asset fields; decimals must be 0..18");
+assert C.validate({base with network="missing"},C.networks)==#err("Choose an enabled network");
+assert C.validate({base with verified=true;source=""},C.networks)==#err("Verified assets require a source");
+assert C.validate({base with standard="native"},C.networks)==#err("Native assets must not have a contract");
+let token : T.Token={base with id=1;revision=1};
+let custom : T.Token={token with id=2;assetKey="custom"};
+let existing={id="catalog:1";name="USD Coin";symbol="USDC";decimals=(6 : Nat8);ledger=null;enabled=true};
+assert C.findImported([token,custom],custom,[existing])==#ok(?existing);
+assert C.findImported([token,custom],{custom with decimals=(18 : Nat8)},[existing])==#err("Asset precision conflicts with the existing Fund definition");
+assert C.findImported([token,custom],{custom with network="base"},[existing])==#ok(null);
+
+let longName = Text.fromArray(Array.tabulate<Char>(120,func(_){'资'}));
+let importedName = C.holdingName({token with name=longName});
+assert importedName.size()==120;
+assert Text.endsWith(importedName,#text(" · ethereum"));
+assert C.holdingName(token)=="USD Coin · ethereum";
