@@ -1,80 +1,93 @@
 <script>
-	import Dialog from "$lib/components/common/Dialog.svelte";
-	import { AuthClient } from "@dfinity/auth-client";
-	import { HttpAgent } from "@dfinity/agent";
-	import { onMount, onDestroy } from "svelte";
+  import Dialog from '$lib/components/common/Dialog.svelte';
+  import { AuthClient } from '@dfinity/auth-client';
+  import { HttpAgent } from '@dfinity/agent';
+  import { onMount, onDestroy } from 'svelte';
+  import { globalStore, setAgent } from '$lib/store';
+  import { goto } from '$app/navigation';
+  import LoginForm from '$lib/components/LoginForm.svelte';
+  import { HOST_MAINNET } from '$lib/constants';
+  import { verifyConnection, disconnectPlug } from '$lib/utils/plug';
+  import { disconnectOisy } from '$lib/utils/oisy';
 
-	import { globalStore, setAgent } from "$lib/store";
-	import { goto } from "$app/navigation";
-	import LoginForm from "$lib/components/LoginForm.svelte";
-	import { HOST_MAINNET } from "$lib/constants";
+  let isAuthed = false;
+  let principal = null;
+  let authProvider = null;
+  let showLoginDialog = false;
+  let authClient = null;
+  let unsubscribe;
+  let loggingOut = false;
 
-	let isAuthed = false;
-	let principal = "";
-	let showLoginDialog = false;
-	let authClient = null;
-	let unsubscribe;
-
-	onMount(async () => {
-		unsubscribe = globalStore.subscribe((value) => {
-			isAuthed = value.isAuthed;
-			principal = value.principal;
-		});
-		authClient = await AuthClient.create({
-			idleOptions: {
-				disableIdle: true,
-				disableDefaultIdleCallback: true,
-			},
-		});
-
-		if (await authClient.isAuthenticated()) {
-			handleAuthenticated(authClient);
-		}
-	});
-
-	onDestroy(() => {
-		if (unsubscribe) {
-			unsubscribe();
-		}
-	});
   const localLoanTest = import.meta.env.DEV &&
     import.meta.env.VITE_PERSONAL_LOAN_TEST_MODE === 'true';
   const host = localLoanTest
     ? import.meta.env.VITE_PERSONAL_LOAN_HOST
     : HOST_MAINNET;
 
-  const handleAuthenticated = async (client) => {
-    const identity = client.getIdentity();
-    const agent = new HttpAgent({ identity, host });
-    if (localLoanTest) await agent.fetchRootKey();
+  function activate({ agent, principal }, provider) {
     setAgent(agent);
-    globalStore.update(store => ({
-      ...store,
-      isAuthed: true,
-      principal: identity.getPrincipal()
-    }));
-  };
-	const handleLogout = async () => {
-		if (authClient) {
-			await authClient.logout();
+    globalStore.update(store => ({ ...store, isAuthed: true, principal, authProvider: provider }));
+  }
+
+  onMount(async () => {
+    unsubscribe = globalStore.subscribe(value => {
+      isAuthed = value.isAuthed;
+      principal = value.principal;
+      authProvider = value.authProvider;
+    });
+    try {
+      authClient = await AuthClient.create({
+        idleOptions: { disableIdle: true, disableDefaultIdleCallback: true }
+      });
+      // Only restore the wallet selected for this tab. OISY requires the user
+      // to reopen the signer on a click, not an unsolicited popup during mount.
+      const selected = sessionStorage.getItem('defunds.auth.provider');
+      if (selected === 'plug') {
+        const connected = await verifyConnection();
+        if (connected) activate(connected, 'plug');
+      } else if (selected !== 'oisy' && await authClient.isAuthenticated()) {
+        const identity = authClient.getIdentity();
+        const agent = new HttpAgent({ identity, host });
+        if (localLoanTest) await agent.fetchRootKey();
+        activate({ agent, principal: identity.getPrincipal() }, 'ii');
+      }
+      // Clear orphaned selections so the next Login click starts fresh.
+      if (!isAuthed && selected) sessionStorage.removeItem('defunds.auth.provider');
+    } catch (error) {
+      console.warn('Unable to restore Defunds authentication:', error);
+    }
+    if (window.ic?.plug?.onExternalDisconnect) {
+      window.ic.plug.onExternalDisconnect(() => {
+        if (authProvider === 'plug') void handleLogout();
+      });
+    }
+  });
+
+  onDestroy(() => { if (unsubscribe) unsubscribe(); });
+
+  async function handleLogout() {
+    if (loggingOut) return;
+    loggingOut = true;
+    try {
+      if (authProvider === 'plug') await disconnectPlug();
+      else if (authProvider === 'oisy') await disconnectOisy();
+      else if (authClient) await authClient.logout();
+    } catch (error) {
+      console.warn('Wallet disconnect was interrupted:', error);
+    } finally {
+      sessionStorage.removeItem('defunds.auth.provider');
       const anonymousAgent = new HttpAgent({ host });
       if (localLoanTest) await anonymousAgent.fetchRootKey();
       setAgent(anonymousAgent);
       globalStore.update(store => ({
-        ...store,
-        isAuthed: false,
-        principal: undefined
+        ...store, isAuthed: false, principal: undefined, authProvider: null
       }));
-			// Optional: Redirect to home page
-			goto("/");
-		}
-	};
-	function navigateToProfile() {
-		// Instead of toggling the dropdown, navigate to the profile page
-		goto("/profile"); // Navigate to the '/profile' route
-	}
+      loggingOut = false;
+      goto('/');
+    }
+  }
+  function navigateToProfile() { goto('/profile'); }
 </script>
-
 <nav class="border-b border-slate-800/80 bg-slate-950/95 py-4 backdrop-blur">
    <div class="container mx-auto flex items-center justify-between px-4">
 	   <a
