@@ -10,6 +10,9 @@ on:
       - 'test/asset-catalog*'
       - 'test/asset-catalog-browser/**'
       - 'src/frontend/src/lib/components/FundInvestments.svelte'
+      - 'src/frontend/src/lib/components/Investment*.svelte'
+      - 'test/InvestmentStrategy.test.mo'
+      - 'test/InvestmentReviews.test.mo'
       - 'test/investment*'
       - 'test/Investments.test.mo'
       - 'src/frontend/src/lib/portfolio/**'
@@ -69,12 +72,14 @@ jobs:
           CACHE="$(dfx cache show)"
           "$CACHE/moc" -r --package base "$CACHE/base" test/AssetCatalog.test.mo
           "$CACHE/moc" -r --package base "$CACHE/base" test/Investments.test.mo
+          "$CACHE/moc" -r --package base "$CACHE/base" test/InvestmentStrategy.test.mo
+          "$CACHE/moc" -r --package base "$CACHE/base" test/InvestmentReviews.test.mo
           "$CACHE/moc" -r --package base "$CACHE/base" test/PortfolioLedger.test.mo
           "$CACHE/moc" -r --package base "$CACHE/base" test/FundCurrencies.test.mo
           "$CACHE/moc" -r --package base "$CACHE/base" test/Icrc3DonationProof.test.mo
           "$CACHE/moc" -r --package base "$CACHE/base" test/PortfolioLocations.test.mo
       - name: Test decimal precision and valuation summaries
-        run: node --test test/asset-catalog.test.mjs test/investment.test.mjs test/portfolio-amount.test.mjs test/portfolio-locations.test.mjs
+        run: node --test test/asset-catalog.test.mjs test/investment-analysis.test.mjs test/investment.test.mjs test/portfolio-amount.test.mjs test/portfolio-locations.test.mjs
       - name: Test production Portfolio APIs and populated upgrade
         run: bash test/portfolio-e2e.sh
       - name: Verify ICRC donations and upgrade replay protection

@@ -1,8 +1,10 @@
 <script>
   import { onDestroy, tick } from 'svelte';
+  import InvestmentStrategy from './InvestmentStrategy.svelte';
   import { parseUnits, formatUnits } from '$lib/portfolio/amount';
   import { definitionKey } from '$lib/portfolio/locations';
   export let backend, fundId, principalText = '', refreshToken = 0;
+  let strategy={policy:[],policies:[],decisions:[]};
   let items=[], locations=[], currencies=[], definitions=[], canWrite=false;
   let loading=false,busy=false,error='',success='',context,epoch=0,active=true,pending=null;
   let form='',selected=null,history=[],more=false,historyFor=null,formElement;
@@ -26,10 +28,10 @@
     const version=++epoch;loading=true;error='';items=[];locations=[];currencies=[];definitions=[];canWrite=false;form='';selected=null;history=[];historyFor=null;pending=null;
     const actor=backend,id=fundId;
     try{
-      const [list,p]=await Promise.all([actor.listFundInvestments(id,0n,100n),actor.getFundLocationPortfolio(id)]);
+      const [list,p,s]=await Promise.all([actor.listFundInvestments(id,0n,100n),actor.getFundLocationPortfolio(id),actor.getFundInvestmentStrategy(id)]);
       const all=unwrap(list),portfolio=unwrap(p);
       if(!active||version!==epoch)return;
-      items=all;locations=portfolio.locations;currencies=portfolio.currencies;canWrite=portfolio.canWrite;
+      strategy=unwrap(s);items=all;locations=portfolio.locations;currencies=portfolio.currencies;canWrite=portfolio.canWrite;
       const defs=currencies.map(c=>({key:`currency:${c.id}`,definition:{currency:c.id},name:c.name,unit:c.symbol,decimals:c.decimals}));
       const seen=new Set(defs.map(d=>d.key));
       for(const p of portfolio.positions){const key=definitionKey(p.definition);if(!seen.has(key)&&!p.asset.archived){seen.add(key);defs.push({key,definition:p.definition,name:p.name,unit:p.unit,decimals:p.decimals});}}
@@ -89,6 +91,7 @@
   {#if success}<p role="status" class="mt-3 text-sm text-emerald-700">{success}</p>{/if}
   {#if loading}<p class="py-6">Loading investments…</p>{:else}
     <p class="mt-4 text-sm text-slate-500">Valuation coverage: {items.filter(i=>value(i)!==null).length} / {items.length}. Each investment uses its own settlement currency; amounts are not combined across currencies.</p>
+    {#key `${fundId}:${principalText}:${epoch}`}<InvestmentStrategy {backend} {fundId} {items} {strategy} {canWrite} on:saved={load}/>{/key}
     {#if canWrite}<button class="button mt-3" disabled={busy} on:click={()=>open('create')}>+ Add investment</button>{/if}
     <div class="mt-4 space-y-4">{#each items as item (item.id)}
       <article class="rounded-xl border border-slate-200 p-4">

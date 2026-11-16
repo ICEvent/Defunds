@@ -1,0 +1,26 @@
+import R "../src/backend/investment/reviews";
+import Principal "mo:base/Principal";
+import Debug "mo:base/Debug";
+let owner=Principal.fromText("aaaaa-aa");let now:Int=100;
+let input:R.Input={decisionId=1;expectedRevision=0;investmentRevision=2;policyRevision=1;outcome=#maintain;conclusion="Thesis still valid";nextAction="Recheck valuation";nextReviewAt=?(now+86400000000000)};
+func ok(s:R.State,id:Text,i:R.Input):R.State {switch(R.apply(s,1,owner,id,i,2,1,now)){case (#ok(v))v;case (#err(e))Debug.trap(e)}};
+func bad(s:R.State,i:R.Input):Bool {switch(R.apply(s,1,owner,"bad",i,2,1,now)){case (#err(_))true;case _ false}};
+let s1=ok(R.empty,"first",input);assert(s1.reviews.size()==1 and s1.reviews[0].revision==1);
+assert(R.latest(s1,2,1)==null and R.latest(s1,1,2)==null);
+assert(ok(s1,"first",input).reviews.size()==1);
+assert(bad(s1,input));
+assert(bad(R.empty,{input with investmentRevision=1}));assert(bad(R.empty,{input with policyRevision=0}));
+assert(bad(R.empty,{input with nextReviewAt=null}));
+assert(bad(R.empty,{input with nextReviewAt=?now}));
+assert(bad(R.empty,{input with nextReviewAt=?(now+367*86400000000000)}));
+assert(bad(R.empty,{input with conclusion=" "}));assert(bad(R.empty,{input with nextAction=" "}));
+assert(bad(R.empty,{input with outcome=#close}));
+let close:R.Input={input with expectedRevision=1;outcome=#close;nextReviewAt=null;conclusion="Review finished";nextAction="Archive decision"};
+let s2=ok(s1,"close",close);assert(s2.reviews.size()==2 and s2.reviews[1].revision==2);
+assert(ok(s2,"close",close).reviews.size()==2);
+assert(bad(s2,{input with expectedRevision=2}));
+assert(switch(R.apply(s2,1,owner,"first",close,2,1,now)){case (#err(_))true;case _ false});
+assert(switch(R.apply(R.empty,1,Principal.fromText("2vxsx-fae"),"anon",input,2,1,now)){case (#err(_))true;case _ false});
+// Replay remains successful even when later investment data has changed.
+assert(switch(R.apply(s2,1,owner,"first",input,99,99,now)){case (#ok(s))s.reviews.size()==2;case _ false});
+Debug.print("Review lifecycle, isolation, optimistic revisions, schedule and retry tests passed");

@@ -212,6 +212,33 @@ ok "$(call portfolio-test-owner writeFundInvestment '(1,"investment-value",varia
 INV_ITEMS="$(call portfolio-test-owner listFundInvestments '(1,0,100)')";ok "$INV_ITEMS";contains "$INV_ITEMS" 'cost = 700';contains "$INV_ITEMS" 'realized = 100';contains "$INV_ITEMS" 'quantity = 70'
 INV_HISTORY="$(call portfolio-test-owner listFundInvestmentHistory '(1,1,0,100)')";ok "$INV_HISTORY"
 [[ "$BEFORE_POSITIONS" == "$(call portfolio-test-owner getFundLocationPortfolio '(1)')" ]] || { echo 'Journal changed Portfolio balances' >&2;exit 1; }
+# Strategy storage uses the same actor authorization; journal writes never move funds.
+STRATEGY='(1,"strategy-create",variant {policy=record {expectedRevision=0;rules=record {maxWeight=25;staleDays=7;shock=20;thesis="Long term; reassess concentration"}}})'
+err "$(call portfolio-test-member writeFundInvestmentStrategy "$STRATEGY")"
+err "$(call portfolio-test-outsider getFundInvestmentStrategy '(1)')"
+err "$(call anonymous getFundInvestmentStrategy '(1)')"
+ok "$(call portfolio-test-owner writeFundInvestmentStrategy "$STRATEGY")"
+ok "$(call portfolio-test-owner writeFundInvestmentStrategy "$STRATEGY")"
+ok "$(call portfolio-test-member getFundInvestmentStrategy '(1)')"
+err "$(call portfolio-test-owner writeFundInvestmentStrategy '(1,"stale-strategy",variant {policy=record {expectedRevision=0;rules=record {maxWeight=25;staleDays=7;shock=20;thesis="Stale"}}})')"
+REVIEW_AT="$(python3 -c 'import time;print(time.time_ns()+86400000000000)')"
+DECISION="(1,\"decision-create\",variant {decision=record {investmentId=1;investmentRevision=4;policyRevision=1;action=variant {hold};rationale=\"Review next day\";reviewAt=$REVIEW_AT}})"
+ok "$(call portfolio-test-owner writeFundInvestmentStrategy "$DECISION")"
+ok "$(call portfolio-test-owner writeFundInvestmentStrategy "$DECISION")"
+err "$(call portfolio-test-owner writeFundInvestmentStrategy '(1,"stale-decision",variant {decision=record {investmentId=1;investmentRevision=1;policyRevision=1;action=variant {hold};rationale="Stale";reviewAt=1}})')"
+# Follow-up review authorization, optimistic checks and append-only history.
+REVIEW="(1,\"review-create\",record {decisionId=1;expectedRevision=0;investmentRevision=4;policyRevision=1;outcome=variant {maintain};conclusion=\"Thesis checked\";nextAction=\"Review valuation tomorrow\";nextReviewAt=opt $REVIEW_AT})"
+err "$(call portfolio-test-member writeFundInvestmentReview "$REVIEW")"
+err "$(call portfolio-test-outsider getFundInvestmentReviewQueue '(1)')"
+err "$(call anonymous getFundInvestmentReviewHistory '(1,1,0,50)')"
+err "$(call portfolio-test-owner writeFundInvestmentReview '(1,"review-missing",record {decisionId=999;expectedRevision=0;investmentRevision=4;policyRevision=1;outcome=variant {close};conclusion="Missing";nextAction="None";nextReviewAt=null})')"
+err "$(call portfolio-test-owner writeFundInvestmentReview '(1,"review-stale-investment",record {decisionId=1;expectedRevision=0;investmentRevision=1;policyRevision=1;outcome=variant {close};conclusion="Stale";nextAction="None";nextReviewAt=null})')"
+ok "$(call portfolio-test-owner writeFundInvestmentReview "$REVIEW")"
+ok "$(call portfolio-test-owner writeFundInvestmentReview "$REVIEW")"
+err "$(call portfolio-test-owner writeFundInvestmentReview '(1,"review-stale",record {decisionId=1;expectedRevision=0;investmentRevision=4;policyRevision=1;outcome=variant {close};conclusion="Stale";nextAction="None";nextReviewAt=null})')"
+REVIEW_QUEUE="$(call portfolio-test-member getFundInvestmentReviewQueue '(1)')";ok "$REVIEW_QUEUE";contains "$REVIEW_QUEUE" 'revision = 1'
+REVIEW_HISTORY="$(call portfolio-test-member getFundInvestmentReviewHistory '(1,1,0,50)')";ok "$REVIEW_HISTORY"
+STRATEGY_BEFORE="$(call portfolio-test-owner getFundInvestmentStrategy '(1)')";ok "$STRATEGY_BEFORE";contains "$STRATEGY_BEFORE" 'decisionCount = 1'
 LOCATION_HISTORY="$(call portfolio-test-owner listFundLocationHistory '(1,0,100)')";ok "$LOCATION_HISTORY"
 dfx canister install "$FIXTURE_CANISTER" --mode upgrade --wasm-memory-persistence keep --upgrade-unchanged --wasm "$TASK_TMP/production.wasm" --network local --identity portfolio-test-owner
 [[ "$BEFORE_POSITIONS" == "$(call portfolio-test-owner getFundLocationPortfolio '(1)')" ]] || { echo 'Located holdings lost across upgrade' >&2;exit 1; }
@@ -222,6 +249,15 @@ ok "$(call portfolio-test-owner writeFundLocationPortfolio "$MOVE")"
 [[ "$INV_HISTORY" == "$(call portfolio-test-owner listFundInvestmentHistory '(1,1,0,100)')" ]] || { echo 'Investment history lost across upgrade' >&2;exit 1; }
 ok "$(call portfolio-test-owner writeFundInvestment "$INV_BUY")"
 [[ "$INV_ITEMS" == "$(call portfolio-test-owner listFundInvestments '(1,0,100)')" ]] || { echo 'Investment retry duplicated after upgrade' >&2;exit 1; }
+[[ "$STRATEGY_BEFORE" == "$(call portfolio-test-owner getFundInvestmentStrategy '(1)')" ]] || { echo 'Strategy history lost across upgrade' >&2;exit 1; }
+ok "$(call portfolio-test-owner writeFundInvestmentStrategy "$DECISION")"
+[[ "$STRATEGY_BEFORE" == "$(call portfolio-test-owner getFundInvestmentStrategy '(1)')" ]] || { echo 'Decision retry duplicated after upgrade' >&2;exit 1; }
+[[ "$REVIEW_QUEUE" == "$(call portfolio-test-member getFundInvestmentReviewQueue '(1)')" ]] || { echo 'Review queue lost across upgrade' >&2;exit 1; }
+[[ "$REVIEW_HISTORY" == "$(call portfolio-test-member getFundInvestmentReviewHistory '(1,1,0,50)')" ]] || { echo 'Review history lost across upgrade' >&2;exit 1; }
+ok "$(call portfolio-test-owner writeFundInvestmentReview "$REVIEW")"
+[[ "$REVIEW_HISTORY" == "$(call portfolio-test-member getFundInvestmentReviewHistory '(1,1,0,50)')" ]] || { echo 'Review retry duplicated after upgrade' >&2;exit 1; }
+ok "$(call portfolio-test-owner writeFundInvestmentReview '(1,"review-close",record {decisionId=1;expectedRevision=1;investmentRevision=4;policyRevision=1;outcome=variant {close};conclusion="Complete";nextAction="Archive decision";nextReviewAt=null})')"
+RESULT="$(call portfolio-test-member getFundInvestmentReviewQueue '(1)')";ok "$RESULT";contains "$RESULT" 'closed = true'
 echo 'PASS: Portfolio, currencies, AI guard, locations, atomic movements and populated upgrades'
 
 # Shared and Fund-scoped asset catalogs: access, immutable identity, import and upgrade.
