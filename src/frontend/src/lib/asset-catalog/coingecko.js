@@ -24,3 +24,34 @@ export async function lookupCoinGecko(id, fetcher=fetch) {
   if(data.id!==id)throw new Error('CoinGecko response ID does not match');
   const value=coinGeckoCandidates(data);cache.set(id,{at:Date.now(),value});return value;
 }
+
+export function coinGeckoList(data) {
+  if (!Array.isArray(data)) throw new Error('CoinGecko returned an invalid asset list');
+  const seen = new Set();
+  return data.flatMap(coin => {
+    if (!coin || typeof coin.id !== 'string' || !/^[a-z0-9-]{1,80}$/.test(coin.id) || typeof coin.name !== 'string' || typeof coin.symbol !== 'string' || seen.has(coin.id)) return [];
+    seen.add(coin.id);
+    const networks = Object.entries(coin.platforms ?? {}).flatMap(([platform, address]) =>
+      platform && typeof address === 'string' && address.trim()
+        ? [{ network: platforms[platform]?.[0] ?? platform, contract: address }]
+        : []);
+    return [{ id:coin.id, name:coin.name, symbol:coin.symbol.toUpperCase(), networks,
+      searchText:[coin.id,coin.name,coin.symbol,...networks.flatMap(n=>[n.network,n.contract])].join(' ').toLowerCase() }];
+  });
+}
+let listSnapshot = null, listRequest = null;
+export async function loadCoinGeckoList(fetcher=fetch, {force=false}={}) {
+  if (!force && listSnapshot && Date.now()-listSnapshot.fetchedAt<3600000) return listSnapshot;
+  if (listRequest) return listRequest;
+  listRequest = (async()=>{
+    const response = await fetcher('https://api.coingecko.com/api/v3/coins/list?include_platform=true', {
+      signal:AbortSignal.timeout(20000), credentials:'omit', referrerPolicy:'no-referrer'
+    });
+    if (!response.ok) throw new Error(`CoinGecko returned ${response.status}. Retry later; saved and custom definitions remain available.`);
+    const coins = coinGeckoList(await response.json());
+    if (!coins.length) throw new Error('CoinGecko returned no usable assets. Retry later; saved and custom definitions remain available.');
+    listSnapshot = {coins,fetchedAt:Date.now()};
+    return listSnapshot;
+  })();
+  try { return await listRequest; } finally { listRequest=null; }
+}

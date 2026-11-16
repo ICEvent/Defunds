@@ -5,6 +5,7 @@ on:
       - 'src/backend/**'
       - 'src/frontend/src/lib/asset-catalog/**'
       - 'src/frontend/src/lib/components/GlobalAssetCatalog.svelte'
+      - 'src/frontend/src/lib/components/CoinGeckoBrowser.svelte'
       - 'src/frontend/src/routes/assets/**'
       - 'test/AssetCatalog.test.mo'
       - 'test/asset-catalog*'

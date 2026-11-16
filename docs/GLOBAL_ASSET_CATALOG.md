@@ -12,7 +12,9 @@ Supported initial networks: Ethereum, Base, Arbitrum One, ICP, Solana and Bitcoi
 
 ## CoinGecko is optional
 
-The browser fetches `/coins/{id}` only on request and caches a successful response in memory for one hour. Imports use `detail_platforms` for per-network contracts and decimal precision. Unsupported networks, missing precision and native placeholders are skipped instead of guessed. Metadata is saved only after user review. No scheduled synchronization or dependency on CoinGecko is required for custom assets or saved definitions.
+The public `/assets` page automatically reads `/coins/list?include_platform=true` without requiring catalog write permissions, then provides local search by name, symbol or contract and 20-row pagination. Fund views can opt in with “Browse CoinGecko assets”. Successful public lists are cached in memory for one hour and concurrent reads share a request. The list is displayed separately from saved definitions; provider failures show an explicit retryable error without blocking saved definitions or custom entry.
+
+“View networks” fetches `/coins/{id}` on request and caches successful detail responses in memory for one hour. Anonymous users can inspect details; only users with existing write permissions can save entries. Imports use `detail_platforms` for per-network contracts and decimal precision. Unsupported networks, missing precision and native placeholders are skipped instead of guessed. Metadata is saved only after user review. No scheduled synchronization or dependency on CoinGecko is required for custom assets or saved definitions.
 
 Public API access can be rate limited or require a Demo API key. Do not place keys in frontend environment variables. Fetch a JSON response outside the browser, then use “Or import coin JSON”:
 
