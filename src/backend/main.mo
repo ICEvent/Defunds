@@ -34,6 +34,8 @@ import Groups "./group";
 import PortfolioTypes "./portfolio/types";
 import InvestmentTypes "./investment/types";
 import Investments "./investment/lib";
+import Strategy "./investment/strategy";
+import InvestmentReviews "./investment/reviews";
 import LocationTypes "./portfolio_locations/types";
 import Locations "./portfolio_locations/lib";
 import FundCurrencyTypes "./fund_currency/types";
@@ -198,6 +200,68 @@ persistent actor Defunds{
 
   // Analytical journal: never sends transfers or adds duplicate Portfolio balances.
   var investmentState : InvestmentTypes.State = Investments.empty;
+  var strategyState : Strategy.State = Strategy.empty;
+  // Separate state preserves the previously deployed strategy record shape.
+  var investmentReviewState : InvestmentReviews.State = InvestmentReviews.empty;
+  public shared query ({caller}) func getFundInvestmentReviewQueue(fundId:Nat) : async Result.Result<[{decisionId:Nat;investmentId:Nat;revision:Nat;reviewAt:?Int;closed:Bool}],Text> {
+    if(not portfolioAccess(fundId,caller,false))return #err("Portfolio access denied");
+    let latestByDecision=TrieMap.TrieMap<Nat,InvestmentReviews.Review>(Nat.equal,Hash.hash);
+    for(r in investmentReviewState.reviews.vals()){if(r.fundId == fundId)latestByDecision.put(r.input.decisionId,r)};
+    let queue=Buffer.Buffer<{decisionId:Nat;investmentId:Nat;revision:Nat;reviewAt:?Int;closed:Bool}>(0);
+    for(d in strategyState.decisions.vals()){
+      if(d.fundId == fundId){
+        let latest=latestByDecision.get(d.id);
+        queue.add(switch latest {
+          case null ({decisionId=d.id;investmentId=d.input.investmentId;revision=0;reviewAt=?d.input.reviewAt;closed=false});
+          case (?r)({decisionId=d.id;investmentId=d.input.investmentId;revision=r.revision;reviewAt=r.input.nextReviewAt;closed=r.input.outcome == #close});
+        });
+      }
+    };#ok(Buffer.toArray(queue))
+  };
+  public shared query ({caller}) func getFundInvestmentReviewHistory(fundId:Nat,decisionId:Nat,afterId:Nat,limit:Nat) : async Result.Result<{decision:Strategy.Decision;reviews:[InvestmentReviews.Review];latestReview:?InvestmentReviews.Review},Text> {
+    if(not portfolioAccess(fundId,caller,false))return #err("Portfolio access denied");
+    if(limit == 0 or limit > 50)return #err("Limit must be 1..50");
+    let decision=switch(Array.find<Strategy.Decision>(strategyState.decisions,func(d){d.id == decisionId and d.fundId == fundId})){case null return #err("Decision not found");case (?d)d};
+    let reviews=Array.filter<InvestmentReviews.Review>(investmentReviewState.reviews,func(r){r.fundId == fundId and r.input.decisionId == decisionId and r.id > afterId});
+    #ok({decision;latestReview=InvestmentReviews.latest(investmentReviewState,fundId,decisionId);reviews=Array.tabulate<InvestmentReviews.Review>(Nat.min(limit,reviews.size()),func(i){reviews[i]})})
+  };
+  public shared ({caller}) func writeFundInvestmentReview(fundId:Nat,requestId:Text,input:InvestmentReviews.Input) : async Result.Result<(),Text> {
+    if(not portfolioAccess(fundId,caller,true))return #err("Portfolio write access denied");
+    switch(InvestmentReviews.replay(investmentReviewState,fundId,caller,requestId,input)){
+      case (?#ok(_))return #ok(());case (?#err(e))return #err(e);case null {};
+    };
+    let decision=switch(Array.find<Strategy.Decision>(strategyState.decisions,func(d){d.id == input.decisionId and d.fundId == fundId})){case null return #err("Decision not found");case (?d)d};
+    let item=switch(Investments.find(investmentState,fundId,decision.input.investmentId)){case null return #err("Investment not found");case (?i)i};
+    let policyRevision=switch(Strategy.current(strategyState,fundId)){case null 0;case (?p)p.revision};
+    switch(InvestmentReviews.apply(investmentReviewState,fundId,caller,requestId,input,item.revision,policyRevision,Time.now())){
+      case (#err(e))#err(e);case (#ok(state)){investmentReviewState:=state;#ok(())};
+    }
+  };
+  public shared query ({caller}) func getFundInvestmentStrategy(fundId:Nat) : async Result.Result<{policy:?Strategy.Policy;policies:[Strategy.Policy];decisions:[Strategy.Decision];policyCount:Nat;decisionCount:Nat},Text> {
+    if(not portfolioAccess(fundId,caller,false))return #err("Portfolio access denied");
+    let policies=Array.filter<Strategy.Policy>(strategyState.policies,func(p){p.fundId == fundId});
+    let decisions=Array.filter<Strategy.Decision>(strategyState.decisions,func(d){d.fundId == fundId});
+    let pc=policies.size();let dc=decisions.size();
+    #ok({policy=Strategy.current(strategyState,fundId);policyCount=pc;decisionCount=dc;
+      policies=Array.tabulate<Strategy.Policy>(Nat.min(pc,50),func(i){policies[(if(pc > 50)pc-50 else 0)+i]});
+      decisions=Array.tabulate<Strategy.Decision>(Nat.min(dc,50),func(i){decisions[(if(dc > 50)dc-50 else 0)+i]})})
+  };
+  public shared ({caller}) func writeFundInvestmentStrategy(fundId:Nat,requestId:Text,operation:Strategy.Operation) : async Result.Result<(),Text> {
+    if(not portfolioAccess(fundId,caller,true))return #err("Portfolio write access denied");
+    switch(Strategy.replay(strategyState,fundId,caller,requestId,operation)){
+      case (?#ok(_))return #ok(());case (?#err(e))return #err(e);case null {};
+    };
+    switch operation {
+      case (#decision(input)){
+        let item=switch(Investments.find(investmentState,fundId,input.investmentId)){case null return #err("Investment not found");case (?i)i};
+        if(item.revision != input.investmentRevision)return #err("Investment changed; refresh before recording a decision");
+      };case _ {};
+    };
+    switch(Strategy.apply(strategyState,fundId,caller,requestId,operation,Time.now())){
+      case (#err(e))#err(e);case (#ok(state)){strategyState:=state;#ok(())};
+    }
+  };
+
   public shared query ({caller}) func listFundInvestments(fundId:Nat,afterId:Nat,limit:Nat) : async Result.Result<[InvestmentTypes.Investment],Text> {
     if(not portfolioAccess(fundId,caller,false))return #err("Portfolio access denied");
     if(limit == 0 or limit > 100)return #err("Limit must be 1..100");
