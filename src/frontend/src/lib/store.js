@@ -20,11 +20,7 @@ const initialValue = {
   backend: createActor(DEFUND_CANISTER_ID, {
     agent: initialAgent
   }),
-  governance: createGovernanceActor(GOVERNANCE_CANISTER_ID, {
-    agent: new HttpAgent({
-      host: HOST_MAINNET
-    })
-  }),
+  governance: createGovernanceActor(GOVERNANCE_CANISTER_ID, { agent: initialAgent }),
 };
 
 export const globalStore = writable(initialValue);
