@@ -24,7 +24,7 @@ export async function connectOisy() {
     activeSigner = signer;
     return { agent, principal };
   } catch (error) {
-    await signer.close?.().catch?.(() => {});
+    try { await signer.closeChannel(); } catch { /* connection already closed */ }
     throw error;
   }
 }
@@ -32,7 +32,5 @@ export async function connectOisy() {
 export async function disconnectOisy() {
   const signer = activeSigner;
   activeSigner = null;
-  if (signer && typeof signer.close === 'function') {
-    await signer.close();
-  }
+  if (signer) await signer.closeChannel();
 }
