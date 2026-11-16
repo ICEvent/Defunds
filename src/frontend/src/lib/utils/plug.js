@@ -1,28 +1,54 @@
-import { DERIVATION_ORIGION } from '$lib/constants';
+import {
+  DEFUND_CANISTER_ID,
+  GOVERNANCE_CANISTER_ID,
+  HOST_MAINNET,
+  ICP_LEDGER_CANISTER_ID
+} from '$lib/constants';
 
-export const whitelist = ['32pz7-5qaaa-aaaag-qacra-cai'];
-export const host = DERIVATION_ORIGION;
+// The extension must explicitly approve each canister that Defunds will call.
+// Keep the optional personal-loan canister separate from the Treasury actor.
+export const plugWhitelist = () => [
+  DEFUND_CANISTER_ID,
+  GOVERNANCE_CANISTER_ID,
+  ICP_LEDGER_CANISTER_ID,
+  import.meta.env.VITE_PERSONAL_LOAN_CANISTER_ID
+].filter(Boolean);
 
-export const connectPlug = async () => {
-  const connected = await window.ic.plug.requestConnect({
-    whitelist,
-    host
-  });
-  
-  if (connected) {
-    const agent = await window.ic.plug.agent;
-    const principal = await window.ic.plug.getPrincipal();
-    // const balance = await window.ic.plug.requestBalance();
-    return { principal, agent };
+function getPlug() {
+  if (typeof window === 'undefined') return null;
+  return window.ic?.plug ?? null;
+}
+
+async function connectedSession(plug) {
+  const agent = plug.agent;
+  if (!agent || typeof agent.getPrincipal !== 'function') {
+    throw new Error('Plug did not provide a signing agent. Reconnect and approve Defunds canisters.');
   }
-  return null;
-};
-
-export const verifyConnection = async () => {
-  let isConnected = await window.ic.plug.isConnected();
-  if (isConnected) {
-    const agent = await window.ic.plug.agent;
-    const principal = await window.ic.plug.getPrincipal();
-    return { principal, agent };
+  const principal = await agent.getPrincipal();
+  if (!principal || principal.isAnonymous?.()) {
+    throw new Error('Plug returned an anonymous account.');
   }
-};
+  return { agent, principal };
+}
+
+export async function connectPlug() {
+  const plug = getPlug();
+  if (!plug) {
+    throw new Error('Plug extension not detected. Install Plug in this browser and reload, or choose Internet Identity/OISY.');
+  }
+  await plug.requestConnect({ whitelist: plugWhitelist(), host: HOST_MAINNET });
+  if (!(await plug.isConnected())) throw new Error('Plug wallet connection was not approved.');
+  return connectedSession(plug);
+}
+
+// Session restoration must NEVER trigger an unprompted permission popup.
+export async function verifyConnection() {
+  const plug = getPlug();
+  if (!plug || !(await plug.isConnected())) return null;
+  return connectedSession(plug);
+}
+
+export async function disconnectPlug() {
+  const plug = getPlug();
+  if (plug && typeof plug.disconnect === 'function') await plug.disconnect();
+}
