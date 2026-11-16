@@ -43,6 +43,6 @@ export async function connectPersonalLoan(expectedPrincipal) {
   }
   const host = import.meta.env.VITE_PERSONAL_LOAN_HOST || HOST_MAINNET;
   const agent = new HttpAgent({ host, identity: client.getIdentity() });
-  if (/localhost|127\\.0\\.0\\.1/.test(host)) await agent.fetchRootKey();
+  if (/localhost|127\.0\.0\.1/.test(host)) await agent.fetchRootKey();
   return createActor(canisterId, { agent });
 }
