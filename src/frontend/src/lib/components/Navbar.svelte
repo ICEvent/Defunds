@@ -9,6 +9,8 @@
   import { globalStore, setAgent } from "$lib/store";
   import LoginForm from "$lib/components/LoginForm.svelte";
   import { HOST_MAINNET } from "$lib/constants";
+  import { verifyConnection, disconnectPlug } from "$lib/utils/plug";
+  import { disconnectOisy } from "$lib/utils/oisy";
 
   const navLinks = [
     { href: "/funds", label: "Funds" },
@@ -17,6 +19,8 @@
   ];
 
   let isAuthed = false;
+  let authProvider = null;
+  let loggingOut = false;
   let showLoginDialog = false;
   let isMobileMenuOpen = false;
   let menuButton;
@@ -50,19 +54,42 @@
 
   afterNavigate(closeMobileMenu);
 
+  function activate({ agent, principal }, provider) {
+    setAgent(agent);
+    globalStore.update((store) => ({
+      ...store, isAuthed: true, principal, authProvider: provider
+    }));
+  }
+
   onMount(async () => {
     unsubscribe = globalStore.subscribe((value) => {
       isAuthed = value.isAuthed;
+      authProvider = value.authProvider;
     });
-    authClient = await AuthClient.create({
-      idleOptions: {
-        disableIdle: true,
-        disableDefaultIdleCallback: true,
-      },
-    });
-
-    if (await authClient.isAuthenticated()) {
-      handleAuthenticated(authClient);
+    try {
+      authClient = await AuthClient.create({
+        idleOptions: { disableIdle: true, disableDefaultIdleCallback: true }
+      });
+      const selected = sessionStorage.getItem("defunds.auth.provider");
+      if (selected === "plug") {
+        // No permission prompt on page load: only resume an approved Plug session.
+        const connected = await verifyConnection();
+        if (connected) activate(connected, "plug");
+      } else if (selected !== "oisy" && await authClient.isAuthenticated()) {
+        const identity = authClient.getIdentity();
+        const agent = new HttpAgent({ identity, host });
+        if (localLoanTest) await agent.fetchRootKey();
+        activate({ agent, principal: identity.getPrincipal() }, "ii");
+      }
+      // OISY requires an explicit click after reload; it is not a II session.
+      if (!isAuthed && selected) sessionStorage.removeItem("defunds.auth.provider");
+    } catch (error) {
+      console.warn("Could not restore Defunds session:", error);
+    }
+    if (window.ic?.plug?.onExternalDisconnect) {
+      window.ic.plug.onExternalDisconnect(() => {
+        if (authProvider === "plug") void handleLogout();
+      });
     }
   });
 
@@ -70,33 +97,28 @@
     if (unsubscribe) unsubscribe();
   });
 
-  const handleAuthenticated = async (client) => {
-    const identity = client.getIdentity();
-    const agent = new HttpAgent({ identity, host });
-    if (localLoanTest) await agent.fetchRootKey();
-    setAgent(agent);
-    globalStore.update((store) => ({
-      ...store,
-      isAuthed: true,
-      principal: identity.getPrincipal()
-    }));
-  };
-
-  const handleLogout = async () => {
+  async function handleLogout() {
+    if (loggingOut) return;
+    loggingOut = true;
     closeMobileMenu();
-    if (authClient) {
-      await authClient.logout();
+    try {
+      if (authProvider === "plug") await disconnectPlug();
+      else if (authProvider === "oisy") await disconnectOisy();
+      else if (authClient) await authClient.logout();
+    } catch (error) {
+      console.warn("Wallet disconnect was interrupted:", error);
+    } finally {
+      sessionStorage.removeItem("defunds.auth.provider");
       const anonymousAgent = new HttpAgent({ host });
       if (localLoanTest) await anonymousAgent.fetchRootKey();
       setAgent(anonymousAgent);
       globalStore.update((store) => ({
-        ...store,
-        isAuthed: false,
-        principal: undefined
+        ...store, isAuthed: false, principal: undefined, authProvider: null
       }));
+      loggingOut = false;
       goto("/");
     }
-  };
+  }
 
   function navigateToProfile() {
     closeMobileMenu();
