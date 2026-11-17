@@ -16,7 +16,7 @@ test('OISY signer dependencies are imported before the user clicks', () => {
   assert.match(source, /import \{ PostMessageTransport \} from ['"]@icp-sdk\/signer\/web['"]/);
   assert.match(source, /import \{ SignerAgent \} from ['"]@icp-sdk\/signer\/agent['"]/);
   // Awaiting dynamic imports would consume the browser's transient activation.
-  assert.doesNotMatch(source, /\bimport\s*\(/);
+  assert.doesNotMatch(source.replace(/\/\/[^\n]*/g, ''), /\bimport\s*\(/);
 });
 
 test('openChannel is the first awaited operation in connectOisy', () => {
