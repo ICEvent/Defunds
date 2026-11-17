@@ -46,7 +46,9 @@
     authError = '';
     busy = true;
     try {
-      const session = provider === 'plug' ? await connectPlug() : await connectOisy();
+      // Start the signer handshake before yielding the button's click gesture.
+      const connectionPromise = provider === 'plug' ? connectPlug() : connectOisy();
+      const session = await connectionPromise;
       // Do not allow a previously saved Internet Identity delegation to
       // silently replace the wallet principal on a future page load.
       const client = await AuthClient.create({

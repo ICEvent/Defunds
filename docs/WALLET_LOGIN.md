@@ -20,14 +20,14 @@ On logout, Defunds disconnects the active wallet where supported, resets every a
 
 1. **OISY and other account-based signers may require ICRC-21 consent messages for each canister update call**. Defunds' custom backend and standalone Personal Loan canister have not yet been confirmed to implement these messages for all authenticated updates. A successful account connection does **not** guarantee that loan creation, proposal creation, fund transfers or governance updates will succeed. Verify wallet approval against each real method before production.
 2. The app currently uses legacy `@dfinity/*` AgentJS dependencies and generated actors. `@icp-sdk/signer` uses the newer `@icp-sdk/core`. Verify agent compatibility (including canister queries, signed updates, principal comparisons, root keys, and Candid types), or migrate the generated actor stack, before merging.
-3. New npm dependencies have been declared in the frontend workspace. The root `package-lock.json` **must be regenerated with npm install** and committed; `npm ci` is not expected to work until that is complete.
-4. Plug requires its browser extension. OISY is suitable for web/mobile but its pop-up must be triggered by a click. Local PocketIC flows need separate wallet signer configuration if testing against local canisters.
+3. The root `package-lock.json` includes the signer SDK dependencies; install them from the repository root using `npm ci` after pulling `main`.
+4. Plug requires its browser extension. OISY's ICRC-29 popup must be opened synchronously under browser user activation. The OISY adapter therefore uses static SDK imports and **awaits `signer.openChannel()` before any other asynchronous work** when the user clicks OISY Login. Do not add lazy imports, network calls, or other awaited work before `openChannel()`, and do not disable the SDK's non-click guard as a workaround. For signer-driven mutations, ensure any new channel is likewise opened during a direct user gesture. Local PocketIC flows need separate wallet signer configuration if testing against local canisters.
 5. Existing code paths that independently create their own `AuthClient` or `HttpAgent` must be audited for the active wallet session. Personal Loan has been updated, but the wider app has not received a complete actor audit.
 
 ## Verification checklist
 
-- [ ] From repository root: `npm install` and commit `package-lock.json`.
-- [ ] `npm ci`, `npm run build`, and any TypeScript/Svelte checks.
+- [x] Signer SDK dependencies are synchronized in the root `package-lock.json`.
+- [ ] On the current commit, run `npm ci`, `npm run build`, TypeScript/Svelte checks, and `node --test test/oisy-click-handler.test.mjs`.
 - [ ] II login, navigation, logout, reload and derivation-origin regression tests.
 - [ ] Plug installed: connect, reject, switch principal, reload, disconnect from extension, logout.
 - [ ] Plug missing: show actionable error, never crash.
@@ -38,6 +38,7 @@ On logout, Defunds disconnects the active wallet where supported, resets every a
 - [ ] Check concurrent tab/provider switching does not leave signed actors attached to a stale Principal.
 
 Official references:
+- https://github.com/slide-computer/signer-js/blob/main/packages/signer-web/README.md#channels-must-be-established-in-a-click-handler
 - https://docs.plugwallet.ooo/developer-guides/connect-to-plug/
 - https://docs.internetcomputer.org/guides/digital-assets/wallet-integration/
 - https://docs.oisy.com/for-developers/using-oisy-wallet-in-your-icp-dapp
