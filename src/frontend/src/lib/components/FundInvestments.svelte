@@ -1,4 +1,5 @@
 <script>
+  function bookable(l){return l.enabled && !('multiChainWallet' in l.kind) && (!('walletAccount' in l.kind)||locations.some(p=>p.id===l.kind.walletAccount.parentId&&p.enabled));}
   import { onDestroy, tick } from 'svelte';
   import InvestmentStrategy from './InvestmentStrategy.svelte';
   import { parseUnits, formatUnits } from '$lib/portfolio/amount';
@@ -42,7 +43,7 @@
   async function open(kind,item=null){
     form=kind;selected=item;error='';success='';pending=null;name='';note='';source='';quantity='';amount='';fee='0';
     definitionId=definitions[0]?.key??'';currencyId=currencies.find(c=>c.enabled)?.id??'';
-    locationId=(kind==='sell'||kind==='transfer'?item?.accounts.find(a=>a.quantity>0n)?.locationId:locations.find(l=>l.enabled)?.id)?.toString()??'';
+    locationId=(kind==='sell'||kind==='transfer'?item?.accounts.find(a=>a.quantity>0n)?.locationId:locations.find(bookable)?.id)?.toString()??'';
     targetId='';await tick();formElement?.querySelector('input,select,textarea')?.focus();
   }
   async function submit(){
@@ -116,8 +117,8 @@
           <label>Investment asset<select aria-label="Investment asset" required bind:value={definitionId}>{#each definitions as d}<option value={d.key}>{d.name} · {d.unit}</option>{/each}</select></label>
           <label>Settlement currency<select aria-label="Settlement currency" required bind:value={currencyId}>{#each currencies.filter(c=>c.enabled) as c}<option value={c.id}>{c.symbol} · {c.id}</option>{/each}</select></label>
         {:else}
-          {#if ['buy','sell','transfer'].includes(form)}<label>Investment location<select aria-label="Investment location" required bind:value={locationId}><option value="" disabled>Choose location</option>{#each locations.filter(l=>form==='buy'?l.enabled:selected.accounts.some(a=>a.locationId===l.id&&a.quantity>0n)) as l}<option value={l.id.toString()}>{l.name}</option>{/each}</select></label><label>Investment quantity ({selected.metadata.unit})<input required inputmode="decimal" bind:value={quantity}/></label>{/if}
-          {#if form==='transfer'}<label>Destination location<select aria-label="Destination location" required bind:value={targetId}><option value="" disabled>Choose destination</option>{#each locations.filter(l=>l.enabled&&l.id.toString()!==locationId) as l}<option value={l.id.toString()}>{l.name}</option>{/each}</select></label>{:else}<label>{form==='valuation'?'Total holding value':'Investment amount'} ({selected.metadata.currency})<input required inputmode="decimal" bind:value={amount}/></label>{/if}
+          {#if ['buy','sell','transfer'].includes(form)}<label>Investment location<select aria-label="Investment location" required bind:value={locationId}><option value="" disabled>Choose location</option>{#each locations.filter(l=>form==='buy'?bookable(l):selected.accounts.some(a=>a.locationId===l.id&&a.quantity>0n)) as l}<option value={l.id.toString()}>{l.name}</option>{/each}</select></label><label>Investment quantity ({selected.metadata.unit})<input required inputmode="decimal" bind:value={quantity}/></label>{/if}
+          {#if form==='transfer'}<label>Destination location<select aria-label="Destination location" required bind:value={targetId}><option value="" disabled>Choose destination</option>{#each locations.filter(l=>bookable(l)&&l.id.toString()!==locationId) as l}<option value={l.id.toString()}>{l.name}</option>{/each}</select></label>{:else}<label>{form==='valuation'?'Total holding value':'Investment amount'} ({selected.metadata.currency})<input required inputmode="decimal" bind:value={amount}/></label>{/if}
           {#if ['buy','sell','income','transfer'].includes(form)}<label>Investment fee ({selected.metadata.currency})<input required inputmode="decimal" bind:value={fee}/></label>{/if}
           {#if form==='valuation'}<label>Valuation source<input required maxlength="500" bind:value={source}/></label>{/if}
           <label class="sm:col-span-2">Investment note<textarea maxlength="2000" bind:value={note}></textarea></label>
