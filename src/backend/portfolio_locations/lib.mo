@@ -161,6 +161,15 @@ module {
         let item={old with name=Text.trim(input.name,#predicate(Char.isWhitespace));enabled=input.enabled;revision=old.revision+1};
         nextState:={state with locations=Array.map<T.Location,T.Location>(state.locations,func(l){if(l.id == old.id)item else l})};#location(item)
       };
+      case (#addWalletAccount(input)) {
+        let old=switch(location(state,fundId,input.id)){case (#err(e))return #err(e);case (#ok(l))l};
+        if(old.revision != input.expectedRevision)return #err("Location changed; refresh before saving");
+        let wallet=switch(old.kind){case (#multiChainWallet(w))w;case (_)return #err("Choose a multi-chain wallet")};
+        let kind=switch(normalize(#multiChainWallet({reference=wallet.reference;accounts=Array.append(wallet.accounts,[{network=input.network;address=input.address}])}),treasury)){case (#err(e))return #err(e);case (#ok(k))k};
+        if(overlaps(state,fundId,old.id,kind))return #err("Network account already registered in this fund");
+        let item={old with kind;revision=old.revision+1};
+        nextState:={state with locations=Array.map<T.Location,T.Location>(state.locations,func(l){if(l.id == old.id)item else l})};#location(item)
+      };
       case (#setLocationNetwork(input)) {
         let old=switch(Array.find<T.Location>(state.locations,func(l){l.fundId == fundId and l.id == input.id})){case null return #err("Location not found");case (?l)l};
         if(old.revision != input.expectedRevision)return #err("Location changed; refresh before saving");
