@@ -51,6 +51,25 @@ module {
         };
         #ok(#chainAccount({network;address}))
       };
+      case (#multiChainWallet(input)) {
+        if(not nonblank(input.reference,200) or input.accounts.size() > 50)return #err("Wallet reference required; maximum 50 accounts");
+        var accounts : [{network:Text;address:Text}] = [];
+        for(account in input.accounts.vals()){
+          let normalized=switch(normalize(#chainAccount(account),treasury)){
+            case (#ok(#chainAccount(a))) a;
+            case (#err(e)) return #err(e);
+            case (_) return #err("Invalid chain account");
+          };
+          if(Array.find<{network:Text;address:Text}>(accounts,func(a){a == normalized}) != null)return #err("Duplicate network account");
+          accounts:=Array.append(accounts,[normalized]);
+        };
+        #ok(#multiChainWallet({reference=Text.trim(input.reference,#predicate(Char.isWhitespace));accounts}))
+      };
+      case (#hardwareWallet(ref)) {if(not nonblank(ref,200))return #err("Location reference is required");#ok(#hardwareWallet(Text.trim(ref,#predicate(Char.isWhitespace))))};
+      case (#exchange(ref)) {if(not nonblank(ref,200))return #err("Location reference is required");#ok(#exchange(Text.trim(ref,#predicate(Char.isWhitespace))))};
+      case (#brokerage(ref)) {if(not nonblank(ref,200))return #err("Location reference is required");#ok(#brokerage(Text.trim(ref,#predicate(Char.isWhitespace))))};
+      case (#smartContract(ref)) {if(not nonblank(ref,200))return #err("Location reference is required");#ok(#smartContract(Text.trim(ref,#predicate(Char.isWhitespace))))};
+      case (#custodian(ref)) {if(not nonblank(ref,200))return #err("Location reference is required");#ok(#custodian(Text.trim(ref,#predicate(Char.isWhitespace))))};
       case (#blockchain(ref)) {if(not nonblank(ref,200))return #err("Blockchain network and address reference is required");#ok(#blockchain(Text.trim(ref,#predicate(Char.isWhitespace))))};
       case (#bank(ref)) {if(not nonblank(ref,200))return #err("Bank reference is required");#ok(#bank(Text.trim(ref,#predicate(Char.isWhitespace))))};
       case (#cash(ref)) {if(not nonblank(ref,200))return #err("Cash location is required");#ok(#cash(Text.trim(ref,#predicate(Char.isWhitespace))))};
