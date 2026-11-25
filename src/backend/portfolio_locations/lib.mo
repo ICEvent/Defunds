@@ -84,6 +84,10 @@ module {
       case (_) [];
     }
   };
+  // A wallet is a container, not an independently bookable chain account.
+  public func walletAccounts(kind:T.Kind) : [{network:Text;address:Text}] {
+    switch(kind){case (#multiChainWallet(w)) w.accounts;case (_) []}
+  };
   func overlaps(state:T.State,fundId:Nat,except:Nat,kind:T.Kind) : Bool {
     for(l in state.locations.vals()){
       if(l.fundId == fundId and l.id != except){
