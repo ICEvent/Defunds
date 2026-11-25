@@ -1,4 +1,3 @@
-import Iter "mo:base/Iter";
 import Array "mo:base/Array";
 import Blob "mo:base/Blob";
 import Char "mo:base/Char";
@@ -128,6 +127,16 @@ module {
       case (?l) {if(l.enabled)#ok(l) else #err("Location is disabled for new holdings or movements")};
     }
   };
+  func boundedName(value:Text) : Text {
+    var result = "";
+    var count = 0;
+    for (ch in value.chars()) {
+      if (count >= 120) return result;
+      result #= Char.toText(ch);
+      count += 1;
+    };
+    result
+  };
   public func bookable(state:T.State,fundId:Nat,id:Nat) : R<T.Location> {
     let l=switch(location(state,fundId,id)){case (#err(e))return #err(e);case (#ok(v))v};
     switch(l.kind){case (#multiChainWallet(_))return #err("Choose a specific wallet account");case (#walletAccount(a)){ignore switch(location(state,fundId,a.parentId)){case (#err(e))return #err(e);case (#ok(v))v}};case (_) {}};
@@ -181,7 +190,7 @@ module {
         let kind:T.Kind=#walletAccount({parentId=old.id;network=account.network;address=account.address});
         if(Array.find<T.Location>(state.locations,func(l){l.fundId == fundId and l.kind == kind}) != null)return #err("Account location already exists");
         if(Array.filter<T.Location>(state.locations,func(l){l.fundId == fundId}).size() >= 50)return #err("Location limit reached");
-        let item:T.Location={id=state.nextLocationId;fundId;name=Text.fromIter(Iter.take((old.name # " / " # account.network).chars(),120));kind;enabled=true;revision=1;createdAt=now};
+        let item:T.Location={id=state.nextLocationId;fundId;name=boundedName(old.name # " / " # account.network);kind;enabled=true;revision=1;createdAt=now};
         nextState:={state with locations=Array.append(state.locations,[item]);nextLocationId=state.nextLocationId+1};#location(item)
       };
       case (#addWalletAccount(input)) {
