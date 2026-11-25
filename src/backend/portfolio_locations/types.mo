@@ -9,6 +9,7 @@ module {
   public type Operation = {
     #addLocation : {name : Text; kind : Kind};
     #updateLocation : {id : Nat; expectedRevision : Nat; name : Text; enabled : Bool};
+    #addWalletAccount : {id : Nat; expectedRevision : Nat; network : Text; address : Text};
     #setLocationNetwork : {id : Nat; expectedRevision : Nat; network : Text; address : Text};
     #bind : {assetId : Nat; expectedRevision : Nat; definition : Definition; locationId : Nat};
     #create : {definition : Definition; locationId : Nat; quantity : Nat; note : Text};
