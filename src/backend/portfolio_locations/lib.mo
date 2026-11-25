@@ -77,6 +77,23 @@ module {
       case (#other(ref)) {if(not nonblank(ref,200))return #err("Location reference is required");#ok(#other(Text.trim(ref,#predicate(Char.isWhitespace))))};
     }
   };
+  func chainAccounts(kind:T.Kind) : [{network:Text;address:Text}] {
+    switch(kind){
+      case (#chainAccount(a)) [a];
+      case (#multiChainWallet(w)) w.accounts;
+      case (_) [];
+    }
+  };
+  func overlaps(state:T.State,fundId:Nat,except:Nat,kind:T.Kind) : Bool {
+    for(l in state.locations.vals()){
+      if(l.fundId == fundId and l.id != except){
+        for(a in chainAccounts(kind).vals()){
+          if(Array.find<{network:Text;address:Text}>(chainAccounts(l.kind),func(b){a == b}) != null)return true;
+        }
+      }
+    };
+    false
+  };
   func metadata(state:T.State, ledger:P.State, fundId:Nat, currencies:[C.Currency], definition:T.Definition) : R<{name:Text;unit:Text;decimals:Nat8;category:Text}> {
     switch definition {
       case (#currency(id)) {
@@ -133,6 +150,7 @@ module {
         if(Array.filter<T.Location>(state.locations,func(l){l.fundId == fundId}).size() >= 50)return #err("Location limit reached");
         let kind=switch(normalize(input.kind,treasury)){case (#err(e))return #err(e);case (#ok(k))k};
         if(Array.find<T.Location>(state.locations,func(l){l.fundId == fundId and l.kind == kind}) != null)return #err("This location already exists; restore it instead");
+        if(overlaps(state,fundId,0,kind))return #err("Network account already registered in this fund");
         let item:T.Location={id=state.nextLocationId;fundId;name=Text.trim(input.name,#predicate(Char.isWhitespace));kind;enabled=true;revision=1;createdAt=now};
         nextState:={state with locations=Array.append<T.Location>(state.locations,[item]);nextLocationId=state.nextLocationId+1};#location(item)
       };
@@ -151,6 +169,7 @@ module {
         if(Array.find<T.Binding>(state.bindings,func(b){b.fundId == fundId and b.locationId == old.id}) != null)return #err("Create a new location for a different network/address when holdings are already assigned");
         let kind=switch(normalize(#chainAccount({network=input.network;address=input.address}),treasury)){case (#err(e))return #err(e);case (#ok(k))k};
         if(Array.find<T.Location>(state.locations,func(l){l.fundId == fundId and l.id != old.id and l.kind == kind}) != null)return #err("This network and address already exists");
+        if(overlaps(state,fundId,old.id,kind))return #err("Network account already registered in this fund");
         let item={old with kind;revision=old.revision+1};
         nextState:={state with locations=Array.map<T.Location,T.Location>(state.locations,func(l){if(l.id == old.id)item else l})};#location(item)
       };
