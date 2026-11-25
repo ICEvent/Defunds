@@ -8,7 +8,6 @@
 
 	import MenuItem from "$lib/components/Profile/MenuItem.svelte";
 
-	import { FaMoneyBillWave } from "svelte-icons/fa";
 
 	import ProfilePanel from "$lib/components/Profile/ProfilePanel.svelte";
 	import ApplicationsPanel from "$lib/components/Profile/ApplicationsPanel.svelte";

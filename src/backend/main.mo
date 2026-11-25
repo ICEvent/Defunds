@@ -295,7 +295,7 @@ persistent actor Defunds{
         operation
       };
       case (#record(r)) {
-        func validLocation(id:Nat,enabled:Bool):Bool {Array.find<LocationTypes.Location>(locationState.locations,func(l){l.fundId == fundId and l.id == id and (not enabled or l.enabled)}) != null};
+        func validLocation(id:Nat,enabled:Bool):Bool {if(enabled){switch(Locations.bookable(locationState,fundId,id)){case (#ok(_))true;case (#err(_))false}}else{Array.find<LocationTypes.Location>(locationState.locations,func(l){l.fundId == fundId and l.id == id}) != null}};
         let valid=switch(r.action){case (#buy(t))validLocation(t.locationId,true);case (#sell(t))validLocation(t.locationId,false);case (#transfer(t))validLocation(t.from,false) and validLocation(t.to,true);case _ true};
         if(not valid)return #err("Choose a valid Fund location; destination must be enabled");
         operation
