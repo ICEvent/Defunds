@@ -51,6 +51,7 @@ module {
         };
         #ok(#chainAccount({network;address}))
       };
+      case (#walletAccount(_)) {#err("Create account locations through the parent wallet")};
       case (#multiChainWallet(input)) {
         if(not nonblank(input.reference,200) or input.accounts.size() > 50)return #err("Wallet reference required; maximum 50 accounts");
         var accounts : [{network:Text;address:Text}] = [];
@@ -126,6 +127,11 @@ module {
       case (?l) {if(l.enabled)#ok(l) else #err("Location is disabled for new holdings or movements")};
     }
   };
+  func bookable(state:T.State,fundId:Nat,id:Nat) : R<T.Location> {
+    let l=switch(location(state,fundId,id)){case (#err(e))return #err(e);case (#ok(v))v};
+    switch(l.kind){case (#multiChainWallet(_))return #err("Choose a specific wallet account");case (#walletAccount(a)){ignore switch(location(state,fundId,a.parentId)){case (#err(e))return #err(e);case (#ok(v))v}};case (_) {}};
+    #ok(l)
+  };
   func unique(state:T.State,ledger:P.State,fundId:Nat,definition:T.Definition,locationId:Nat,except:Nat) : Bool {
     for(a in ledger.assets.vals()){
       if(a.fundId == fundId and a.id != except){let b=binding(state,a);if(b.definition == definition and b.locationId == locationId)return false}
@@ -165,6 +171,18 @@ module {
         let item={old with name=Text.trim(input.name,#predicate(Char.isWhitespace));enabled=input.enabled;revision=old.revision+1};
         nextState:={state with locations=Array.map<T.Location,T.Location>(state.locations,func(l){if(l.id == old.id)item else l})};#location(item)
       };
+      case (#materializeWalletAccount(input)) {
+        let old=switch(location(state,fundId,input.id)){case (#err(e))return #err(e);case (#ok(l))l};
+        if(old.revision != input.expectedRevision)return #err("Location changed; refresh before saving");
+        let wallet=switch(old.kind){case (#multiChainWallet(w))w;case (_)return #err("Choose a multi-chain wallet")};
+        let account=switch(normalize(#chainAccount({network=input.network;address=input.address}),treasury)){case (#ok(#chainAccount(a)))a;case (#err(e))return #err(e);case (_)return #err("Invalid account")};
+        if(Array.find<{network:Text;address:Text}>(wallet.accounts,func(a){a == account}) == null)return #err("Account is not registered in this wallet");
+        let kind:T.Kind=#walletAccount({parentId=old.id;network=account.network;address=account.address});
+        if(Array.find<T.Location>(state.locations,func(l){l.fundId == fundId and l.kind == kind}) != null)return #err("Account location already exists");
+        if(Array.filter<T.Location>(state.locations,func(l){l.fundId == fundId}).size() >= 50)return #err("Location limit reached");
+        let item:T.Location={id=state.nextLocationId;fundId;name=old.name # " / " # account.network;kind;enabled=true;revision=1;createdAt=now};
+        nextState:={state with locations=Array.append(state.locations,[item]);nextLocationId=state.nextLocationId+1};#location(item)
+      };
       case (#addWalletAccount(input)) {
         let old=switch(location(state,fundId,input.id)){case (#err(e))return #err(e);case (#ok(l))l};
         if(old.revision != input.expectedRevision)return #err("Location changed; refresh before saving");
@@ -187,7 +205,7 @@ module {
         nextState:={state with locations=Array.map<T.Location,T.Location>(state.locations,func(l){if(l.id == old.id)item else l})};#location(item)
       };
       case (#bind(input)) {
-        ignore switch(location(state,fundId,input.locationId)){case (#err(e))return #err(e);case (#ok(l))l};
+        ignore switch(bookable(state,fundId,input.locationId)){case (#err(e))return #err(e);case (#ok(l))l};
         let asset=switch(Ledger.find(ledger,input.assetId)){case null return #err("Asset not found");case (?a)a};
         if(asset.fundId != fundId)return #err("Asset not found");
         if(asset.revision != input.expectedRevision)return #err("Asset changed; refresh before saving");
@@ -200,7 +218,7 @@ module {
         nextState:={state with bindings=Array.append<T.Binding>(state.bindings,[b])};#position(b)
       };
       case (#create(input)) {
-        ignore switch(location(state,fundId,input.locationId)){case (#err(e))return #err(e);case (#ok(l))l};
+        ignore switch(bookable(state,fundId,input.locationId)){case (#err(e))return #err(e);case (#ok(l))l};
         let m=switch(metadata(state,ledger,fundId,currencies,input.definition)){case (#err(e))return #err(e);case (#ok(v))v};
         if(not unique(state,ledger,fundId,input.definition,input.locationId,0))return #err("Holding already exists at this location, including archived holdings");
         let op:P.Operation=#create({name=m.name;category=m.category;unit=m.unit;decimals=m.decimals;quantity=input.quantity;source=null;note=input.note});
@@ -217,7 +235,7 @@ module {
         let from=binding(state,source);let to=binding(state,target);
         if(from.locationId == 0 or to.locationId == 0 or from.locationId == to.locationId or from.definition != to.definition)return #err("Choose the same asset at two different recorded locations");
         if(source.unit != target.unit or source.decimals != target.decimals)return #err("Position units must match");
-        ignore switch(location(state,fundId,to.locationId)){case (#err(e))return #err(e);case (#ok(l))l};
+        ignore switch(bookable(state,fundId,to.locationId)){case (#err(e))return #err(e);case (#ok(l))l};
         let out:P.Operation=#change({assetId=source.id;expectedRevision=input.sourceRevision;change=#decrease(input.quantity+input.fee);note=input.note});
         let (afterSource,_)=switch(Ledger.apply(ledger,fundId,caller,prefix # ":out",out,now)){case (#err(e))return #err(e);case (#ok(v))v};
         let incoming:P.Operation=#change({assetId=target.id;expectedRevision=input.targetRevision;change=#increase(input.quantity);note=input.note});
